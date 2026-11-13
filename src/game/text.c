@@ -67,16 +67,26 @@ void text_digits(uint8_t col, uint8_t row, const uint8_t *digits, uint8_t n, uin
     }
 }
 
+/* Two digits, or three from 100 on (round 100). */
 void text_number(uint8_t col, uint8_t row, uint8_t value, uint8_t pal)
 {
-    uint8_t d[2];
+    uint8_t d[3];
     d[0] = 0;
-    while (value >= 10) {
-        value = (uint8_t)(value - 10);
+    d[1] = 0;
+    while (value >= 100) {
+        value = (uint8_t)(value - 100);
         d[0]++;
     }
-    d[1] = value;
-    text_digits(col, row, d, 2, pal);
+    while (value >= 10) {
+        value = (uint8_t)(value - 10);
+        d[1]++;
+    }
+    d[2] = value;
+    if (d[0]) {
+        text_digits(col, row, d, 3, pal);
+    } else {
+        text_digits(col, row, d + 1, 2, pal);
+    }
 }
 
 /* Add `digit` at decimal position `pos` (0 = ones). Saturates at 99999999. */

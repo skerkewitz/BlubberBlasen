@@ -322,6 +322,7 @@ static void play_sounds(uint16_t mask)
  *   --clear <tick>    remove all enemies at that tick (to see the round end)
  *   --skip-intro      no story pages after the title (also implied by --autoplay and --round)
  *   --intro           show the story pages anyway (for screenshots with --autoplay)
+ *   --ending <happy|sad>  start with that ending (to look at it)
  */
 #define MAX_SHOTS 16
 static int      opt_autoplay;
@@ -335,6 +336,7 @@ static long     opt_round = 1;
 static long     opt_clear = -1;
 static int      opt_skip_intro;
 static int      opt_intro;
+static int      opt_ending = -1;
 
 static void parse_args(int argc, char **argv)
 {
@@ -353,6 +355,8 @@ static void parse_args(int argc, char **argv)
             opt_shots[opt_shot_count++] = strtol(argv[++i], NULL, 10);
         } else if (strcmp(argv[i], "--quit") == 0 && i + 1 < argc) {
             opt_quit = strtol(argv[++i], NULL, 10);
+        } else if (strcmp(argv[i], "--ending") == 0 && i + 1 < argc) {
+            opt_ending = strcmp(argv[++i], "happy") == 0;
         } else if (strcmp(argv[i], "--intro") == 0) {
             opt_intro = 1;
         } else if (strcmp(argv[i], "--skip-intro") == 0) {
@@ -425,6 +429,9 @@ int main(int argc, char **argv)
     game_debug_start_round((uint8_t)(opt_round > 0 && opt_round < 256 ? opt_round : 1));
     /* bot runs and direct round starts go straight into the game */
     game_debug_skip_story((uint8_t)(!opt_intro && (opt_autoplay || opt_round != 1 || opt_skip_intro)));
+    if (opt_ending >= 0) {
+        game_debug_show_ending((uint8_t)opt_ending);
+    }
 
     while (!WindowShouldClose()) {
         int ticks = 0;

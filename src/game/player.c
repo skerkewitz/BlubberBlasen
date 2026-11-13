@@ -208,7 +208,14 @@ static void shoot(Player *p, uint16_t pressed)
     }
     if ((pressed & PAD_Y) && p->shoot_cooldown == 0) {
         uint16_t bx = (uint16_t)(p->facing_left ? p->x - TO_POS(8) : p->x + TO_POS(8));
-        bubble_shoot(bx, p->y, p->facing_left, p->powers);
+        if (p->powers & POWER_BIT(POWER_GLOVE)) {
+            effect_start_glove(bx, p->y, (int8_t)(p->facing_left ? -1 : 1), p->id);
+        } else {
+            bubble_shoot(bx, p->y, p->facing_left, p->powers);
+        }
+        if (p->powers & POWER_BIT(POWER_RING)) {
+            score_add(p->score, 2, 1);   /* Bubble Ring: +100 per shot */
+        }
         p->shoot_cooldown = (uint8_t)((p->powers & (1u << POWER_RATE)) ? SHOOT_DELAY_RATE : SHOOT_DELAY);
         p->shoot_pose = SHOOT_POSE;
         sfx(SFX_SHOOT);
@@ -276,6 +283,9 @@ void player_update(Player *p, uint16_t pad, uint16_t pressed)
         jump_and_fall(p, pad);
         shoot(p, pressed);
         touch_bubbles(p, pad);
+        if (g_freeze) {
+            enemies_defeat_at(p->x, p->y);
+        }
         if (!p->invulnerable && enemies_touch(p->x, p->y)) {
             p->state = PS_DYING;
             p->timer = 0;

@@ -31,6 +31,9 @@ enum { AIR_NONE = 0, AIR_UP = 1, AIR_DOWN = 2, AIR_LEFT = 3, AIR_RIGHT = 4 };
 #define ENEMY_TYPE_COUNT   7
 #define LEVEL_ENEMY_FACE_LEFT 0x01u
 
+/* What kind of room a level is. */
+enum { LEVEL_NORMAL = 0, LEVEL_BOSS = 1, LEVEL_SECRET = 2 };
+
 /* Special bubbles a round sends in through its opening. */
 enum { SPECIAL_NONE = 0, SPECIAL_WATER = 1, SPECIAL_FIRE = 2, SPECIAL_LIGHTNING = 3 };
 
@@ -50,6 +53,7 @@ typedef struct {
     uint16_t          hurry_frames; /* frames until HURRY UP; 0 = never */
     uint8_t           special;      /* SPECIAL_* */
     uint16_t          special_frames; /* frames between two special bubbles */
+    uint8_t           kind;         /* LEVEL_* */
 } LevelDef;
 
 extern const LevelDef level_defs[];

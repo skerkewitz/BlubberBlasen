@@ -51,6 +51,11 @@ Stage 1 keeps it simple: graphics are plain **24-bit PNG** files, and the colour
 | 166, 167 | Dropper |
 | 168, 169 | Spitter fireball, dropper shot |
 | 170..173 | Small flutter, hopper, spitter, dropper (inside trapped bubbles) |
+| 176..179, 180..183 | The Grumble Boiler (boss), 32 x 32 in four cells (top left, top right, bottom left, bottom right); mouth closed / open |
+| 184..187 | Giant bubble around the beaten boss, 32 x 32 |
+| 188 | Soot ball (boss shot) |
+| 189 | Door to the secret room |
+| 190..194 | Items: Soap Star, Rinse Wave, Steam Whistle, Fire Glove, Bubble Ring |
 
 Score pop-ups also include 100 and 200 (cells 82..85).
 
@@ -86,8 +91,8 @@ The platform puts all background graphics into one 256 x 256 texture of 8 x 8 ti
 
 Each round is two files:
 
-- `roundNN.map` in the format of the [GierzahnEditor](https://github.com/skerkewitz/GierzahnEditor): 32 x 26 tiles, a static layer, an airflow layer and enemy spawn points.
-- `roundNN.txt` with the settings the editor can't store: Hurry Up time, tileset, a spawn delay per enemy and which special bubbles the round sends in.
+- `roundNNN.map` (three digits, so that sorting by name keeps the order up to round 100) in the format of the [GierzahnEditor](https://github.com/skerkewitz/GierzahnEditor): 32 x 26 tiles, a static layer, an airflow layer and enemy spawn points.
+- `roundNNN.txt` with the settings the editor can't store: Hurry Up time, tileset, a spawn delay per enemy and which special bubbles the round sends in.
 
 The build converts both with `tools/map2c` (formats in `tools/README.md`). All `*.map` files are used, sorted by name. To look at all rooms side by side, build the `rooms_sheet` target (`build/rooms.png`, made by `tools/mapview`). To try a round directly, start the game with `--round NN`.
 
@@ -100,6 +105,8 @@ Things to keep in mind when designing rooms:
 - Special and letter bubbles come in through the first gap in the bottom row (else the top row, else near the bottom centre).
 - Enemy types in the `.map`: 1 walker, 2 bouncer, 3 thrower, 4 flutter, 5 hopper, 6 spitter, 7 dropper. Bouncers and flutters fly and need no floor; all others must stand on one.
 - `mapview --check` (CTest `rooms_playable`) verifies that every room can be played.
+- `round100.map` is the boss arena (`boss 1` in its settings, no enemies). `secret.map` is the gem room behind the doors (`secret 1`); it is not part of the normal round order.
+- Rounds 31 to 99 were generated from room patterns by the asset script and checked with `mapview --check`; they can be reworked in the editor like any other room.
 
 ## Sound effects (`sfx/`)
 

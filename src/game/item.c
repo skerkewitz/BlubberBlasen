@@ -73,11 +73,24 @@ void item_spawn(uint8_t kind, uint16_t x, uint16_t y, uint8_t tier)
 void item_spawn_thrown(uint16_t x, uint16_t y, int8_t dir, uint8_t tier)
 {
     Item *it = alloc_item(IT_THROWN, x, y, tier);
+    if (g_count.defeated < 255) {
+        g_count.defeated++;
+    }
     if (it) {
         fx8_8 speed = (fx8_8)(THROWN_SPEED_X + (fx8_8)(rng_next() & 127));
         it->vx = (fx8_8)(dir < 0 ? -speed : speed);
         it->vy = (fx8_8)-(THROWN_SPEED_Y + (fx8_8)(rng_next() & 127));
         it->timer = THROWN_MIN;
+    }
+}
+
+/* The boss's soot balls fly in any direction and pass through platforms. */
+void item_spawn_soot(uint16_t x, uint16_t y, fx8_8 vx, fx8_8 vy)
+{
+    Item *it = alloc_item(IT_ROCK, x, y, SHOT_SOOT);
+    if (it) {
+        it->vx = vx;
+        it->vy = vy;
     }
 }
 
@@ -102,21 +115,53 @@ void item_spawn_powerup(uint8_t power, uint16_t x, uint16_t y)
     }
 }
 
-/* Candies and shoes stay with the player until they lose a life;
- * the umbrella skips rounds. */
+#define WHISTLE_FRAMES 480
+
+uint8_t powerup_tile(uint8_t power)
+{
+    return (uint8_t)(power < POWER_STAR ? SPR_POWERUP0 + power : SPR_ITEM_STAR + power - POWER_STAR);
+}
+
+/* See the POWER_* list in internal.h. */
 static void collect_powerup(Item *it, Player *p)
 {
-    if (it->tier == POWER_UMBRELLA) {
+    uint8_t popup = POPUP_100;
+
+    switch (it->tier) {
+    case POWER_UMBRELLA:
         g_skip_rounds = 3;
         score_add(p->score, 2, 2);   /* +200 */
-        it->tier = POPUP_200;
-    } else {
-        p->powers = (uint8_t)(p->powers | (1u << it->tier));
+        popup = POPUP_200;
+        break;
+    case POWER_STAR:
+    case POWER_WAVE:
+        if (it->tier == POWER_WAVE) {
+            uint8_t k;
+            for (k = 0; k < 3; k++) {
+                effect_start(BK_WATER, TO_POS(40 + k * 80), TO_POS(FIELD_Y + 8), (int8_t)(k & 1 ? -1 : 1), p->id);
+            }
+        }
+        enemies_to_gems();
+        bubbles_trapped_to_gems();
+        score_add(p->score, 3, 1);   /* +1000 */
+        popup = POPUP_FOOD0;
+        break;
+    case POWER_WHISTLE:
+        g_freeze = WHISTLE_FRAMES;
+        score_add(p->score, 3, 1);
+        popup = POPUP_FOOD0;
+        break;
+    default:
+        if (it->tier <= POWER_RATE && g_count.candies < 255) {
+            g_count.candies++;
+        }
+        p->powers = (uint16_t)(p->powers | POWER_BIT(it->tier));
         score_add(p->score, 2, 1);   /* +100 */
-        it->tier = POPUP_100;
+        break;
     }
     sfx(SFX_EXTRA);
     it->kind = IT_POPUP;
+    it->tier = popup;
     it->timer = POPUP_FRAMES;
 }
 
@@ -157,6 +202,15 @@ void items_clear_rocks(void)
 static void update_rock(Item *it)
 {
     uint8_t cx;
+    if (it->tier == SHOT_SOOT) {
+        it->x = (uint16_t)(it->x + (uint16_t)it->vx);
+        it->y = (uint16_t)(it->y + (uint16_t)it->vy);
+        cx = (uint8_t)(PX(it->x) + 8);
+        if (cx < 16 || cx > SCREEN_W - 16 || PX(it->y) >= FIELD_BOTTOM - 16 || PX(it->y) < FIELD_Y) {
+            it->kind = IT_OFF;
+        }
+        return;
+    }
     if (it->tier == SHOT_DOWN) {
         it->y = (uint16_t)(it->y + (uint16_t)it->vy);
         if (PX(it->y) >= FIELD_BOTTOM - 8 - 16 || PX(it->y) >= WRAP_Y) {
@@ -213,6 +267,9 @@ static void update_thrown(Item *it)
 
 static void collect_food(Item *it, Player *p)
 {
+    if (g_count.food < 255) {
+        g_count.food++;
+    }
     score_add(p->score, 4, food_value[it->tier][0]);
     score_add(p->score, 3, food_value[it->tier][1]);
     sfx(SFX_GEM);
@@ -322,6 +379,8 @@ void items_draw(void)
                 oam_add(PX(it->x), PX(it->y), SPR_SPIT, (uint8_t)(it->vx < 0 ? SPR_ATTR_FLIP_X : 0u));
             } else if (it->tier == SHOT_DOWN) {
                 oam_add(PX(it->x), PX(it->y), SPR_DOWN_SHOT, 0);
+            } else if (it->tier == SHOT_SOOT) {
+                oam_add(PX(it->x), PX(it->y), SPR_SOOT, 0);
             } else {
                 oam_add(PX(it->x), PX(it->y), (uint8_t)(SPR_ROCK0 + ((g_frame >> 2) & 1)), 0);
             }
@@ -333,7 +392,7 @@ void items_draw(void)
             break;
         case IT_POWERUP:
             if (it->timer >= 120 || !(it->timer & 4)) {
-                oam_add(PX(it->x), PX(it->y), (uint8_t)(SPR_POWERUP0 + it->tier), 0);
+                oam_add(PX(it->x), PX(it->y), powerup_tile(it->tier), 0);
             }
             break;
         case IT_POPUP: {

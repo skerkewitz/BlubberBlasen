@@ -34,6 +34,12 @@
 #define LIMIT_JUMPS      35
 #define LIMIT_WALKED     3360      /* 15 times across the room */
 #define LIMIT_WATER      5
+#define LIMIT_FOOD       10        /* Soap Star */
+#define LIMIT_WATER_KILLS 6        /* Rinse Wave */
+#define LIMIT_DEFEATED   40        /* Steam Whistle */
+#define LIMIT_FIRE_KILLS 4         /* Fire Glove */
+#define LIMIT_CANDIES    3         /* Bubble Ring */
+#define GLOVE_SPEED      FX(3, 0)
 
 enum { EF_OFF, EF_WATER, EF_FIREBALL, EF_FIRE, EF_BOLT };
 
@@ -49,6 +55,7 @@ typedef struct {
     uint8_t  trail_y[WATER_SEGMENTS];
     uint8_t  trail_len;
     uint8_t  carrying;       /* water: bit mask of players swept along */
+    uint8_t  glove;          /* bolt: a Fire Glove fireball (stops at the first enemy) */
 } Effect;
 
 static Effect   effects[MAX_EFFECTS];
@@ -89,7 +96,21 @@ void effect_start(uint8_t kind, uint16_t x, uint16_t y, int8_t dir, uint8_t play
         ef->y = y;
         ef->trail_len = 0;
         ef->carrying = 0;
+        ef->glove = 0;
         return;
+    }
+}
+
+void effect_start_glove(uint16_t x, uint16_t y, int8_t dir, uint8_t player)
+{
+    uint8_t i;
+    effect_start(BK_LIGHTNING, x, y, dir, player);
+    for (i = MAX_EFFECTS; i > 0; i--) {
+        Effect *ef = &effects[i - 1];
+        if (ef->kind == EF_BOLT && ef->x == x && ef->y == y && !ef->glove) {
+            ef->glove = 1;
+            return;
+        }
     }
 }
 
@@ -101,6 +122,14 @@ static void sweep_enemies(Effect *ef, uint16_t x, uint16_t y, uint8_t w, uint8_t
         Enemy *e = &g_enemies[i];
         if (e->active && !e->entering && overlap(x, y, e->x, e->y, w, h)) {
             uint8_t tier = (uint8_t)(ef->combo < FOOD_TIERS - 1 ? ef->combo : FOOD_TIERS - 1);
+            if (ef->glove) {
+                tier = GEM_TIER;
+            }
+            if (ef->kind == EF_WATER && g_count.water_kills < 255) {
+                g_count.water_kills++;
+            } else if (ef->kind == EF_FIRE && g_count.fire_kills < 255) {
+                g_count.fire_kills++;
+            }
             e->active = 0;
             item_spawn_thrown(e->x, e->y, ef->dir, tier);
             if (ef->combo < 255) {
@@ -252,13 +281,25 @@ static void update_fire(Effect *ef)
 static void update_bolt(Effect *ef)
 {
     uint8_t cx;
-    ef->x = (uint16_t)(ef->dir < 0 ? ef->x - (uint16_t)BOLT_SPEED : ef->x + (uint16_t)BOLT_SPEED);
+    fx8_8 speed = ef->glove ? GLOVE_SPEED : BOLT_SPEED;
+    ef->x = (uint16_t)(ef->dir < 0 ? ef->x - (uint16_t)speed : ef->x + (uint16_t)speed);
     cx = (uint8_t)(PX(ef->x) + 8);
     if (cx < BODY_MIN_CX || cx > BODY_MAX_CX || PX(ef->x) >= 0xF0u) {
         ef->kind = EF_OFF;
         return;
     }
-    sweep_enemies(ef, ef->x, ef->y, 14, 12);
+    /* Only lightning hurts the boss; a glove fireball just fizzles on it. */
+    if (boss_fighting() && (ef->glove ? boss_touch(ef->x, ef->y) : boss_hit_by_bolt(ef->x, ef->y))) {
+        ef->kind = EF_OFF;
+        return;
+    }
+    {
+        uint8_t before = ef->combo;
+        sweep_enemies(ef, ef->x, ef->y, 14, 12);
+        if (ef->glove && ef->combo != before) {
+            ef->kind = EF_OFF;   /* a fireball stops at the first enemy */
+        }
+    }
 }
 
 /* Letter bubbles and special bubbles come in through the room's opening. */
@@ -345,7 +386,11 @@ void effects_draw(void)
             }
             break;
         case EF_BOLT:
-            oam_add(PX(ef->x), PX(ef->y), (uint8_t)(SPR_BOLT0 + anim), (uint8_t)(ef->dir < 0 ? SPR_ATTR_FLIP_X : 0u));
+            if (ef->glove) {
+                oam_add(PX(ef->x), PX(ef->y), SPR_FIREBALL, 0);
+            } else {
+                oam_add(PX(ef->x), PX(ef->y), (uint8_t)(SPR_BOLT0 + anim), (uint8_t)(ef->dir < 0 ? SPR_ATTR_FLIP_X : 0u));
+            }
             break;
         default:
             break;
@@ -377,7 +422,7 @@ void extend_collect(uint8_t player, uint8_t letter)
 /* --- Power-ups -------------------------------------------------------------- */
 static void unlock(uint8_t power)
 {
-    g_count.queued = (uint8_t)(g_count.queued | (1u << power));
+    g_count.queued = (uint16_t)(g_count.queued | POWER_BIT(power));
 }
 
 void counters_check(void)
@@ -387,6 +432,11 @@ void counters_check(void)
     if (g_count.jumps >= LIMIT_JUMPS)   { g_count.jumps = 0;  unlock(POWER_RATE); }
     if (g_count.walked >= LIMIT_WALKED) { g_count.walked = 0; unlock(POWER_SHOES); }
     if (g_count.water >= LIMIT_WATER)   { g_count.water = 0;  unlock(POWER_UMBRELLA); }
+    if (g_count.food >= LIMIT_FOOD)     { g_count.food = 0;   unlock(POWER_STAR); }
+    if (g_count.water_kills >= LIMIT_WATER_KILLS) { g_count.water_kills = 0; unlock(POWER_WAVE); }
+    if (g_count.defeated >= LIMIT_DEFEATED)       { g_count.defeated = 0;    unlock(POWER_WHISTLE); }
+    if (g_count.fire_kills >= LIMIT_FIRE_KILLS)   { g_count.fire_kills = 0;  unlock(POWER_GLOVE); }
+    if (g_count.candies >= LIMIT_CANDIES)         { g_count.candies = 0;     unlock(POWER_RING); }
 }
 
 /* Call once per frame of play: places at most one waiting power-up per
@@ -400,8 +450,8 @@ void powerup_round_tick(void)
         return;
     }
     for (power = 0; power < POWER_COUNT; power++) {
-        if (g_count.queued & (1u << power)) {
-            g_count.queued = (uint8_t)(g_count.queued & (0xFFu ^ (1u << power)));
+        if (g_count.queued & POWER_BIT(power)) {
+            g_count.queued = (uint16_t)(g_count.queued & (0xFFFFu ^ POWER_BIT(power)));
             powerup_placed = 1;
             item_spawn_powerup(power, TO_POS(def->enemies[0].x << 3),
                                TO_POS(FIELD_Y + (def->enemies[0].y << 3) - 8));

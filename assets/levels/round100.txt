@@ -1,0 +1,5 @@
+# Settings for round100.map (read by tools/map2c)
+hurry   0        # seconds until HURRY UP, 0 = never
+tileset 3         # gfx/tileset03.png
+special lightning 4   # special bubbles: type, every n seconds
+boss    1        # the Grumble Boiler lives here

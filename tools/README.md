@@ -20,7 +20,7 @@ Converts level files from the GierzahnEditor (`*.map`), plus an optional setting
 map2c -o <output.c> <level1.map> [<level2.map> ...]
 ```
 
-The levels are numbered in argument order. The build passes all `assets/levels/*.map` files, sorted by name, so `round01.map` becomes level 1.
+The levels are numbered in argument order. The build passes all `assets/levels/*.map` files, sorted by name, so `round001.map` becomes level 1 and `round100.map` level 100 (the secret room, `secret.map`, sorts last).
 
 Input format (big endian):
 
@@ -36,11 +36,13 @@ Input format (big endian):
 For every `<name>.map`, map2c also reads `<name>.txt` if it exists. It holds the per-round data the editor format has no room for. The `.map` file stays exactly as the editor writes it.
 
 ```
-# round01.txt
+# round001.txt
 hurry   40          # seconds until HURRY UP, 0 = never        (default 30)
 tileset 1           # room graphics gfx/tileset01..08.png      (default: round number)
 delay   0 0 30 30   # frames before each enemy enters, 0..255, in .map order (default 0)
 special water 15    # special bubbles: none, water, fire or lightning, every n seconds (default none)
+boss    1           # this is the boss round (round100.txt)
+secret  1           # the secret room; not part of the normal round order (secret.txt)
 ```
 
 Unknown keys, values out of range and a `delay` list whose length doesn't match the enemy count are errors, reported with file and line. The CTest tests `map2c_bad_*` check this.

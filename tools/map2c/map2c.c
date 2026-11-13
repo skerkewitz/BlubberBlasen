@@ -10,6 +10,8 @@
  *   tileset <1..8>            room graphics (default: round number, repeating)
  *   delay   <frames> ...      spawn delay per enemy in .map order, 0..255
  *   special <type> <seconds>  special bubbles: water, fire or lightning, every n seconds
+ *   boss    1                 the boss round
+ *   secret  1                 the secret room (not part of the normal round order)
  *   # comment
  *
  * Input format: see tools/common/mapfile.h.
@@ -35,6 +37,7 @@ typedef struct {
     long        hurry_frames;
     int         special;
     long        special_frames;
+    int         kind;
     char        settings_path[1024];
     int         has_settings;
 } Level;
@@ -72,6 +75,7 @@ static int load_settings(Level *lv, int index)
     lv->has_settings = 0;
     lv->special = SPECIAL_NONE;
     lv->special_frames = 0;
+    lv->kind = LEVEL_NORMAL;
 
     if (len < 4 || len + 1 > sizeof lv->settings_path) {
         return 1;
@@ -128,6 +132,15 @@ static int load_settings(Level *lv, int index)
                 fclose(f);
                 return settings_error(lv, line, "fewer delay values than enemies in the .map");
             }
+        } else if (strcmp(key, "boss") == 0 || strcmp(key, "secret") == 0) {
+            tok = strtok(NULL, " \t\r\n");
+            if (!tok || !parse_long(tok, &v) || v < 0 || v > 1) {
+                fclose(f);
+                return settings_error(lv, line, "boss and secret take 0 or 1");
+            }
+            if (v) {
+                lv->kind = strcmp(key, "boss") == 0 ? LEVEL_BOSS : LEVEL_SECRET;
+            }
         } else if (strcmp(key, "special") == 0) {
             static const char *const names[] = { "none", "water", "fire", "lightning" };
             int t;
@@ -155,7 +168,7 @@ static int load_settings(Level *lv, int index)
             continue;
         } else {
             fclose(f);
-            return settings_error(lv, line, "unknown setting (expected hurry, tileset, delay or special)");
+            return settings_error(lv, line, "unknown setting (expected hurry, tileset, delay, special, boss or secret)");
         }
         if (strtok(NULL, " \t\r\n") != NULL && strcmp(key, "delay") != 0) {
             fclose(f);
@@ -218,12 +231,12 @@ static int write_output(const char *out_path, int n)
     fprintf(f, "const LevelDef level_defs[%d] = {\n", n);
     for (l = 0; l < n; l++) {
         if (levels[l].m.enemy_count > 0) {
-            fprintf(f, "    { level%02d_cells, level%02d_enemies, %d, %d, %ld, %d, %ld },\n", l + 1, l + 1,
+            fprintf(f, "    { level%02d_cells, level%02d_enemies, %d, %d, %ld, %d, %ld, %d },\n", l + 1, l + 1,
                     levels[l].m.enemy_count, levels[l].tileset, levels[l].hurry_frames,
-                    levels[l].special, levels[l].special_frames);
+                    levels[l].special, levels[l].special_frames, levels[l].kind);
         } else {
-            fprintf(f, "    { level%02d_cells, 0, 0, %d, %ld, %d, %ld },\n", l + 1, levels[l].tileset,
-                    levels[l].hurry_frames, levels[l].special, levels[l].special_frames);
+            fprintf(f, "    { level%02d_cells, 0, 0, %d, %ld, %d, %ld, %d },\n", l + 1, levels[l].tileset,
+                    levels[l].hurry_frames, levels[l].special, levels[l].special_frames, levels[l].kind);
         }
     }
     fprintf(f, "};\n\nconst uint8_t level_count = %d;\n", n);

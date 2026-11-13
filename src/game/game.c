@@ -30,6 +30,7 @@ uint8_t   g_round;
 uint8_t   g_hurry;
 uint16_t  g_sfx;
 uint8_t   g_skip_rounds;
+uint16_t  g_freeze;
 Counters  g_count;
 
 Player    g_players[NUM_PLAYERS];
@@ -52,6 +53,42 @@ static uint8_t  hurry_text;
 static uint8_t  first_level;     /* developer option, see game_debug_start_round() */
 static uint8_t  played[NUM_PLAYERS];  /* took part in this game (for the high scores) */
 static uint8_t  page;            /* layer 0 page showing the current round */
+static uint8_t  boss_level;      /* index of the boss round in level_defs */
+static uint8_t  secret_level;    /* index of the secret room, 0xFF if none */
+static uint8_t  no_death;        /* nobody has lost a life this game (doors) */
+static uint8_t  door_open;       /* a door is in this round */
+static uint8_t  secret_part;     /* which clue the secret room shows (1..3) */
+static uint8_t  return_level;    /* where the game goes on after the secret room */
+static uint16_t secret_timer;
+static uint8_t  ending_delay;
+static uint8_t  ending_page;
+static uint8_t  ending_happy;
+
+#define DOOR_X        192        /* on the floor, right of the middle */
+#define SECRET_FRAMES 600
+#define ENDING_PAGE_FRAMES 480
+
+/* Clues in the secret rooms (docs/story.md). */
+static const char *const clue_text[3][2] = {
+    { "CODE PART 1 OF 3:", "THE OFF SWITCH HAS TWO LEVERS." },
+    { "CODE PART 2 OF 3:", "PULL BOTH LEVERS AT ONCE." },
+    { "CODE PART 3 OF 3:", "ONE BLOB ALONE CANNOT DO IT." },
+};
+
+/* Endings (docs/story.md): two players get the happy one. */
+#define ENDING_LINES 6
+static const char *const ending_happy_text[3][ENDING_LINES] = {
+    { "THE GRUMBLE BOILER", "IS BEATEN!", "", "BLUBBER AND BLASI PULL", "BOTH LEVERS AT ONCE...", "" },
+    { "THE WORKERS WAKE UP AS", "THEMSELVES, AND THE", "FACTORY BLOWS BUBBLES", "AGAIN.", "", "" },
+    { "BLASENHAUSEN SHINES IN", "A THOUSAND COLOURS.", "", "THANK YOU, BLUBBER", "AND BLASI!", "" },
+};
+static const char *const ending_sad_text[2][ENDING_LINES] = {
+    { "THE GRUMBLE BOILER", "IS BEATEN...", "", "BUT ONE BLOB ALONE", "CANNOT PULL BOTH", "LEVERS." },
+    { "THE FACTORY FALLS", "SILENT AND THE WORKERS", "SLEEP ON. BLASENHAUSEN", "STAYS GREY.", "", "COME BACK WITH A FRIEND!" },
+};
+static const char *const credits_text[ENDING_LINES] = {
+    "BLUBBER BLASEN", "", "A HOBBY PROJECT", "", "THE END", "THANK YOU FOR PLAYING"
+};
 static uint8_t  story_page;
 static uint8_t  story_starter;   /* who pressed Start on the title */
 static uint8_t  skip_story;      /* developer option */
@@ -245,7 +282,43 @@ static void enter_hiscores(uint8_t highlight)
     set_state(GS_HISCORES);
 }
 
+/* --- Secret room ------------------------------------------------------------------ */
+/* Gems on every few standing spots of the room, and the clue on the wall. */
+static void start_secret_room(void)
+{
+    int16_t r, c;
+    uint8_t n = 0;
+
+    for (r = 3; r < LEVEL_H - 2 && n < 12; r = (int16_t)(r + 1)) {
+        for (c = 3; c < LEVEL_W - 4 && n < 12; c = (int16_t)(c + 4)) {
+            if (!level_solid_tile(c, r) && !level_solid_tile((int16_t)(c + 1), r) &&
+                level_solid_tile(c, (int16_t)(r + 1)) && level_solid_tile((int16_t)(c + 1), (int16_t)(r + 1)) &&
+                !(r == LEVEL_H - 2 && (c < 6 || c > 24))) {
+                item_spawn(IT_FOOD, TO_POS(c << 3), TO_POS(FIELD_Y + (r << 3) - 8), GEM_TIER);
+                n++;
+            }
+        }
+    }
+    text_put(9, 4, "SECRET ROOM", PAL_YELLOW);
+    text_put(4, 6, clue_text[secret_part - 1][0], PAL_CYAN);
+    text_put(1, 7, clue_text[secret_part - 1][1], PAL_NONE);
+    secret_timer = SECRET_FRAMES;
+    sfx(SFX_EXTRA);
+    set_state(GS_PLAY);
+}
+
+static uint8_t gems_left(void)
+{
+    uint8_t i, n = 0;
+    for (i = 0; i < MAX_ITEMS; i++) {
+        n = (uint8_t)(n + (g_items[i].kind == IT_FOOD));
+    }
+    return n;
+}
+
 /* --- Rounds --------------------------------------------------------------------- */
+static void begin_transition(void);
+static void enter_ending(void);
 /* The round's room is in place (page shown): enemies drop in, players
  * drift to their corners, "ROUND n / READY!". */
 static void round_intro(void)
@@ -264,12 +337,28 @@ static void round_intro(void)
 
     g_level_frames = 0;
     g_hurry = 0;
+    g_freeze = 0;
     hurry_text = 0;
     clear_timer = 0;
+    for (i = 0; i < NUM_PLAYERS; i++) {
+        g_players[i].powers = (uint16_t)(g_players[i].powers & (0xFFFFu ^ POWER_BIT(POWER_GLOVE)));
+    }
+    if (level_defs[g_level].kind == LEVEL_BOSS) {
+        boss_spawn();
+    } else {
+        boss_reset();
+    }
+    /* A door appears in rounds 20, 40, 50 and 60 if nobody has lost a life. */
+    door_open = (uint8_t)(no_death && level_defs[g_level].kind == LEVEL_NORMAL &&
+                          (g_round == 20 || g_round == 40 || g_round == 50 || g_round == 60));
 
     bg_clear(1);
     draw_hud_labels();
     draw_hud_values();
+    if (level_defs[g_level].kind == LEVEL_SECRET) {
+        start_secret_room();
+        return;
+    }
     text_put(12, 12, "ROUND", PAL_YELLOW);
     text_number(18, 12, g_round, PAL_YELLOW);
     {
@@ -366,25 +455,57 @@ static void new_game(uint8_t starter)
     g_count.jumps = 0;
     g_count.water = 0;
     g_count.walked = 0;
+    g_count.food = 0;
+    g_count.water_kills = 0;
+    g_count.defeated = 0;
+    g_count.fire_kills = 0;
+    g_count.candies = 0;
     g_count.queued = 0;
+    no_death = 1;
+    ending_delay = 0;
     g_level = first_level;
     g_round = (uint8_t)(first_level + 1);
     join(&g_players[starter]);
     start_round();
 }
 
+/* Rounds go up to the boss; skipping (umbrella, EXTEND, warp) stops there. */
 static void next_round(uint8_t advance)
 {
     while (advance--) {
-        g_level++;
-        if (g_level >= level_count) {
-            g_level = 0;
-        }
-        if (g_round < 99) {
+        if (g_level < boss_level) {
+            g_level++;
             g_round++;
         }
     }
     begin_transition();
+}
+
+/* A player at the door pressing Up: rounds 20, 40, 60 lead to the secret
+ * room, round 50 warps to round 70. */
+static void check_door(const uint16_t pressed[NUM_PLAYERS])
+{
+    uint8_t i;
+    if (!door_open) {
+        return;
+    }
+    for (i = 0; i < NUM_PLAYERS; i++) {
+        const Player *p = &g_players[i];
+        if (p->state == PS_ALIVE && (pressed[i] & PAD_UP) &&
+            overlap(p->x, p->y, TO_POS(DOOR_X), TO_POS(PLAYER_SPAWN_Y), 10, 12)) {
+            door_open = 0;
+            sfx(SFX_EXTRA);
+            if (g_round == 50) {
+                next_round(20);
+            } else if (secret_level != 0xFF) {
+                secret_part = (uint8_t)(g_round == 20 ? 1 : g_round == 40 ? 2 : 3);
+                return_level = g_level;
+                g_level = secret_level;
+                begin_transition();
+            }
+            return;
+        }
+    }
 }
 
 /* Called by the player module when a death animation has finished.
@@ -395,6 +516,7 @@ void player_killed(Player *p)
         p->lives--;
     }
     p->powers = 0;   /* power-ups are lost with a life */
+    no_death = 0;    /* no more doors this game */
     enemies_calm_down();
     chaser_reset();
     items_clear_rocks();
@@ -486,8 +608,15 @@ static void update_play(const uint16_t pad[NUM_PLAYERS], const uint16_t pressed[
     }
 
     g_level_frames++;
+    if (g_freeze) {
+        g_freeze--;
+    }
     for (i = 0; i < NUM_PLAYERS; i++) {
         player_update(&g_players[i], pad[i], pressed[i]);
+    }
+    check_door(pressed);
+    if (g_state != GS_PLAY) {
+        return;   /* went through a door */
     }
 
     /* While nobody is alive (everyone dying), the room stands still. */
@@ -498,6 +627,7 @@ static void update_play(const uint16_t pad[NUM_PLAYERS], const uint16_t pressed[
     bubbles_update();
     enemies_update();
     chaser_update();
+    boss_update();
     items_update();
     effects_update();
     counters_check();
@@ -505,9 +635,40 @@ static void update_play(const uint16_t pad[NUM_PLAYERS], const uint16_t pressed[
     bonus_round_tick();
 
     /* EXTEND completed or umbrella collected: the round ends at once. */
-    if (g_skip_rounds) {
+    if (g_skip_rounds && level_defs[g_level].kind == LEVEL_NORMAL) {
         next_round(g_skip_rounds);
         return;
+    }
+    g_skip_rounds = 0;
+
+    switch (level_defs[g_level].kind) {
+    case LEVEL_SECRET:
+        /* Collect what you can, then on to the round after the door. */
+        if (--secret_timer == 0 || gems_left() == 0) {
+            g_level = return_level;
+            next_round(1);
+        }
+        return;
+    case LEVEL_BOSS:
+        if (boss_fighting()) {
+            uint8_t hp = boss_hp(), k;
+            text_put(5, HUD_ROWS, "BOILER", PAL_RED);
+            for (k = 0; k < 12; k++) {
+                text_put((uint8_t)(12 + k), HUD_ROWS, (uint8_t)(k << 1) < hp ? "#" : "-", PAL_ORANGE);
+            }
+        } else {
+            text_clear_row(HUD_ROWS);
+            text_number(0, HUD_ROWS, g_round, PAL_YELLOW);
+        }
+        if (boss_defeated() && ++ending_delay >= 120) {
+            enter_ending();
+        }
+        for (i = 0; i < NUM_PLAYERS; i++) {
+            check_extra_lives(&g_players[i]);
+        }
+        return;
+    default:
+        break;
     }
 
     {
@@ -654,6 +815,92 @@ static void update_name_entry(uint16_t pressed)
     draw_name_entry();
 }
 
+/* --- Ending ---------------------------------------------------------------------------- */
+static uint8_t ending_pages(void)
+{
+    return (uint8_t)(ending_happy ? 3 : 2);
+}
+
+static void show_ending_page(void)
+{
+    const char *const *lines = ending_page < ending_pages()
+        ? (ending_happy ? ending_happy_text[ending_page] : ending_sad_text[ending_page])
+        : credits_text;
+    uint8_t i;
+    bg_clear(1);
+    for (i = 0; i < ENDING_LINES; i++) {
+        text_put(4, (uint8_t)(6 + (i << 1)), lines[i],
+                 ending_page < ending_pages() ? PAL_NONE : (i == 0 ? PAL_YELLOW : PAL_CYAN));
+    }
+    state_timer = 0;
+}
+
+static void enter_ending(void)
+{
+    uint8_t i;
+    ending_happy = (uint8_t)(players_in_game() == NUM_PLAYERS);
+    enemies_clear();
+    bubbles_clear();
+    items_clear();
+    effects_clear();
+    boss_reset();
+    bg_clear(0);
+    for (i = 0; i < NUM_PLAYERS; i++) {
+        if (g_players[i].state != PS_OFF) {
+            g_players[i].state = PS_OFF;   /* the heroes appear as part of the ending pictures */
+        }
+    }
+    g_scroll_y = 0;
+    g_window_top = 0;
+    ending_page = 0;
+    set_state(GS_ENDING);
+    show_ending_page();
+    sfx(ending_happy ? SFX_CLEAR : SFX_GAMEOVER);
+}
+
+static void next_name_entry(uint8_t from, uint8_t highlight);
+
+static void update_ending(uint16_t any_pressed)
+{
+    if ((any_pressed & (PAD_B | PAD_Y | PAD_START)) || state_timer >= ENDING_PAGE_FRAMES) {
+        if (++ending_page > ending_pages()) {
+            next_name_entry(0, HISCORE_COUNT);
+            return;
+        }
+        sfx(SFX_MENU);
+        show_ending_page();
+    }
+}
+
+/* Happy: the workers dance under rising bubbles. Sad: they sleep, grey. */
+static void draw_ending(void)
+{
+    static const uint8_t workers[7] = {
+        SPR_E_WALK0, SPR_THROWER0, SPR_BOUNCER0, SPR_FLUTTER0, SPR_HOPPER0, SPR_SPITTER0, SPR_DROPPER0
+    };
+    uint8_t i, bob = (uint8_t)((g_frame >> 4) & 1);
+    if (ending_page >= ending_pages()) {
+        return;   /* credits: text only */
+    }
+    for (i = 0; i < 7; i++) {
+        if (ending_happy) {
+            oam_add((uint8_t)(40 + i * 26), (uint8_t)(176 - ((bob ^ (i & 1)) << 2)), (uint8_t)(workers[i] + bob), 0);
+        } else {
+            oam_add((uint8_t)(40 + i * 26), 180, workers[i], (uint8_t)(PAL_GREY << SPR_ATTR_PAL_SHIFT));
+        }
+    }
+    if (ending_happy) {
+        for (i = 0; i < 6; i++) {
+            uint8_t y = (uint8_t)(200 - ((g_frame + i * 61) & 191));
+            oam_add((uint8_t)((i & 1) ? SCREEN_W - 24 : 8), y, (uint8_t)(SPR_BUBBLE0 + (i % 3)), 0);
+        }
+        oam_add(104, 150, (uint8_t)(SPR_P_WALK0 + bob), 0);
+        oam_add(136, 150, (uint8_t)(SPR_P_WALK0 + bob), (uint8_t)(SPR_ATTR_FLIP_X | (PAL_CYAN << SPR_ATTR_PAL_SHIFT)));
+    } else {
+        oam_add(120, 150, SPR_P_WALK0, 0);
+    }
+}
+
 /* --- Story --------------------------------------------------------------------------- */
 static void show_story_page(void)
 {
@@ -763,6 +1010,10 @@ static void build_oam(void)
             player_draw(&g_players[i]);
         }
         draw_lives();
+        boss_draw();
+        if (door_open && g_state != GS_TRANSITION) {
+            oam_add(DOOR_X, PLAYER_SPAWN_Y, SPR_DOOR, 0);
+        }
         chaser_draw();
         effects_draw();
         items_draw();
@@ -772,6 +1023,9 @@ static void build_oam(void)
 
     if (g_state == GS_STORY) {
         draw_story();
+    }
+    if (g_state == GS_ENDING) {
+        draw_ending();
     }
 
     for (i = oam_count; i < MAX_SPRITES; i++) {
@@ -792,8 +1046,19 @@ void game_init(uint16_t seed)
     for (i = 0; i < NUM_PLAYERS; i++) {
         prev_pad[i] = 0;
     }
+    boss_level = (uint8_t)(level_count - 1);
+    secret_level = 0xFF;
+    for (i = 0; i < level_count; i++) {
+        if (level_defs[i].kind == LEVEL_BOSS) {
+            boss_level = i;
+        } else if (level_defs[i].kind == LEVEL_SECRET) {
+            secret_level = i;
+        }
+    }
     hiscore_init();
     clear_objects();
+    boss_reset();
+    door_open = 0;
     enter_title();
     build_oam();
 }
@@ -835,6 +1100,10 @@ void game_tick(const uint16_t pad[NUM_PLAYERS])
 
     case GS_STORY:
         update_story(any_pressed);
+        break;
+
+    case GS_ENDING:
+        update_ending(any_pressed);
         break;
 
     case GS_HISCORES:
@@ -898,7 +1167,16 @@ void game_tick(const uint16_t pad[NUM_PLAYERS])
 
 void game_debug_start_round(uint8_t round)
 {
-    first_level = (uint8_t)(round >= 1 && round <= level_count ? round - 1 : 0);
+    first_level = (uint8_t)(round >= 1 && round - 1 <= boss_level ? round - 1 : 0);
+}
+
+void game_debug_show_ending(uint8_t happy)
+{
+    uint8_t i;
+    for (i = 0; i < NUM_PLAYERS; i++) {
+        g_players[i].state = (uint8_t)(i == 0 || happy ? PS_ALIVE : PS_OFF);
+    }
+    enter_ending();
 }
 
 void game_debug_skip_story(uint8_t skip)

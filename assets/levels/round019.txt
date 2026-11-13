@@ -1,0 +1,5 @@
+# Settings for round019.map (read by tools/map2c)
+hurry   20        # seconds until HURRY UP, 0 = never
+tileset 2         # gfx/tileset02.png
+delay   0 0 20 20 40 40 60 60   # frames before each enemy enters, in .map order
+special lightning 8   # special bubbles: type, every n seconds

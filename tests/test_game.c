@@ -10,6 +10,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "game/internal.h"
 
@@ -44,14 +45,16 @@ static void test_levels(void)
     uint8_t l;
     uint16_t i;
 
-    CHECK(level_count == 30, "expected 30 levels, got %u", level_count);
-    CHECK(level_defs[0].hurry_frames == 40 * 60, "round01.txt sets hurry 40");
-    CHECK(level_defs[0].enemies[2].delay == 30, "round01.txt sets delay 30 for enemy 3");
+    CHECK(level_count == 101, "expected 100 rounds and the secret room, got %u", level_count);
+    CHECK(level_defs[99].kind == LEVEL_BOSS && level_defs[100].kind == LEVEL_SECRET, "round 100 is the boss, then the secret room");
+    CHECK(level_defs[0].hurry_frames == 40 * 60, "round001.txt sets hurry 40");
+    CHECK(level_defs[0].enemies[2].delay == 30, "round001.txt sets delay 30 for enemy 3");
     CHECK(level_defs[1].special == SPECIAL_WATER && level_defs[1].special_frames == 15 * 60,
-          "round02.txt sets special water 15");
+          "round002.txt sets special water 15");
     for (l = 0; l < level_count; l++) {
         const LevelDef *d = &level_defs[l];
-        CHECK(d->enemy_count > 0 && d->enemy_count <= LEVEL_MAX_ENEMIES, "level %u enemy count %u", l + 1, d->enemy_count);
+        CHECK(d->kind != LEVEL_NORMAL || (d->enemy_count > 0 && d->enemy_count <= LEVEL_MAX_ENEMIES),
+              "level %u enemy count %u", l + 1, d->enemy_count);
         for (i = 0; i < LEVEL_CELLS; i++) {
             CHECK((d->cells[i] & CELL_AIR_MASK) <= AIR_RIGHT, "level %u bad airflow", l + 1);
         }
@@ -505,7 +508,7 @@ static void test_extend(void)
 static void test_powerups(void)
 {
     setup_room(0);
-    g_count.queued = 0;
+    memset(&g_count, 0, sizeof g_count);
     g_count.blown = 35;
     counters_check();
     CHECK(g_count.queued == (1u << POWER_RANGE), "35 bubbles blown should unlock the range candy");
@@ -804,6 +807,208 @@ static void test_story(void)
     game_debug_skip_story(1);
 }
 
+/* Ticks with no buttons (players kept alive) until a state is reached. */
+static int run_until(GameState st, int max_frames)
+{
+    uint16_t pad[NUM_PLAYERS] = { 0, 0 };
+    int f;
+    for (f = 0; f < max_frames && g_state != st; f++) {
+        g_players[0].invulnerable = 200;
+        g_players[1].invulnerable = 200;
+        game_tick(pad);
+    }
+    return g_state == st;
+}
+
+static void start_at_round(uint8_t round, int two_players)
+{
+    uint16_t pad[NUM_PLAYERS] = { PAD_START, 0 };
+    int i;
+    for (i = 0; i < SRAM_SIZE; i++) {
+        game_sram()[i] = 0;
+    }
+    game_init(7);
+    game_debug_start_round(round);
+    game_tick(pad);
+    if (two_players) {
+        pad[0] = 0;
+        pad[1] = PAD_START;
+        game_tick(pad);
+    }
+    game_debug_start_round(1);
+}
+
+/* Round 100: lightning beats the boss, the giant bubble is popped, ending. */
+static void boss_fight(int two_players)
+{
+    int f, k;
+
+    start_at_round(100, two_players);
+    CHECK(run_until(GS_PLAY, 600), "the boss round did not start");
+    CHECK(boss_fighting(), "no boss in round 100");
+    /* a Fire Glove fireball does nothing to it */
+    k = boss_hp();
+    effect_start_glove((uint16_t)(boss_center_x() - TO_POS(8)), (uint16_t)(boss_center_y() - TO_POS(8)), 1, 0);
+    effects_update();
+    CHECK(boss_hp() == k, "only lightning may hurt the boss");
+    /* lightning does */
+    for (f = 0; f < 2000 && boss_fighting(); f++) {
+        if ((f % 25) == 0) {
+            (void)boss_hit_by_bolt((uint16_t)(boss_center_x() - TO_POS(8)), (uint16_t)(boss_center_y() - TO_POS(8)));
+        }
+        g_players[0].invulnerable = 200;
+        g_players[1].invulnerable = 200;
+        game_tick((const uint16_t[NUM_PLAYERS]){ 0, 0 });
+    }
+    CHECK(!boss_fighting() && !boss_defeated(), "the boss should be trapped in its bubble");
+    for (f = 0; f < 200; f++) {   /* walk into the giant bubble */
+        g_players[0].x = (uint16_t)(boss_center_x() - TO_POS(8));
+        g_players[0].y = (uint16_t)(boss_center_y() - TO_POS(8));
+        game_tick((const uint16_t[NUM_PLAYERS]){ 0, 0 });
+        if (boss_defeated()) {
+            break;
+        }
+    }
+    CHECK(boss_defeated(), "touching the giant bubble should pop it");
+    CHECK(run_until(GS_ENDING, 300), "no ending after the boss");
+}
+
+static void test_boss_and_endings(void)
+{
+    boss_fight(0);
+    CHECK(g_state == GS_ENDING, "ending");
+    {
+        int pages = 0;
+        uint16_t pad[NUM_PLAYERS] = { 0, 0 };
+        while (g_state == GS_ENDING && pages < 10) {
+            pad[0] = PAD_B;
+            game_tick(pad);
+            pad[0] = 0;
+            game_tick(pad);
+            pages++;
+        }
+        CHECK(pages == 3, "one player: sad ending with 2 pages and credits (%d)", pages);
+        CHECK(g_state == GS_NAME_ENTRY || g_state == GS_HISCORES, "after the ending: high scores");
+    }
+    boss_fight(1);
+    {
+        int pages = 0;
+        uint16_t pad[NUM_PLAYERS] = { 0, 0 };
+        while (g_state == GS_ENDING && pages < 10) {
+            pad[0] = PAD_B;
+            game_tick(pad);
+            pad[0] = 0;
+            game_tick(pad);
+            pages++;
+        }
+        CHECK(pages == 4, "two players: happy ending with 3 pages and credits (%d)", pages);
+    }
+}
+
+/* Round 20 without losing a life: a door to the secret room, then round 21. */
+static void test_secret_room(void)
+{
+    uint16_t pad[NUM_PLAYERS] = { 0, 0 };
+    int f, gems = 0, i;
+
+    start_at_round(20, 0);
+    CHECK(run_until(GS_PLAY, 600), "round 20 did not start");
+    g_players[0].x = TO_POS(192);
+    g_players[0].y = TO_POS(PLAYER_SPAWN_Y);
+    pad[0] = PAD_UP;
+    game_tick(pad);
+    CHECK(g_state == GS_TRANSITION, "Up at the door should leave the round");
+    CHECK(run_until(GS_PLAY, 800), "secret room did not start");
+    CHECK(level_defs[g_level].kind == LEVEL_SECRET, "not in the secret room");
+    for (i = 0; i < MAX_ITEMS; i++) {
+        gems += g_items[i].kind == IT_FOOD;
+    }
+    CHECK(gems >= 6, "the secret room should be full of gems (%d)", gems);
+    for (f = 0; f < 1200 && level_defs[g_level].kind == LEVEL_SECRET; f++) {
+        pad[0] = 0;
+        game_tick(pad);
+    }
+    CHECK(g_round == 21 && level_defs[g_level].kind == LEVEL_NORMAL, "after the secret room comes round 21 (%u)", g_round);
+
+    /* round 50: the door is a warp to round 70 */
+    start_at_round(50, 0);
+    CHECK(run_until(GS_PLAY, 600), "round 50 did not start");
+    g_players[0].x = TO_POS(192);
+    g_players[0].y = TO_POS(PLAYER_SPAWN_Y);
+    pad[0] = PAD_UP;
+    game_tick(pad);
+    CHECK(g_round == 70, "the round 50 door should warp to round 70 (%u)", g_round);
+
+    /* no door after losing a life */
+    start_at_round(19, 0);
+    player_killed(&g_players[0]);
+    CHECK(run_until(GS_PLAY, 300) || 1, "");
+    g_skip_rounds = 1;
+    run_until(GS_TRANSITION, 60);
+    run_until(GS_PLAY, 800);
+    g_players[0].x = TO_POS(192);
+    g_players[0].y = TO_POS(PLAYER_SPAWN_Y);
+    pad[0] = PAD_UP;
+    game_tick(pad);
+    CHECK(g_round == 20 && g_state == GS_PLAY, "no door in round 20 after a lost life");
+}
+
+/* Skipping never goes past round 100. */
+static void test_round_limit(void)
+{
+    start_at_round(99, 0);
+    CHECK(run_until(GS_PLAY, 600), "round 99 did not start");
+    g_skip_rounds = 3;   /* umbrella */
+    run_until(GS_TRANSITION, 30);
+    CHECK(g_round == 100 && level_defs[g_level].kind == LEVEL_BOSS, "the umbrella should stop at the boss (%u)", g_round);
+}
+
+/* The new items: Soap Star, Steam Whistle, Fire Glove, Bubble Ring, and their counters. */
+static void test_special_items(void)
+{
+    uint8_t tiers;
+    int f;
+
+    setup_room(0);
+    memset(&g_count, 0, sizeof g_count);
+    g_count.food = 10;
+    g_count.defeated = 40;
+    g_count.water_kills = 6;
+    g_count.fire_kills = 4;
+    g_count.candies = 3;
+    counters_check();
+    CHECK(g_count.queued == (POWER_BIT(POWER_STAR) | POWER_BIT(POWER_WAVE) | POWER_BIT(POWER_WHISTLE) |
+                             POWER_BIT(POWER_GLOVE) | POWER_BIT(POWER_RING)), "counters should unlock the five items");
+
+    enemy_spawn(TO_POS(120), TO_POS(100), ENEMY_TYPE_WALKER, 0, 0);
+    enemy_spawn(TO_POS(160), TO_POS(60), ENEMY_TYPE_BOUNCER, 0, 0);
+    item_spawn_powerup(POWER_STAR, g_players[0].x, g_players[0].y);
+    items_update();
+    CHECK(enemies_count() == 0 && count_thrown(&tiers) == 2 && tiers == (1u << GEM_TIER), "Soap Star: all enemies become gems");
+
+    setup_room(0);
+    enemy_spawn(TO_POS(60), TO_POS(PLAYER_SPAWN_Y), ENEMY_TYPE_WALKER, 0, 0);
+    item_spawn_powerup(POWER_WHISTLE, g_players[0].x, g_players[0].y);
+    items_update();
+    CHECK(g_freeze > 0, "Steam Whistle should freeze");
+    CHECK(!enemies_touch(g_enemies[0].x, g_enemies[0].y), "frozen enemies are harmless");
+    enemies_defeat_at(g_enemies[0].x, g_enemies[0].y);
+    CHECK(enemies_count() == 0, "touching a frozen enemy defeats it");
+    g_freeze = 0;
+
+    setup_room(0);
+    enemy_spawn(TO_POS(150), TO_POS(PLAYER_SPAWN_Y), ENEMY_TYPE_WALKER, 0, 0);
+    g_players[0].powers = POWER_BIT(POWER_GLOVE) | POWER_BIT(POWER_RING);
+    memset(g_players[0].score, 0, 8);
+    g_state = GS_PLAY;
+    for (f = 0; f < 60 && enemies_count(); f++) {
+        player_update(&g_players[0], f == 1 ? PAD_Y : 0, f == 1 ? PAD_Y : 0);
+        effects_update();
+    }
+    CHECK(enemies_count() == 0 && count_thrown(&tiers) == 1 && tiers == (1u << GEM_TIER), "the glove fireball should defeat the enemy");
+    CHECK(g_players[0].score[5] == 1, "Bubble Ring: +100 per shot");
+}
+
 int main(void)
 {
     game_debug_skip_story(1);
@@ -833,6 +1038,10 @@ int main(void)
     test_spitter();
     test_dropper();
     test_story();
+    test_special_items();
+    test_round_limit();
+    test_secret_room();
+    test_boss_and_endings();
     test_determinism_and_play();
 
     if (failures) {

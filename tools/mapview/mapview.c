@@ -14,7 +14,7 @@
  * (walker purple, bouncer cyan, thrower orange, flutter yellow, hopper green,
  * spitter red, dropper grey; a white bar marks the side
  * it faces), the player start points (green = 1, white = 2) and the round
- * number taken from the file name (round11.map -> 11).
+ * number taken from the file name (round011.map -> 11).
  *
  * Plain C, no libraries: the PNG is written with uncompressed deflate blocks.
  * This is a host tool: the game-code rules (no malloc, no float) do not apply.

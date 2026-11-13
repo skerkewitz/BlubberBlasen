@@ -146,6 +146,34 @@ void enemies_make_angry(void)
     }
 }
 
+/* Soap Star / Rinse Wave: every enemy in the room becomes a gem. */
+void enemies_to_gems(void)
+{
+    uint8_t i;
+    for (i = 0; i < MAX_ENEMIES; i++) {
+        Enemy *e = &g_enemies[i];
+        if (e->active && !e->entering) {
+            item_spawn_thrown(e->x, e->y, (int8_t)((i & 1) ? -1 : 1), GEM_TIER);
+            e->active = 0;
+        }
+    }
+    sfx(SFX_KILL);
+}
+
+/* Steam Whistle: a frozen enemy touched by a player is defeated. */
+void enemies_defeat_at(uint16_t x, uint16_t y)
+{
+    uint8_t i;
+    for (i = 0; i < MAX_ENEMIES; i++) {
+        Enemy *e = &g_enemies[i];
+        if (e->active && !e->entering && overlap(x, y, e->x, e->y, 12, 12)) {
+            item_spawn_thrown(e->x, e->y, (int8_t)(PX(e->x) < PX(x) ? -1 : 1), GEM_TIER - 1);
+            e->active = 0;
+            sfx(SFX_KILL);
+        }
+    }
+}
+
 void enemies_calm_down(void)
 {
     uint8_t i;
@@ -157,11 +185,14 @@ void enemies_calm_down(void)
 uint8_t enemies_touch(uint16_t x, uint16_t y)
 {
     uint8_t i;
-    for (i = 0; i < MAX_ENEMIES; i++) {
+    for (i = 0; i < MAX_ENEMIES && !g_freeze; i++) {   /* frozen enemies are harmless */
         const Enemy *e = &g_enemies[i];
         if (e->active && !e->entering && overlap(x, y, e->x, e->y, 10, 12)) {
             return 1;
         }
+    }
+    if (boss_touch(x, y)) {
+        return 1;
     }
     for (i = 0; i < MAX_ITEMS; i++) {
         const Item *it = &g_items[i];
@@ -478,7 +509,7 @@ void enemies_update(void)
             }
             continue;
         }
-        if (g_state != GS_PLAY) {
+        if (g_state != GS_PLAY || g_freeze) {
             continue;
         }
         switch (e->type) {
@@ -532,8 +563,11 @@ void enemies_draw(void)
             tile = (uint8_t)((e->angry ? SPR_E_ANGRY0 : SPR_E_WALK0) + ((g_frame >> fast) & 1));
             break;
         }
-        /* The walker has its own angry graphics; the others are tinted red. */
-        if (e->angry && e->type != ENEMY_TYPE_WALKER) {
+        /* The walker has its own angry graphics; the others are tinted red.
+         * Frozen enemies are grey. */
+        if (g_freeze) {
+            attr = (uint8_t)(attr | (PAL_GREY << SPR_ATTR_PAL_SHIFT));
+        } else if (e->angry && e->type != ENEMY_TYPE_WALKER) {
             attr = (uint8_t)(attr | (PAL_RED << SPR_ATTR_PAL_SHIFT));
         }
         oam_add(PX(e->x), PX(e->y), tile, attr);

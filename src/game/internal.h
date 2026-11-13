@@ -52,18 +52,33 @@ enum {
     SPR_LIFE1 = 153, SPR_LIFE2 = 154,                     /* one / two life icons */
     SPR_FLUTTER0 = 160, SPR_HOPPER0 = 162, SPR_SPITTER0 = 164, SPR_DROPPER0 = 166,
     SPR_SPIT = 168, SPR_DOWN_SHOT = 169,
-    SPR_SMALL_ENEMY4 = 170                                /* small flutter, hopper, spitter, dropper */
+    SPR_SMALL_ENEMY4 = 170,                               /* small flutter, hopper, spitter, dropper */
+    SPR_BOSS0 = 176, SPR_BOSS1 = 180,                     /* 32x32: four cells each, TL TR BL BR */
+    SPR_GIANT_BUBBLE = 184, SPR_SOOT = 188, SPR_DOOR = 189,
+    SPR_ITEM_STAR = 190                                   /* star, wave, whistle, glove, ring */
 };
 
 /* Enemy shots (Item.tier of an IT_ROCK). */
-enum { SHOT_ROCK, SHOT_SPIT, SHOT_DOWN };
+enum { SHOT_ROCK, SHOT_SPIT, SHOT_DOWN, SHOT_SOOT };
 
 /* Score pop-ups (index into the pop-up cells). Food tier t uses POPUP_FOOD0 + t. */
 enum { POPUP_10 = 0, POPUP_500 = 1, POPUP_FOOD0 = 2, POPUP_100 = 9, POPUP_200 = 10, POPUP_700 = 11 };
 #define BONUS_TYPES 4   /* cherry 500, apple 700, melon 1000, cake 2000 */
 
-/* Power-ups. The first four are kept by the player until they lose a life. */
-enum { POWER_RANGE, POWER_SPEED, POWER_RATE, POWER_SHOES, POWER_UMBRELLA, POWER_COUNT };
+/* Power-ups and special items (docs/story.md, design guide "Items").
+ * Range, speed, rate, shoes and ring stay with a player until they lose a
+ * life; the glove lasts for the round; the others act at once. */
+enum {
+    POWER_RANGE, POWER_SPEED, POWER_RATE, POWER_SHOES, POWER_UMBRELLA,
+    POWER_STAR,      /* Soap Star: every enemy turns into a gem */
+    POWER_WAVE,      /* Rinse Wave: a flood, every enemy turns into a gem */
+    POWER_WHISTLE,   /* Steam Whistle: enemies freeze; touching one defeats it */
+    POWER_GLOVE,     /* Fire Glove: fireballs instead of bubbles for the round */
+    POWER_RING,      /* Bubble Ring: +100 points per bubble blown */
+    POWER_COUNT
+};
+#define POWER_BIT(p) ((uint16_t)(1u << (p)))
+#define GEM_TIER 3   /* enemies defeated by items become 8,000 point gems */
 
 /* EXTEND: six letters per player (bit 0 = E ... bit 5 = D). */
 #define EXTEND_ALL 0x3Fu
@@ -79,6 +94,7 @@ typedef enum {
     GS_PAUSE,
     GS_CONTINUE,
     GS_GAME_OVER,
+    GS_ENDING,           /* after the boss (docs/story.md) */
     GS_NAME_ENTRY,
     GS_HISCORES
 } GameState;
@@ -93,7 +109,7 @@ typedef struct {
     uint8_t  extends_given;/* score-based extra lives already awarded */
     uint8_t  score[8];     /* decimal digits, most significant first */
     uint8_t  letters;      /* EXTEND letters collected (bit mask) */
-    uint8_t  powers;       /* power-ups held (bit mask of 1 << POWER_*) */
+    uint16_t powers;       /* power-ups held (POWER_BIT mask) */
     uint8_t  stun;         /* frames left stunned by fire */
     uint8_t  carried;      /* swept along by a water stream */
     uint8_t  facing_left;
@@ -166,6 +182,7 @@ extern uint8_t   g_round;          /* 1-based round number shown to the player *
 extern uint8_t   g_hurry;          /* hurry-up mode active */
 extern uint16_t  g_sfx;
 extern uint8_t   g_skip_rounds;    /* >0: end the round now and advance that many */
+extern uint16_t  g_freeze;         /* frames left of the Steam Whistle */
 
 /* Hidden counters that unlock power-ups (shared by both players). */
 typedef struct {
@@ -174,7 +191,12 @@ typedef struct {
     uint8_t  jumps;        /* jumps                  -> rate candy   */
     uint8_t  water;        /* water bubbles popped   -> umbrella     */
     uint16_t walked;       /* pixels walked          -> shoes        */
-    uint8_t  queued;       /* unlocked power-ups waiting (1 << POWER_*) */
+    uint8_t  food;         /* food items collected   -> Soap Star    */
+    uint8_t  water_kills;  /* enemies washed away    -> Rinse Wave   */
+    uint8_t  defeated;     /* enemies defeated       -> Steam Whistle */
+    uint8_t  fire_kills;   /* enemies burnt          -> Fire Glove   */
+    uint8_t  candies;      /* candies collected      -> Bubble Ring  */
+    uint16_t queued;       /* unlocked power-ups waiting (POWER_BIT mask) */
 } Counters;
 extern Counters  g_count;
 
@@ -241,7 +263,9 @@ uint8_t  enemies_entering(void);
 uint8_t  enemies_count(void);
 void     enemies_make_angry(void);
 void     enemies_calm_down(void);
-uint8_t  enemies_touch(uint16_t x, uint16_t y);   /* 1 if an enemy, rock or the chaser touches */
+uint8_t  enemies_touch(uint16_t x, uint16_t y);   /* 1 if an enemy, shot, chaser or the boss touches */
+void     enemies_to_gems(void);                   /* items: every enemy becomes a gem */
+void     enemies_defeat_at(uint16_t x, uint16_t y); /* Steam Whistle: touching frozen enemies */
 
 /* Hurry Up chaser: invincible, flies through walls towards the player. */
 void     chaser_reset(void);
@@ -254,7 +278,8 @@ void     enemies_draw(void);
 
 /* --- bubble.c --------------------------------------------------------------- */
 void     bubbles_clear(void);
-void     bubble_shoot(uint16_t x, uint16_t y, uint8_t facing_left, uint8_t powers);
+void     bubble_shoot(uint16_t x, uint16_t y, uint8_t facing_left, uint16_t powers);
+void     bubbles_trapped_to_gems(void);   /* items: trapped enemies become gems */
 void     bubble_spawn_special(uint8_t kind, uint8_t letter, uint16_t x, uint16_t y);
 void     bubble_pop(Bubble *b, int8_t dir, uint8_t player);   /* starts a chain reaction */
 uint8_t  bubbles_trapped_count(void);
@@ -266,6 +291,8 @@ void     items_clear(void);
 void     item_spawn(uint8_t kind, uint16_t x, uint16_t y, uint8_t tier);
 void     item_spawn_thrown(uint16_t x, uint16_t y, int8_t dir, uint8_t tier);
 void     item_spawn_shot(uint8_t shot, uint16_t x, uint16_t y, int8_t dir);   /* SHOT_* */
+void     item_spawn_soot(uint16_t x, uint16_t y, fx8_8 vx, fx8_8 vy);
+uint8_t  powerup_tile(uint8_t power);
 uint8_t  small_enemy_tile(uint8_t type);   /* picture inside a trapped bubble */
 void     item_spawn_powerup(uint8_t power, uint16_t x, uint16_t y);
 void     items_clear_rocks(void);
@@ -276,12 +303,26 @@ void     items_draw(void);
 /* --- effect.c --------------------------------------------------------------- */
 void     effects_clear(void);                     /* new round */
 void     effect_start(uint8_t kind, uint16_t x, uint16_t y, int8_t dir, uint8_t player);
+void     effect_start_glove(uint16_t x, uint16_t y, int8_t dir, uint8_t player);  /* fireball shot */
 void     effects_update(void);
 void     effects_draw(void);
 void     extend_letters_earned(uint8_t count);    /* queue letter bubbles */
 void     extend_collect(uint8_t player, uint8_t letter);
 void     counters_check(void);                    /* unlock power-ups */
 void     powerup_round_tick(void);                /* place a queued power-up */
+
+/* --- boss.c ----------------------------------------------------------------- */
+void     boss_reset(void);
+void     boss_spawn(void);
+uint8_t  boss_fighting(void);
+uint8_t  boss_hp(void);
+uint8_t  boss_defeated(void);           /* the giant bubble has been popped */
+uint16_t boss_center_x(void);
+uint16_t boss_center_y(void);
+uint8_t  boss_touch(uint16_t x, uint16_t y);
+uint8_t  boss_hit_by_bolt(uint16_t x, uint16_t y);
+void     boss_update(void);
+void     boss_draw(void);
 
 /* --- hiscore.c -------------------------------------------------------------- */
 #define HISCORE_COUNT 5

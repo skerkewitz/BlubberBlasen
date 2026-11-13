@@ -83,7 +83,7 @@ void bubble_spawn_special(uint8_t kind, uint8_t letter, uint16_t x, uint16_t y)
     b->y = y;
 }
 
-void bubble_shoot(uint16_t x, uint16_t y, uint8_t facing_left, uint8_t powers)
+void bubble_shoot(uint16_t x, uint16_t y, uint8_t facing_left, uint16_t powers)
 {
     Bubble *b = alloc_bubble();
     if (!b) {
@@ -117,6 +117,18 @@ void bubble_pop(Bubble *b, int8_t dir, uint8_t player)
     b->pop_timer = 1;
     chain_dir = dir;
     chain_owner = player;
+}
+
+void bubbles_trapped_to_gems(void)
+{
+    uint8_t i;
+    for (i = 0; i < MAX_BUBBLES; i++) {
+        Bubble *b = &g_bubbles[i];
+        if (b->state == BS_TRAPPED || (b->state == BS_POPPING && b->trapped)) {
+            item_spawn_thrown(b->x, b->y, (int8_t)((i & 1) ? -1 : 1), GEM_TIER);
+            b->state = BS_OFF;
+        }
+    }
 }
 
 uint8_t bubbles_trapped_count(void)
@@ -168,8 +180,12 @@ static void burst(Bubble *b)
         extend_collect(chain_owner, b->letter);
         item_spawn(IT_BURST, b->x, b->y, 0);
     } else if (b->kind != BK_NORMAL) {
-        /* Lightning flies away from the player who popped it. */
+        /* Lightning flies away from the player who popped it,
+         * or straight at the boss in round 100. */
         int8_t dir = b->kind == BK_LIGHTNING ? (int8_t)-chain_dir : chain_dir;
+        if (b->kind == BK_LIGHTNING && boss_fighting()) {
+            dir = (int8_t)(boss_center_x() > b->x + TO_POS(8) ? 1 : -1);
+        }
         if (b->kind == BK_WATER && g_count.water < 255) {
             g_count.water++;
         }
@@ -218,9 +234,14 @@ static void update_shot(Bubble *b)
         }
     }
 
-    if (b->age > b->shot_frames || b->x == before) {
+    if (b->age > b->shot_frames || b->x == before || boss_touch(b->x, b->y)) {
         b->state = BS_FLOAT;
         b->dir = AIR_UP;
+        /* In the boss round every bubble becomes a lightning bubble. */
+        if (level_defs[g_level].kind == LEVEL_BOSS) {
+            b->kind = BK_LIGHTNING;
+            b->age = 1;
+        }
     }
 }
 
