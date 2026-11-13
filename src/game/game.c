@@ -18,6 +18,8 @@
 #define CHASER_DELAY    600      /* frames after HURRY UP until the chaser comes */
 #define CONTINUE_FROM   9        /* the continue countdown starts here, one per second */
 #define SCROLL_SPEED    2        /* pixels per frame while the next round scrolls in */
+#define STORY_PAGE_FRAMES 360    /* each intro page stays up to 6 s */
+#define STORY_PAGES     3
 
 /* --- Shared state ------------------------------------------------------------ */
 GameState g_state;
@@ -50,6 +52,22 @@ static uint8_t  hurry_text;
 static uint8_t  first_level;     /* developer option, see game_debug_start_round() */
 static uint8_t  played[NUM_PLAYERS];  /* took part in this game (for the high scores) */
 static uint8_t  page;            /* layer 0 page showing the current round */
+static uint8_t  story_page;
+static uint8_t  story_starter;   /* who pressed Start on the title */
+static uint8_t  skip_story;      /* developer option */
+
+/* Intro pages (docs/story.md). Each line fits the 32 column screen. */
+static const char *const story_text[STORY_PAGES][6] = {
+    { "BLASENHAUSEN RUNS ON", "SOAP BUBBLES.", "", "THEY ALL COME FROM", "THE OLD BUBBLE FACTORY.", "" },
+    { "ONE NIGHT THE GRUMBLE", "BOILER TOOK OVER.", "", "NOW IT MAKES SOOT, AND", "ITS WORKERS HAVE TURNED", "INTO MONSTERS." },
+    { "ONLY TWO SOAP BLOBS GOT", "AWAY: BLUBBER AND BLASI.", "", "CLIMB THE FACTORY, SET", "THE WORKERS FREE AND", "STOP THE BOILER!" },
+};
+
+/* Factory floors, ten rounds each (docs/story.md). */
+static const char *const floor_names[11] = {
+    "THE CELLAR", "PIPE WORKS", "SPRING SHOP", "BOILER ROOM", "CONVEYOR HALLS", "DRYING LOFTS",
+    "DYE WORKS", "PUMP STATION", "PRESSURE TANKS", "THE CHIMNEY", "TOP OF THE BOILER"
+};
 static uint8_t  continue_count;
 static uint8_t  continue_frames;
 
@@ -254,6 +272,21 @@ static void round_intro(void)
     draw_hud_values();
     text_put(12, 12, "ROUND", PAL_YELLOW);
     text_number(18, 12, g_round, PAL_YELLOW);
+    {
+        /* floor = (round - 1) / 10, without a division */
+        uint8_t floor = 0, r = (uint8_t)(g_round - 1);
+        const char *name;
+        uint8_t len = 0;
+        while (r >= 10 && floor < 10) {
+            r = (uint8_t)(r - 10);
+            floor++;
+        }
+        name = floor_names[floor];
+        while (name[len]) {
+            len++;
+        }
+        text_put((uint8_t)((BG_W - len) >> 1), 13, name, PAL_CYAN);
+    }
     text_put(13, 15, "READY!", PAL_NONE);
     sfx(SFX_START);
     set_state(GS_ROUND_INTRO);
@@ -621,6 +654,77 @@ static void update_name_entry(uint16_t pressed)
     draw_name_entry();
 }
 
+/* --- Story --------------------------------------------------------------------------- */
+static void show_story_page(void)
+{
+    uint8_t i;
+    bg_clear(1);
+    for (i = 0; i < 6; i++) {
+        text_put(4, (uint8_t)(8 + (i << 1)), story_text[story_page][i], PAL_NONE);
+    }
+    text_put(6, 25, "START: SKIP", PAL_GREY);
+    state_timer = 0;
+}
+
+static void enter_story(uint8_t starter)
+{
+    clear_objects();
+    bg_clear(0);
+    bg_clear(1);
+    g_scroll_y = 0;
+    g_window_top = 0;
+    page = 0;
+    story_starter = starter;
+    story_page = 0;
+    set_state(GS_STORY);
+    show_story_page();
+}
+
+static void update_story(uint16_t any_pressed)
+{
+    if (any_pressed & PAD_START) {
+        new_game(story_starter);
+        return;
+    }
+    if ((any_pressed & (PAD_B | PAD_Y)) || state_timer >= STORY_PAGE_FRAMES) {
+        if (++story_page >= STORY_PAGES) {
+            new_game(story_starter);
+            return;
+        }
+        sfx(SFX_MENU);
+        show_story_page();
+    }
+}
+
+/* Sprites that go with the intro pages. */
+static void draw_story(void)
+{
+    uint8_t i;
+    uint8_t bob = (uint8_t)((g_frame >> 4) & 1);
+    switch (story_page) {
+    case 0:   /* bubbles rising along both sides of the text */
+        for (i = 0; i < 6; i++) {
+            uint8_t y = (uint8_t)(200 - ((g_frame + i * 61) & 191));
+            oam_add((uint8_t)((i & 1) ? SCREEN_W - 24 : 8), y, (uint8_t)(SPR_BUBBLE0 + (i % 3)), 0);
+        }
+        break;
+    case 1: { /* the bewitched workers */
+        static const uint8_t workers[7] = {
+            SPR_E_WALK0, SPR_THROWER0, SPR_BOUNCER0, SPR_FLUTTER0, SPR_HOPPER0, SPR_SPITTER0, SPR_DROPPER0
+        };
+        for (i = 0; i < 7; i++) {
+            oam_add((uint8_t)(40 + i * 26), (uint8_t)(40 + (bob ^ (i & 1))), (uint8_t)(workers[i] + bob), 0);
+        }
+        oam_add(120, 172, (uint8_t)(SPR_CHASER0 + bob), 0);
+        break;
+    }
+    default:  /* the two heroes */
+        oam_add(96, 172, (uint8_t)(SPR_P_WALK0 + bob), 0);
+        oam_add(144, 172, (uint8_t)(SPR_P_WALK0 + bob), (uint8_t)(SPR_ATTR_FLIP_X | (PAL_CYAN << SPR_ATTR_PAL_SHIFT)));
+        break;
+    }
+}
+
 /* --- Sprites ---------------------------------------------------------------------- */
 
 /* Spare lives as small heads on the bottom wall: player 1 from the left,
@@ -664,6 +768,10 @@ static void build_oam(void)
         items_draw();
         enemies_draw();
         bubbles_draw();
+    }
+
+    if (g_state == GS_STORY) {
+        draw_story();
     }
 
     for (i = oam_count; i < MAX_SPRITES; i++) {
@@ -714,10 +822,19 @@ void game_tick(const uint16_t pad[NUM_PLAYERS])
             text_clear_row(23);
         }
         if (any_pressed & PAD_START) {
-            new_game((uint8_t)((pressed[0] & PAD_START) ? 0 : 1));
+            uint8_t starter = (uint8_t)((pressed[0] & PAD_START) ? 0 : 1);
+            if (skip_story) {
+                new_game(starter);
+            } else {
+                enter_story(starter);
+            }
         } else if (state_timer >= TITLE_FRAMES) {
             enter_hiscores(HISCORE_COUNT);
         }
+        break;
+
+    case GS_STORY:
+        update_story(any_pressed);
         break;
 
     case GS_HISCORES:
@@ -737,6 +854,7 @@ void game_tick(const uint16_t pad[NUM_PLAYERS])
         draw_hud_values();
         if (state_timer >= INTRO_FRAMES && !players_entering() && !enemies_entering()) {
             text_clear_row(12);
+            text_clear_row(13);   /* floor name */
             text_clear_row(15);
             set_state(GS_PLAY);
         }
@@ -781,6 +899,11 @@ void game_tick(const uint16_t pad[NUM_PLAYERS])
 void game_debug_start_round(uint8_t round)
 {
     first_level = (uint8_t)(round >= 1 && round <= level_count ? round - 1 : 0);
+}
+
+void game_debug_skip_story(uint8_t skip)
+{
+    skip_story = skip;
 }
 
 void game_debug_clear_round(void)

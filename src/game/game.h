@@ -107,5 +107,6 @@ uint8_t        *game_sram(void);   /* SRAM_SIZE bytes; platform loads/saves them
 uint8_t         game_sram_dirty(void); /* 1 once after the game changed SRAM */
 void            game_debug_start_round(uint8_t round); /* developer option: new games start here (1-based) */
 void            game_debug_clear_round(void);          /* developer option: remove all enemies now */
+void            game_debug_skip_story(uint8_t skip);   /* developer option: no intro after the title */
 
 #endif /* BB_GAME_H */

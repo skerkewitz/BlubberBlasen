@@ -72,6 +72,7 @@ enum { POWER_RANGE, POWER_SPEED, POWER_RATE, POWER_SHOES, POWER_UMBRELLA, POWER_
 /* --- Top-level state ------------------------------------------------------- */
 typedef enum {
     GS_TITLE,
+    GS_STORY,            /* intro pages after the title (docs/story.md) */
     GS_TRANSITION,       /* the next round scrolls in */
     GS_ROUND_INTRO,
     GS_PLAY,

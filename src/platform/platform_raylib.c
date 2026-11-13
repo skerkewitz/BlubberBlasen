@@ -320,6 +320,8 @@ static void play_sounds(uint16_t mask)
  *   --seed <n>        fixed random seed (same seed + same input = same game)
  *   --round <n>       new games start at round n
  *   --clear <tick>    remove all enemies at that tick (to see the round end)
+ *   --skip-intro      no story pages after the title (also implied by --autoplay and --round)
+ *   --intro           show the story pages anyway (for screenshots with --autoplay)
  */
 #define MAX_SHOTS 16
 static int      opt_autoplay;
@@ -331,6 +333,8 @@ static long     opt_quit = -1;
 static long     opt_seed = -1;
 static long     opt_round = 1;
 static long     opt_clear = -1;
+static int      opt_skip_intro;
+static int      opt_intro;
 
 static void parse_args(int argc, char **argv)
 {
@@ -349,6 +353,10 @@ static void parse_args(int argc, char **argv)
             opt_shots[opt_shot_count++] = strtol(argv[++i], NULL, 10);
         } else if (strcmp(argv[i], "--quit") == 0 && i + 1 < argc) {
             opt_quit = strtol(argv[++i], NULL, 10);
+        } else if (strcmp(argv[i], "--intro") == 0) {
+            opt_intro = 1;
+        } else if (strcmp(argv[i], "--skip-intro") == 0) {
+            opt_skip_intro = 1;
         } else if (strcmp(argv[i], "--clear") == 0 && i + 1 < argc) {
             opt_clear = strtol(argv[++i], NULL, 10);
         } else if (strcmp(argv[i], "--round") == 0 && i + 1 < argc) {
@@ -415,6 +423,8 @@ int main(int argc, char **argv)
     }
     game_init((uint16_t)(opt_seed >= 0 ? opt_seed : GetRandomValue(1, 0xFFFF)));
     game_debug_start_round((uint8_t)(opt_round > 0 && opt_round < 256 ? opt_round : 1));
+    /* bot runs and direct round starts go straight into the game */
+    game_debug_skip_story((uint8_t)(!opt_intro && (opt_autoplay || opt_round != 1 || opt_skip_intro)));
 
     while (!WindowShouldClose()) {
         int ticks = 0;

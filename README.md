@@ -139,6 +139,8 @@ blubberblasen --autoplay --seed 7 --shot 300 --shot 900 --quit 1000
 | `--seed <n>` | Fixed random seed |
 | `--round <n>` | New games start at round n |
 | `--clear <tick>` | Remove all enemies at that tick, to see the end of a round |
+| `--skip-intro` | No story pages after the title (`--autoplay` and `--round` imply it) |
+| `--intro` | Show the story pages even with `--autoplay` or `--round` |
 | `--shot <tick>` | Save the framebuffer as `shot_<tick>.png` in the working directory (repeatable) |
 | `--quit <tick>` | Exit after that many game ticks |
 
@@ -226,6 +228,7 @@ grep -rnE 'raylib\.h|\bfloat\b|\bdouble\b|\b(malloc|calloc|realloc|free)\s*\(' s
 - [ADR-0001: Stage 1 prototype in C99 with raylib behind a thin platform layer](docs/adr/0001-stage1-platform-c-raylib.md)
 - [ADR-0002: Old-school game loop and data layout, structured like the later SNES version](docs/adr/0002-oldschool-game-loop-no-ecs.md)
 - Game Design Guide (arcade mechanics reference for the first playable version)
+- [Story](docs/story.md): the Blubber Factory, heroes, floors, secret rooms, boss and endings
 
 Project language is **English**: code, comments, commit messages, issues and documentation.
 

@@ -774,8 +774,39 @@ static void test_dropper(void)
     CHECK(count_shots(SHOT_DOWN) > 0, "dropper never shot down");
 }
 
+/* Title -> three story pages (B turns the page) -> game. */
+static void test_story(void)
+{
+    uint16_t pad[NUM_PLAYERS] = { 0, 0 };
+    int k;
+
+    game_debug_skip_story(0);
+    game_init(1);
+    pad[0] = PAD_START;
+    game_tick(pad);
+    CHECK(g_state == GS_STORY, "Start on the title should show the story");
+    for (k = 0; k < 3; k++) {
+        pad[0] = 0;
+        game_tick(pad);
+        pad[0] = PAD_B;
+        game_tick(pad);
+    }
+    CHECK(g_state == GS_ROUND_INTRO, "after three pages the game should start (state %d)", (int)g_state);
+
+    game_init(1);
+    pad[0] = PAD_START;
+    game_tick(pad);
+    pad[0] = 0;
+    game_tick(pad);
+    pad[0] = PAD_START;
+    game_tick(pad);
+    CHECK(g_state == GS_ROUND_INTRO, "Start should skip the story");
+    game_debug_skip_story(1);
+}
+
 int main(void)
 {
+    game_debug_skip_story(1);
     const char *t = getenv("BB_TRACE");
     trace = t ? strtoul(t, 0, 10) : 0;
     test_score();
@@ -801,6 +832,7 @@ int main(void)
     test_hopper();
     test_spitter();
     test_dropper();
+    test_story();
     test_determinism_and_play();
 
     if (failures) {
