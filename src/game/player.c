@@ -43,6 +43,7 @@ void player_start(Player *p)
     p->vx = 0;
     p->vy = 0;
     p->stun = 0;
+    p->carried = 0;
 }
 
 /* A new round: drift from the current position to the spawn point. */
@@ -260,6 +261,16 @@ void player_update(Player *p, uint16_t pad, uint16_t pressed)
             p->stun--;          /* burnt: no control for a moment */
             pad = 0;
             pressed = 0;
+        }
+        if (p->carried) {
+            /* Riding a water stream: the stream moves the player. */
+            if (!p->invulnerable && enemies_touch(p->x, p->y)) {
+                p->state = PS_DYING;
+                p->timer = 0;
+                p->carried = 0;
+                sfx(SFX_DEATH);
+            }
+            break;
         }
         walk(p, pad);
         jump_and_fall(p, pad);

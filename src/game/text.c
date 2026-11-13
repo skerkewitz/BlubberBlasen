@@ -9,8 +9,14 @@
 void bg_clear(uint8_t layer)
 {
     uint16_t i;
-    for (i = 0; i < BG_W * BG_H; i++) {
-        g_bg[layer][i] = 0;
+    if (layer == 0) {
+        for (i = 0; i < BG_W * BG0_ROWS; i++) {
+            g_bg0[i] = 0;
+        }
+    } else {
+        for (i = 0; i < BG_W * BG_H; i++) {
+            g_bg1[i] = 0;
+        }
     }
 }
 
@@ -28,7 +34,7 @@ static uint16_t char_tile(char c)
 
 void text_put(uint8_t col, uint8_t row, const char *s, uint8_t pal)
 {
-    uint16_t *dst = &g_bg[1][((uint16_t)row << 5) + col];
+    uint16_t *dst = &g_bg1[((uint16_t)row << 5) + col];
     while (*s && col < BG_W) {
         uint16_t t = char_tile(*s++);
         *dst++ = t ? BG_ENTRY(t, pal) : 0u;
@@ -38,7 +44,7 @@ void text_put(uint8_t col, uint8_t row, const char *s, uint8_t pal)
 
 void text_clear_row(uint8_t row)
 {
-    uint16_t *dst = &g_bg[1][(uint16_t)row << 5];
+    uint16_t *dst = &g_bg1[(uint16_t)row << 5];
     uint8_t i;
     for (i = 0; i < BG_W; i++) {
         dst[i] = 0;
@@ -48,7 +54,7 @@ void text_clear_row(uint8_t row)
 /* Digits without leading zeros; the last digit is always shown. */
 void text_digits(uint8_t col, uint8_t row, const uint8_t *digits, uint8_t n, uint8_t pal)
 {
-    uint16_t *dst = &g_bg[1][((uint16_t)row << 5) + col];
+    uint16_t *dst = &g_bg1[((uint16_t)row << 5) + col];
     uint8_t leading = 1;
     uint8_t i;
 

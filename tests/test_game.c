@@ -88,7 +88,7 @@ static uint16_t bot_pad(uint32_t frame, uint16_t *dir)
     if (((r >> 8) & 31) == 0) {
         pad |= PAD_B;                 /* jump now and then */
     }
-    if ((frame % 97) < 2 && g_state != GS_PLAY) {
+    if ((frame % 97) < 2 && g_state != GS_PLAY && g_state != GS_CONTINUE) {
         pad |= PAD_START;             /* skip title / confirm names */
     }
     return pad;
@@ -148,7 +148,7 @@ static RunResult run(uint16_t seed, uint32_t frames, int check_invariants)
         }
         for (l = 0; l < BG_LAYERS; l++) {
             const uint16_t *bg = game_bg((uint8_t)l);
-            for (i = 0; i < BG_W * BG_H; i += 7) {
+            for (i = 0; i < BG_W * (l == 0 ? BG0_ROWS : BG_H); i += 7) {
                 res.hash = fnv(res.hash, bg[i]);
             }
         }
@@ -241,7 +241,7 @@ static void test_chain(void)
     int f;
 
     game_init(1);
-    level_load(0);
+    level_load(0, 0);
     bubbles_clear();
     items_clear();
     for (i = 0; i < 4; i++) {
@@ -271,7 +271,7 @@ static void test_push(void)
     int16_t dx, dy;
 
     game_init(1);
-    level_load(0);
+    level_load(0, 0);
     bubbles_clear();
     g_bubbles[0] = make_trapped(100, 100);
     g_bubbles[1] = make_trapped(100, 100);
@@ -294,7 +294,7 @@ static void test_food_value(void)
     uint8_t i;
 
     game_init(1);
-    level_load(0);
+    level_load(0, 0);
     items_clear();
     for (i = 0; i < 8; i++) {
         g_players[0].score[i] = 0;
@@ -311,7 +311,7 @@ static void setup_room(uint8_t level)
 {
     game_init(1);
     g_level = level;
-    level_load(level);
+    level_load(level, 0);
     enemies_clear();
     bubbles_clear();
     items_clear();
@@ -580,6 +580,107 @@ static void test_special_emit(void)
     }
 }
 
+/* Out of lives: the continue countdown; Start brings the player back
+ * with fresh lives and the same score, waiting it out ends the game. */
+static void test_continue(void)
+{
+    uint16_t pad[NUM_PLAYERS] = { 0, 0 };
+    int f;
+
+    setup_room(0);
+    g_players[0].lives = 1;
+    g_players[0].score[4] = 7;
+    player_killed(&g_players[0]);
+    CHECK(g_state == GS_CONTINUE, "losing the last life should offer a continue");
+
+    pad[0] = PAD_START;
+    game_tick(pad);
+    CHECK(g_state == GS_PLAY && g_players[0].state == PS_ALIVE && g_players[0].lives == 3,
+          "Start should continue with 3 lives");
+    CHECK(g_players[0].score[4] == 7, "continuing keeps the score");
+
+    g_players[0].lives = 1;
+    player_killed(&g_players[0]);
+    pad[0] = 0;
+    for (f = 0; f < 60 * 11 && g_state == GS_CONTINUE; f++) {
+        game_tick(pad);
+    }
+    CHECK(g_state == GS_GAME_OVER, "the countdown should end in game over (state %d)", (int)g_state);
+}
+
+/* The round's bonus food appears after 10 s and is worth its value. */
+static void test_bonus_food(void)
+{
+    static const uint8_t expect[8] = { 0, 0, 0, 0, 0, 7, 0, 0 };   /* apple: 700 */
+    uint8_t i, found = 0;
+
+    setup_room(1);
+    for (i = 0; i < 8; i++) {
+        g_players[0].score[i] = 0;
+    }
+    g_level_frames = 600;
+    bonus_round_tick();
+    for (i = 0; i < MAX_ITEMS; i++) {
+        if (g_items[i].kind == IT_BONUS) {
+            found = 1;
+            g_players[0].x = g_items[i].x;
+            g_players[0].y = g_items[i].y;
+        }
+    }
+    CHECK(found, "no bonus food placed");
+    items_update();
+    CHECK(score_cmp(g_players[0].score, expect) == 0, "round 2 bonus food should be worth 700");
+}
+
+/* A water stream picks up a player and lets go when it ends. */
+static void test_water_carries(void)
+{
+    int f, carried = 0;
+
+    setup_room(0);
+    g_players[0].x = TO_POS(60);
+    effect_start(BK_WATER, TO_POS(40), TO_POS(PLAYER_SPAWN_Y), 1, 0);
+    for (f = 0; f < 500; f++) {
+        effects_update();
+        carried |= g_players[0].carried;
+    }
+    CHECK(carried, "water should carry the player");
+    CHECK(!g_players[0].carried, "the player should be released when the water ends");
+    CHECK(g_players[0].state == PS_ALIVE, "water must not hurt players");
+}
+
+/* Clearing a round scrolls the next one in: layer 0 moves by one page. */
+static void test_transition(void)
+{
+    uint16_t pad[NUM_PLAYERS] = { 0, 0 };
+    int f, i, saw_transition = 0, scroll_moved = 0;
+
+    for (i = 0; i < SRAM_SIZE; i++) {
+        game_sram()[i] = 0;
+    }
+    game_init(3);
+    pad[0] = PAD_START;
+    game_tick(pad);
+    pad[0] = 0;
+    for (f = 0; f < 60 * 20 && g_round == 1; f++) {
+        g_players[0].invulnerable = 200;
+        if (g_state == GS_PLAY) {
+            enemies_clear();          /* "defeat" everybody */
+        }
+        game_tick(pad);
+    }
+    for (f = 0; f < 600 && g_state != GS_ROUND_INTRO; f++) {
+        saw_transition |= g_state == GS_TRANSITION;
+        scroll_moved |= game_bg_scroll_y() != 0;
+        game_tick(pad);
+    }
+    CHECK(g_round == 2, "round 1 was not left (round %u)", g_round);
+    CHECK(saw_transition && scroll_moved, "no scrolling transition seen");
+    CHECK(g_state == GS_ROUND_INTRO && game_bg_scroll_y() == PAGE_PX, "transition should end on page 1 (scroll %u)",
+          game_bg_scroll_y());
+    CHECK(game_bg_window_top() == FIELD_Y, "the level must not show behind the HUD");
+}
+
 int main(void)
 {
     const char *t = getenv("BB_TRACE");
@@ -599,6 +700,10 @@ int main(void)
     test_extend();
     test_powerups();
     test_special_emit();
+    test_continue();
+    test_bonus_food();
+    test_water_carries();
+    test_transition();
     test_determinism_and_play();
 
     if (failures) {

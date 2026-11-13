@@ -48,6 +48,7 @@ typedef struct {
     uint8_t  trail_x[WATER_SEGMENTS];
     uint8_t  trail_y[WATER_SEGMENTS];
     uint8_t  trail_len;
+    uint8_t  carrying;       /* water: bit mask of players swept along */
 } Effect;
 
 static Effect   effects[MAX_EFFECTS];
@@ -61,6 +62,10 @@ void effects_clear(void)
     uint8_t i;
     for (i = 0; i < MAX_EFFECTS; i++) {
         effects[i].kind = EF_OFF;
+        effects[i].carrying = 0;
+    }
+    for (i = 0; i < NUM_PLAYERS; i++) {
+        g_players[i].carried = 0;
     }
     special_timer = 0;
     letter_timer = 0;
@@ -83,6 +88,7 @@ void effect_start(uint8_t kind, uint16_t x, uint16_t y, int8_t dir, uint8_t play
         ef->x = x;
         ef->y = y;
         ef->trail_len = 0;
+        ef->carrying = 0;
         return;
     }
 }
@@ -105,11 +111,50 @@ static void sweep_enemies(Effect *ef, uint16_t x, uint16_t y, uint8_t w, uint8_t
     }
 }
 
+static void release_players(Effect *ef)
+{
+    uint8_t i;
+    for (i = 0; i < NUM_PLAYERS; i++) {
+        if (ef->carrying & (1u << i)) {
+            g_players[i].carried = 0;
+            g_players[i].vy = 0;
+        }
+    }
+    ef->carrying = 0;
+}
+
+/* Players the stream touches ride along with its head, unharmed. */
+static void carry_players(Effect *ef)
+{
+    uint8_t i;
+    for (i = 0; i < NUM_PLAYERS; i++) {
+        Player *p = &g_players[i];
+        if (p->state != PS_ALIVE) {
+            if (ef->carrying & (1u << i)) {
+                p->carried = 0;
+                ef->carrying = (uint8_t)(ef->carrying & (0xFFu ^ (1u << i)));
+            }
+            continue;
+        }
+        if (!p->carried && overlap(p->x, p->y, ef->x, ef->y, 12, 12)) {
+            p->carried = 1;
+            ef->carrying = (uint8_t)(ef->carrying | (1u << i));
+        }
+        if (ef->carrying & (1u << i)) {
+            p->x = ef->x;
+            p->y = ef->y;
+            p->vx = 0;
+            p->vy = 0;
+        }
+    }
+}
+
 static void update_water(Effect *ef)
 {
     uint8_t i;
 
     if (++ef->timer >= WATER_FRAMES) {
+        release_players(ef);
         ef->kind = EF_OFF;
         return;
     }
@@ -126,7 +171,8 @@ static void update_water(Effect *ef)
             }
         }
     } else if (PX(ef->y) >= FIELD_BOTTOM - 16 - 2) {
-        ef->kind = EF_OFF;   /* poured out through the bottom gap */
+        release_players(ef);   /* riders drop out of the bottom and wrap to the top */
+        ef->kind = EF_OFF;     /* poured out through the bottom gap */
         return;
     } else {
         (void)level_fall(&ef->x, &ef->y, WATER_SPEED);
@@ -144,6 +190,7 @@ static void update_water(Effect *ef)
         }
     }
 
+    carry_players(ef);
     sweep_enemies(ef, ef->x, ef->y, 14, 14);
     for (i = 0; i < ef->trail_len; i++) {
         sweep_enemies(ef, TO_POS(ef->trail_x[i]), TO_POS(ef->trail_y[i]), 14, 14);

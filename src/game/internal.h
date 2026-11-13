@@ -47,11 +47,14 @@ enum {
     SPR_SPECIAL_WATER = 128, SPR_SPECIAL_FIRE = 129, SPR_SPECIAL_LIGHTNING = 130,
     SPR_LETTER0 = 131,                                    /* E X T N D */
     SPR_WATER0 = 136, SPR_FIREBALL = 138, SPR_FIRE0 = 139, SPR_BOLT0 = 141,
-    SPR_POWERUP0 = 144                                    /* POWER_* order */
+    SPR_POWERUP0 = 144,                                   /* POWER_* order */
+    SPR_BONUS0 = 149,                                     /* bonus food of the round */
+    SPR_LIFE1 = 153, SPR_LIFE2 = 154                      /* one / two life icons */
 };
 
 /* Score pop-ups (index into the pop-up cells). Food tier t uses POPUP_FOOD0 + t. */
-enum { POPUP_10 = 0, POPUP_500 = 1, POPUP_FOOD0 = 2, POPUP_100 = 9, POPUP_200 = 10 };
+enum { POPUP_10 = 0, POPUP_500 = 1, POPUP_FOOD0 = 2, POPUP_100 = 9, POPUP_200 = 10, POPUP_700 = 11 };
+#define BONUS_TYPES 4   /* cherry 500, apple 700, melon 1000, cake 2000 */
 
 /* Power-ups. The first four are kept by the player until they lose a life. */
 enum { POWER_RANGE, POWER_SPEED, POWER_RATE, POWER_SHOES, POWER_UMBRELLA, POWER_COUNT };
@@ -63,9 +66,11 @@ enum { POWER_RANGE, POWER_SPEED, POWER_RATE, POWER_SHOES, POWER_UMBRELLA, POWER_
 /* --- Top-level state ------------------------------------------------------- */
 typedef enum {
     GS_TITLE,
+    GS_TRANSITION,       /* the next round scrolls in */
     GS_ROUND_INTRO,
     GS_PLAY,
     GS_PAUSE,
+    GS_CONTINUE,
     GS_GAME_OVER,
     GS_NAME_ENTRY,
     GS_HISCORES
@@ -83,6 +88,7 @@ typedef struct {
     uint8_t  letters;      /* EXTEND letters collected (bit mask) */
     uint8_t  powers;       /* power-ups held (bit mask of 1 << POWER_*) */
     uint8_t  stun;         /* frames left stunned by fire */
+    uint8_t  carried;      /* swept along by a water stream */
     uint8_t  facing_left;
     uint8_t  on_ground;
     uint8_t  shoot_cooldown;
@@ -133,7 +139,7 @@ typedef struct {
 } Bubble;
 
 #define MAX_ITEMS 16
-typedef enum { IT_OFF, IT_THROWN, IT_FOOD, IT_BURST, IT_POPUP, IT_ROCK, IT_POWERUP } ItemKind;
+typedef enum { IT_OFF, IT_THROWN, IT_FOOD, IT_BURST, IT_POPUP, IT_ROCK, IT_POWERUP, IT_BONUS } ItemKind;
 
 typedef struct {
     uint8_t  kind;         /* ItemKind */
@@ -169,7 +175,14 @@ extern Enemy     g_enemies[MAX_ENEMIES];
 extern Bubble    g_bubbles[MAX_BUBBLES];
 extern Item      g_items[MAX_ITEMS];
 
-extern uint16_t  g_bg[BG_LAYERS][BG_W * BG_H];
+extern uint16_t  g_bg0[BG_W * BG0_ROWS];   /* level / title, scrolls */
+extern uint16_t  g_bg1[BG_W * BG_H];       /* text and HUD */
+extern uint16_t  g_scroll_y;               /* layer 0 scroll */
+extern uint8_t   g_window_top;             /* layer 0 hidden above this y */
+
+/* Layer 0 holds two screens ("pages"), 32 rows apart. */
+#define PAGE_ROWS  32
+#define PAGE_PX    (PAGE_ROWS * 8)
 
 /* --- game.c ----------------------------------------------------------------- */
 uint16_t rng_next(void);
@@ -180,7 +193,7 @@ uint8_t  overlap(uint16_t ax, uint16_t ay, uint16_t bx, uint16_t by, uint8_t w, 
 void     player_killed(Player *p);
 
 /* --- level.c ---------------------------------------------------------------- */
-void     level_load(uint8_t index);
+void     level_load(uint8_t index, uint8_t page);   /* collision + draw into a page */
 uint8_t  level_solid_tile(int16_t tx, int16_t ty);
 uint8_t  level_air_at(uint8_t sx, uint8_t sy);       /* screen pixel */
 uint8_t  level_solid_px(int16_t sx, int16_t sy);     /* screen pixel */
@@ -247,6 +260,7 @@ void     item_spawn_thrown(uint16_t x, uint16_t y, int8_t dir, uint8_t tier);
 void     item_spawn_rock(uint16_t x, uint16_t y, int8_t dir);
 void     item_spawn_powerup(uint8_t power, uint16_t x, uint16_t y);
 void     items_clear_rocks(void);
+void     bonus_round_tick(void);    /* places the round's bonus food */
 void     items_update(void);
 void     items_draw(void);
 

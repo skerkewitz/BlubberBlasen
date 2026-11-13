@@ -24,12 +24,21 @@ static const uint8_t food_value[FOOD_TIERS][2] = {
     { 0, 1 }, { 0, 2 }, { 0, 4 }, { 0, 8 }, { 1, 6 }, { 3, 2 }, { 6, 4 }
 };
 
+#define BONUS_DELAY    600      /* frames after the round start */
+#define BONUS_FRAMES   600
+
+/* Bonus food values as (decimal position, digit) and their pop-ups. */
+static const uint8_t bonus_value[BONUS_TYPES][2] = { { 2, 5 }, { 2, 7 }, { 3, 1 }, { 3, 2 } };
+static const uint8_t bonus_popup[BONUS_TYPES] = { POPUP_500, POPUP_700, POPUP_FOOD0, POPUP_FOOD0 + 1 };
+static uint8_t bonus_placed;
+
 void items_clear(void)
 {
     uint8_t i;
     for (i = 0; i < MAX_ITEMS; i++) {
         g_items[i].kind = IT_OFF;
     }
+    bonus_placed = 0;
 }
 
 static Item *alloc_item(uint8_t kind, uint16_t x, uint16_t y, uint8_t tier)
@@ -104,6 +113,28 @@ static void collect_powerup(Item *it, Player *p)
     sfx(SFX_EXTRA);
     it->kind = IT_POPUP;
     it->timer = POPUP_FRAMES;
+}
+
+/* One bonus food per round, on the last enemy's spawn point (a platform). */
+void bonus_round_tick(void)
+{
+    const LevelDef *def = &level_defs[g_level];
+    const LevelEnemy *slot;
+    Item *it;
+
+    if (bonus_placed || g_level_frames != BONUS_DELAY || def->enemy_count == 0) {
+        return;
+    }
+    bonus_placed = 1;
+    slot = &def->enemies[def->enemy_count - 1];
+    if (slot->type == ENEMY_TYPE_BOUNCER) {
+        slot = &def->enemies[0];   /* bouncers may start in mid-air */
+    }
+    it = alloc_item(IT_BONUS, TO_POS(slot->x << 3), TO_POS(FIELD_Y + (slot->y << 3) - 8),
+                    (uint8_t)(g_level & (BONUS_TYPES - 1)));
+    if (it) {
+        it->timer = BONUS_FRAMES;
+    }
 }
 
 void items_clear_rocks(void)
@@ -191,6 +222,24 @@ void items_update(void)
             update_rock(it);
             break;
 
+        case IT_BONUS: {
+            uint8_t k;
+            for (k = 0; k < NUM_PLAYERS && it->kind == IT_BONUS; k++) {
+                Player *p = &g_players[k];
+                if (p->state == PS_ALIVE && overlap(p->x, p->y, it->x, it->y, 12, 12)) {
+                    score_add(p->score, bonus_value[it->tier][0], bonus_value[it->tier][1]);
+                    sfx(SFX_GEM);
+                    it->kind = IT_POPUP;
+                    it->tier = bonus_popup[it->tier];
+                    it->timer = POPUP_FRAMES;
+                }
+            }
+            if (it->kind == IT_BONUS && --it->timer == 0) {
+                it->kind = IT_OFF;
+            }
+            break;
+        }
+
         case IT_POWERUP: {
             uint8_t k;
             for (k = 0; k < NUM_PLAYERS && it->kind == IT_POWERUP; k++) {
@@ -257,6 +306,11 @@ void items_draw(void)
             break;
         case IT_ROCK:
             oam_add(PX(it->x), PX(it->y), (uint8_t)(SPR_ROCK0 + ((g_frame >> 2) & 1)), 0);
+            break;
+        case IT_BONUS:
+            if (it->timer >= 120 || !(it->timer & 4)) {
+                oam_add(PX(it->x), PX(it->y), (uint8_t)(SPR_BONUS0 + it->tier), 0);
+            }
             break;
         case IT_POWERUP:
             if (it->timer >= 120 || !(it->timer & 4)) {

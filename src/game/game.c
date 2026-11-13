@@ -16,6 +16,8 @@
 #define ENTRY_TIMEOUT   1800
 #define MAX_LIVES       9
 #define CHASER_DELAY    600      /* frames after HURRY UP until the chaser comes */
+#define CONTINUE_FROM   9        /* the continue countdown starts here, one per second */
+#define SCROLL_SPEED    2        /* pixels per frame while the next round scrolls in */
 
 /* --- Shared state ------------------------------------------------------------ */
 GameState g_state;
@@ -32,7 +34,10 @@ Player    g_players[NUM_PLAYERS];
 Enemy     g_enemies[MAX_ENEMIES];
 Bubble    g_bubbles[MAX_BUBBLES];
 Item      g_items[MAX_ITEMS];
-uint16_t  g_bg[BG_LAYERS][BG_W * BG_H];
+uint16_t  g_bg0[BG_W * BG0_ROWS];
+uint16_t  g_bg1[BG_W * BG_H];
+uint16_t  g_scroll_y;
+uint8_t   g_window_top;
 
 /* --- Local state ------------------------------------------------------------- */
 static Sprite   oam[MAX_SPRITES];
@@ -44,6 +49,9 @@ static uint16_t clear_timer;
 static uint8_t  hurry_text;
 static uint8_t  first_level;     /* developer option, see game_debug_start_round() */
 static uint8_t  played[NUM_PLAYERS];  /* took part in this game (for the high scores) */
+static uint8_t  page;            /* layer 0 page showing the current round */
+static uint8_t  continue_count;
+static uint8_t  continue_frames;
 
 /* Extra lives at 30,000 and 100,000 points. */
 static const uint8_t extend_scores[2][8] = {
@@ -131,8 +139,9 @@ static uint8_t any_alive(void)
 }
 
 /* --- HUD ------------------------------------------------------------------------
- * Row 0: 1UP + lives, HIGH SCORE, 2UP + lives. Row 1: the three scores.
- * The round number sits on the left wall. */
+ * Row 0: 1UP, HIGH SCORE, 2UP. Row 1: the three scores. The round number
+ * sits on the left wall, the EXTEND letters on the side walls and the spare
+ * lives (sprites) in the bottom corners. */
 static void draw_hud_labels(void)
 {
     text_put(2, 0, "1UP", PAL_GREEN);
@@ -155,24 +164,13 @@ static const uint8_t *best_score(void)
 static void draw_hud_values(void)
 {
     static const uint8_t score_col[NUM_PLAYERS] = { 0, 24 };
-    static const uint8_t lives_col[NUM_PLAYERS] = { 6, 29 };
     uint8_t i;
 
     for (i = 0; i < NUM_PLAYERS; i++) {
         const Player *p = &g_players[i];
-        if (p->state == PS_OFF) {
-            text_put(lives_col[i], 0, "  ", PAL_NONE);
-            if (g_frame & 32) {
-                text_put(score_col[i], 1, " START  ", PAL_YELLOW);
-            } else {
-                text_digits(score_col[i], 1, p->score, 8, PAL_NONE);
-            }
+        if (p->state == PS_OFF && (g_frame & 32)) {
+            text_put(score_col[i], 1, " START  ", PAL_YELLOW);
         } else {
-            char lives[3];
-            lives[0] = '*';
-            lives[1] = (char)('0' + p->lives);   /* MAX_LIVES is a single digit */
-            lives[2] = 0;
-            text_put(lives_col[i], 0, lives, PAL_YELLOW);
             text_digits(score_col[i], 1, p->score, 8, PAL_NONE);
         }
     }
@@ -202,9 +200,12 @@ static void enter_title(void)
     clear_objects();
     bg_clear(0);
     bg_clear(1);
+    g_scroll_y = 0;
+    g_window_top = 0;
+    page = 0;
     for (r = 0; r < CHR_TITLE_H; r++) {
         for (c = 0; c < CHR_TITLE_W; c++) {
-            g_bg[0][(r << 5) + c] = (uint16_t)(CHR_TITLE_BASE + (r << 5) + c);
+            g_bg0[(r << 5) + c] = (uint16_t)(CHR_TITLE_BASE + (r << 5) + c);
         }
     }
     text_put(8, 25, "HI", PAL_RED);
@@ -218,17 +219,21 @@ static void enter_hiscores(uint8_t highlight)
     clear_objects();
     bg_clear(0);
     bg_clear(1);
+    g_scroll_y = 0;
+    g_window_top = 0;
+    page = 0;
     text_put(9, 4, "BEST BLASTERS", PAL_YELLOW);
     hiscore_draw_table(9, highlight);
     set_state(GS_HISCORES);
 }
 
 /* --- Rounds --------------------------------------------------------------------- */
-static void start_round(void)
+/* The round's room is in place (page shown): enemies drop in, players
+ * drift to their corners, "ROUND n / READY!". */
+static void round_intro(void)
 {
     uint8_t i;
 
-    level_load(g_level);
     bubbles_clear();
     items_clear();
     effects_clear();
@@ -252,6 +257,51 @@ static void start_round(void)
     text_put(13, 15, "READY!", PAL_NONE);
     sfx(SFX_START);
     set_state(GS_ROUND_INTRO);
+}
+
+/* First round of a game: no scrolling. */
+static void start_round(void)
+{
+    page = 0;
+    g_scroll_y = 0;
+    g_window_top = FIELD_Y;
+    level_load(g_level, page);
+    round_intro();
+}
+
+/* Later rounds: draw the next room into the other page and scroll it in.
+ * Everything in the old room disappears; the players drift along. */
+static void begin_transition(void)
+{
+    uint8_t i;
+
+    level_load(g_level, (uint8_t)(page ^ 1));
+    bubbles_clear();
+    items_clear();
+    effects_clear();
+    enemies_clear();
+    for (i = 0; i < NUM_PLAYERS; i++) {
+        player_enter_round(&g_players[i]);
+    }
+    text_clear_row(12);
+    text_clear_row(13);
+    text_clear_row(15);
+    set_state(GS_TRANSITION);
+}
+
+static void update_transition(void)
+{
+    uint16_t target = (uint16_t)((page ^ 1) ? PAGE_PX : 0);
+    uint8_t i;
+
+    for (i = 0; i < NUM_PLAYERS; i++) {
+        player_update(&g_players[i], 0, 0);
+    }
+    g_scroll_y = (uint16_t)((g_scroll_y + SCROLL_SPEED) & (BG0_ROWS * 8 - 1));
+    if (g_scroll_y == target) {
+        page = (uint8_t)(page ^ 1);
+        round_intro();
+    }
 }
 
 /* A player starts or continues: fresh lives, the score is kept. */
@@ -301,7 +351,7 @@ static void next_round(uint8_t advance)
             g_round++;
         }
     }
-    start_round();
+    begin_transition();
 }
 
 /* Called by the player module when a death animation has finished.
@@ -324,10 +374,41 @@ void player_killed(Player *p)
     }
     p->state = PS_OFF;
     if (players_in_game() == 0) {
-        text_put(11, 13, "GAME OVER", PAL_RED);
-        sfx(SFX_GAMEOVER);
-        set_state(GS_GAME_OVER);
+        /* Everybody is out: offer a continue before the game is over. */
+        continue_count = CONTINUE_FROM;
+        continue_frames = 0;
+        text_put(11, 12, "CONTINUE?", PAL_YELLOW);
+        text_number(14, 14, continue_count, PAL_NONE);
+        set_state(GS_CONTINUE);
     }
+}
+
+static void update_continue(const uint16_t pressed[NUM_PLAYERS])
+{
+    uint8_t i;
+    for (i = 0; i < NUM_PLAYERS; i++) {
+        if (pressed[i] & PAD_START) {
+            join(&g_players[i]);
+            text_clear_row(12);
+            text_clear_row(14);
+            g_state = GS_PLAY;
+            return;
+        }
+    }
+    if (++continue_frames >= 60) {
+        continue_frames = 0;
+        if (continue_count == 0) {
+            text_clear_row(12);
+            text_clear_row(14);
+            text_put(11, 13, "GAME OVER", PAL_RED);
+            sfx(SFX_GAMEOVER);
+            set_state(GS_GAME_OVER);
+            return;
+        }
+        continue_count--;
+        sfx(SFX_MENU);
+    }
+    text_number(14, 14, continue_count, PAL_NONE);
 }
 
 static void check_extra_lives(Player *p)
@@ -388,6 +469,7 @@ static void update_play(const uint16_t pad[NUM_PLAYERS], const uint16_t pressed[
     effects_update();
     counters_check();
     powerup_round_tick();
+    bonus_round_tick();
 
     /* EXTEND completed or umbrella collected: the round ends at once. */
     if (g_skip_rounds) {
@@ -470,6 +552,9 @@ static void enter_name_entry(uint8_t player, uint8_t rank)
     clear_objects();
     bg_clear(0);
     bg_clear(1);
+    g_scroll_y = 0;
+    g_window_top = 0;
+    page = 0;
     entry_player = player;
     entry_rank = rank;
     entry_pos = 0;
@@ -537,16 +622,43 @@ static void update_name_entry(uint16_t pressed)
 }
 
 /* --- Sprites ---------------------------------------------------------------------- */
+
+/* Spare lives as small heads on the bottom wall: player 1 from the left,
+ * player 2 (tinted) from the right. One sprite holds two heads. */
+static void draw_lives(void)
+{
+    uint8_t i;
+    for (i = 0; i < NUM_PLAYERS; i++) {
+        const Player *p = &g_players[i];
+        uint8_t spare, x;
+        uint8_t attr = (uint8_t)(i == 0 ? 0u : (PAL_CYAN << SPR_ATTR_PAL_SHIFT));
+        if (p->state == PS_OFF || p->lives < 2) {
+            continue;
+        }
+        spare = (uint8_t)(p->lives - 1);
+        x = (uint8_t)(i == 0 ? 0 : SCREEN_W - 16);
+        while (spare) {
+            uint8_t tile = (uint8_t)(spare >= 2 ? SPR_LIFE2 : SPR_LIFE1);
+            /* player 2's single head sits at the right edge of its cell */
+            oam_add(x, SCREEN_H - 16, tile, (uint8_t)(attr | (i && spare == 1 ? SPR_ATTR_FLIP_X : 0u)));
+            spare = (uint8_t)(spare >= 2 ? spare - 2 : 0);
+            x = (uint8_t)(i == 0 ? x + 16 : x - 16);
+        }
+    }
+}
+
 static void build_oam(void)
 {
     uint8_t i;
     oam_count = 0;
 
-    if (g_state == GS_ROUND_INTRO || g_state == GS_PLAY || g_state == GS_PAUSE || g_state == GS_GAME_OVER) {
+    if (g_state == GS_TRANSITION || g_state == GS_ROUND_INTRO || g_state == GS_PLAY || g_state == GS_PAUSE ||
+        g_state == GS_CONTINUE || g_state == GS_GAME_OVER) {
         /* Lower index = higher priority (drawn on top). */
         for (i = 0; i < NUM_PLAYERS; i++) {
             player_draw(&g_players[i]);
         }
+        draw_lives();
         chaser_draw();
         effects_draw();
         items_draw();
@@ -642,6 +754,15 @@ void game_tick(const uint16_t pad[NUM_PLAYERS])
         }
         break;
 
+    case GS_CONTINUE:
+        update_continue(pressed);
+        break;
+
+    case GS_TRANSITION:
+        update_transition();
+        draw_hud_values();
+        break;
+
     case GS_GAME_OVER:
         if (state_timer >= GAME_OVER_FRAMES) {
             next_name_entry(0, HISCORE_COUNT);
@@ -662,6 +783,12 @@ void game_debug_start_round(uint8_t round)
     first_level = (uint8_t)(round >= 1 && round <= level_count ? round - 1 : 0);
 }
 
+void game_debug_clear_round(void)
+{
+    enemies_clear();
+    bubbles_clear();
+}
+
 const Sprite *game_oam(void)
 {
     return oam;
@@ -669,7 +796,17 @@ const Sprite *game_oam(void)
 
 const uint16_t *game_bg(uint8_t layer)
 {
-    return g_bg[layer < BG_LAYERS ? layer : 0];
+    return layer == 1 ? g_bg1 : g_bg0;
+}
+
+uint16_t game_bg_scroll_y(void)
+{
+    return g_scroll_y;
+}
+
+uint8_t game_bg_window_top(void)
+{
+    return g_window_top;
 }
 
 uint16_t game_sfx(void)

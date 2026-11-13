@@ -224,7 +224,7 @@ void level_opening(uint16_t *x, uint16_t *y)
     *y = TO_POS(FIELD_BOTTOM - 40);
 }
 
-void level_load(uint8_t index)
+void level_load(uint8_t index, uint8_t page)
 {
     uint16_t base;
     int16_t x, y;
@@ -237,9 +237,15 @@ void level_load(uint8_t index)
 
     cells = level_defs[index].cells;
 
-    bg_clear(0);
+    {
+        uint16_t *dst = &g_bg0[(uint16_t)(page * PAGE_ROWS) << 5];
+        uint16_t i;
+        for (i = 0; i < BG_W * PAGE_ROWS; i++) {
+            dst[i] = 0;
+        }
+    }
     for (y = 0; y < LEVEL_H; y++) {
-        uint16_t *row = &g_bg[0][(uint16_t)(y + HUD_ROWS) << 5];
+        uint16_t *row = &g_bg0[(uint16_t)(page * PAGE_ROWS + y + HUD_ROWS) << 5];
         for (x = 0; x < LEVEL_W; x++) {
             uint8_t t = autotile(x, y);
             row[x] = (t == 0xFF) ? 0u : (uint16_t)(base + t);

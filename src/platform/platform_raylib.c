@@ -261,18 +261,29 @@ static void draw_cell(Texture2D tex, int index, int size, int x, int y, int flip
     DrawTextureRec(tex, src, (Vector2){ (float)x, (float)y }, tint);
 }
 
-static void draw_bg(const uint16_t *map)
+/* Draw a tilemap of `rows` rows, vertically scrolled by scroll_y pixels
+ * (wrapping around), only below screen line window_top. */
+static void draw_bg(const uint16_t *map, int rows, int scroll_y, int window_top)
 {
-    int i;
-    for (i = 0; i < BG_W * BG_H; i++) {
-        uint16_t e = map[i];
-        int tile = e & BG_TILE_MASK;
-        if (tile == 0) {
-            continue;
+    int r, c;
+    int first_row = scroll_y / TILE;
+    int fine = scroll_y % TILE;
+
+    BeginScissorMode(0, window_top, SCREEN_W, SCREEN_H - window_top);
+    for (r = 0; r <= BG_H; r++) {
+        const uint16_t *line = &map[((first_row + r) % rows) * BG_W];
+        int y = r * TILE - fine;
+        for (c = 0; c < BG_W; c++) {
+            uint16_t e = line[c];
+            int tile = e & BG_TILE_MASK;
+            if (tile == 0) {
+                continue;
+            }
+            draw_cell(chr_bg, tile, TILE, c * TILE, y,
+                      (e & BG_FLIP_X) != 0, (e & BG_FLIP_Y) != 0, palette[(e >> BG_PAL_SHIFT) & 7]);
         }
-        draw_cell(chr_bg, tile, TILE, (i % BG_W) * TILE, (i / BG_W) * TILE,
-                  (e & BG_FLIP_X) != 0, (e & BG_FLIP_Y) != 0, palette[(e >> BG_PAL_SHIFT) & 7]);
     }
+    EndScissorMode();
 }
 
 static void draw_sprites(const Sprite *oam)
@@ -308,6 +319,7 @@ static void play_sounds(uint16_t mask)
  *   --quit <tick>     exit after that many game ticks
  *   --seed <n>        fixed random seed (same seed + same input = same game)
  *   --round <n>       new games start at round n
+ *   --clear <tick>    remove all enemies at that tick (to see the round end)
  */
 #define MAX_SHOTS 16
 static int      opt_autoplay;
@@ -318,6 +330,7 @@ static int      opt_shot_count;
 static long     opt_quit = -1;
 static long     opt_seed = -1;
 static long     opt_round = 1;
+static long     opt_clear = -1;
 
 static void parse_args(int argc, char **argv)
 {
@@ -336,6 +349,8 @@ static void parse_args(int argc, char **argv)
             opt_shots[opt_shot_count++] = strtol(argv[++i], NULL, 10);
         } else if (strcmp(argv[i], "--quit") == 0 && i + 1 < argc) {
             opt_quit = strtol(argv[++i], NULL, 10);
+        } else if (strcmp(argv[i], "--clear") == 0 && i + 1 < argc) {
+            opt_clear = strtol(argv[++i], NULL, 10);
         } else if (strcmp(argv[i], "--round") == 0 && i + 1 < argc) {
             opt_round = strtol(argv[++i], NULL, 10);
         } else if (strcmp(argv[i], "--seed") == 0 && i + 1 < argc) {
@@ -420,6 +435,9 @@ int main(int argc, char **argv)
             if (opt_autoplay2) {
                 pad[1] = (uint16_t)(pad[1] | autoplay_pad(ticks_total + 60, 1));
             }
+            if (ticks_total == opt_clear) {
+                game_debug_clear_round();
+            }
             game_tick(pad);
             play_sounds(game_sfx());
             if (game_sram_dirty()) {
@@ -436,9 +454,9 @@ int main(int argc, char **argv)
         /* Render into the 256x224 "SNES" framebuffer. */
         BeginTextureMode(fb);
         ClearBackground(BLACK);
-        draw_bg(game_bg(0));
+        draw_bg(game_bg(0), BG0_ROWS, game_bg_scroll_y(), game_bg_window_top());
         draw_sprites(game_oam());
-        draw_bg(game_bg(1));
+        draw_bg(game_bg(1), BG_H, 0, 0);
         EndTextureMode();
         if (opt_shot_count) {
             take_shots(fb, ticks_total);

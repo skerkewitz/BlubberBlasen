@@ -60,12 +60,14 @@ typedef struct {
 } Sprite;
 
 /* --- Background tilemaps -----------------------------------------------------
- * Two layers of 32 x 28 entries of 8x8 tiles, SNES entry layout:
+ * Layer 0 is a 32 x 64 map (two screens on top of each other) that scrolls
+ * vertically; layer 1 is a fixed 32 x 28 map. Entries of 8x8 tiles, SNES layout:
  *   bit 15 flip y, bit 14 flip x, bits 10..12 palette, bits 0..9 tile.
  * Layer 0 (level, title logo) is drawn below the sprites,
  * layer 1 (text, HUD) above them. Tile 0 is transparent. */
 #define BG_W       32
-#define BG_H       28
+#define BG_H       28     /* visible rows; size of layer 1 */
+#define BG0_ROWS   64     /* rows of layer 0; scrolling wraps around after 512 px */
 #define BG_LAYERS  2
 #define BG_TILE_MASK   0x03FFu
 #define BG_PAL_SHIFT   10
@@ -97,10 +99,13 @@ enum {
 void            game_init(uint16_t seed);                    /* after SRAM was filled */
 void            game_tick(const uint16_t pad[NUM_PLAYERS]);  /* exactly once per 60 Hz frame */
 const Sprite   *game_oam(void);                              /* MAX_SPRITES entries */
-const uint16_t *game_bg(uint8_t layer);                      /* BG_W * BG_H entries */
+const uint16_t *game_bg(uint8_t layer);   /* layer 0: BG_W * BG0_ROWS, layer 1: BG_W * BG_H entries */
+uint16_t        game_bg_scroll_y(void);   /* layer 0 vertical scroll in pixels, 0..BG0_ROWS*8-1 */
+uint8_t         game_bg_window_top(void); /* layer 0 is only shown from this screen y down */
 uint16_t        game_sfx(void);    /* bit mask of SFX_* requested by the last tick */
 uint8_t        *game_sram(void);   /* SRAM_SIZE bytes; platform loads/saves them */
 uint8_t         game_sram_dirty(void); /* 1 once after the game changed SRAM */
 void            game_debug_start_round(uint8_t round); /* developer option: new games start here (1-based) */
+void            game_debug_clear_round(void);          /* developer option: remove all enemies now */
 
 #endif /* BB_GAME_H */
