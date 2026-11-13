@@ -133,8 +133,11 @@ blubberblasen --autoplay --seed 7 --shot 300 --shot 900 --quit 1000
 
 | Option | Effect |
 |---|---|
-| `--autoplay` | A simple built-in bot plays |
+| `--autoplay` | A simple built-in bot plays (sound off) |
+| `--autoplay2` | Two bots play, one per player (sound off) |
+| `--mute` | No sound |
 | `--seed <n>` | Fixed random seed |
+| `--round <n>` | New games start at round n |
 | `--shot <tick>` | Save the framebuffer as `shot_<tick>.png` in the working directory (repeatable) |
 | `--quit <tick>` | Exit after that many game ticks |
 
@@ -180,24 +183,24 @@ Keeping `game` as a separate library without a raylib link dependency makes acci
 
 ## Controls (default)
 
-| SNES button | Keyboard (P1) | Gamepad |
-|-------------|---------------|---------|
-| D-Pad | Arrow keys / `WASD` | D-Pad / left stick |
-| B (jump) | `K` | South button |
-| Y (bubble) | `J` | West button |
-| A | `C` | East button |
-| X | `V` | North button |
-| L / R | `Q` / `E` | LB / RB |
-| Start | `Enter` | Start |
-| Select | `Right Shift` | Back / Select |
+| SNES button | Keyboard player 1 | Keyboard player 2 | Gamepad |
+|-------------|-------------------|-------------------|---------|
+| D-Pad | `WASD` | Arrow keys | D-Pad / left stick |
+| B (jump) | `K` | `.` | South button |
+| Y (bubble) | `J` | `,` | West button |
+| A | `C` | | East button |
+| X | `V` | | North button |
+| L / R | `Q` / `E` | | LB / RB |
+| Start | `Enter` | `Right Ctrl` | Start |
+| Select | `Right Shift` | | Back / Select |
 
-The game starts on the title screen: press **Enter** (Start) to begin.
+The first gamepad belongs to player 1, the second to player 2. The game starts on the title screen: press Start to begin. The other player can join at any time with their Start button. A player with no lives left can continue the same way (the score is kept). During play, Start pauses.
+
+Mappings live in `src/platform/platform_raylib.c` and may change. `Esc` quits, `F11` toggles full screen.
 
 ## How to play
 
-Shoot bubbles (Y) at the enemies to trap them, then touch the trapped enemy to defeat it: it flies through the room and lands as a gem. Touching an enemy that is not in a bubble costs a life. A trapped enemy breaks free after a few seconds, angry and faster. Floating bubbles pop when you touch them, but if you fall onto one while holding jump (B), you bounce off it. After 30 seconds in a round the remaining enemies get angry ("HURRY UP!"). Clear all enemies to get to the next round. You have 3 lives; a good score gets you into the high score table.
-
-Mappings live in `src/platform/platform_raylib.c` and may change. `Esc` quits. The first prototype is single player; the second pad is read but not used in play yet.
+Shoot bubbles (Y) at the enemies to trap them, then touch the trapped enemy to defeat it: it flies through the room and lands as food. Touching an enemy that is not in a bubble costs a life. A trapped enemy breaks free after a few seconds, angry and faster. Floating bubbles pop when you touch them, but if you fall onto one while holding jump (B), you bounce off it. Two players play at the same time and share the room. Every bubble a popped bubble touches pops too: defeat several enemies in one chain and each one's food is worth double the one before (1,000, 2,000, 4,000 ... 64,000). There are three enemy types: walkers, throwers that stop and throw rocks, and bouncers that fly diagonally through the platforms. The last enemy in a round gets angry, and when the round's time runs out all of them do ("HURRY UP!"); ten seconds later an invincible storm cloud comes for you. Losing a life calms everything down again. Some rounds send in special bubbles: water washes enemies away (all of them one combo), fire drops onto a platform and burns (it stuns players too), lightning flies across the room. A chain of three or more enemies earns EXTEND letter bubbles; collect E-X-T-E-N-D (shown on the side walls) for an extra life and an instant round skip. Hidden counters (bubbles blown, bubbles popped, jumps, distance walked, water bubbles popped) unlock power-ups that appear on a platform in a later round: three candies (bubbles fly farther, faster, more often), shoes (run faster) and an umbrella (skip 3 rounds). Candies and shoes are lost with a life. Clear all enemies to get to the next round. You have 3 lives, plus one at 30,000 and one at 100,000 points; a good score gets you into the high score table.
 
 ## Coding rules for `src/game/`
 

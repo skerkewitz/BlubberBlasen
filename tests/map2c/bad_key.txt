@@ -1,0 +1,1 @@
+hury 30    # typo must be reported

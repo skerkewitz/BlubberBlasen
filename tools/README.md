@@ -14,7 +14,7 @@ from `assets/` into data the game uses.
 
 ## map2c
 
-Converts level files from the GierzahnEditor (`*.map`) into `level_data.c`, which holds a `const` array per level.
+Converts level files from the GierzahnEditor (`*.map`), plus an optional settings file per round (`*.txt`), into `level_data.c`, which holds a `const` array per level.
 
 ```
 map2c -o <output.c> <level1.map> [<level2.map> ...]
@@ -29,6 +29,22 @@ Input format (big endian):
 | 0 | 832 bytes | Static layer, 32 x 26 tiles; 0 = empty, non-zero = solid |
 | 832 | 832 bytes | Airflow; 0 = none, 1 = up, 2 = down, 3 = left, 4 = right |
 | 1664 | int32 | Number of enemies (optional; missing = 0) |
-| then | 4 x int32 each | x, y (tile of the feet), type (1 = walker), looking left (0/1) |
+| then | 4 x int32 each | x, y (tile of the feet), type (1 = walker, 2 = bouncer, 3 = thrower), looking left (0/1) |
 
-Output: one byte per cell (bit 7 = solid, bits 0..2 = airflow) and an enemy table, as declared in `src/game/level_data.h`.
+### Settings file
+
+For every `<name>.map`, map2c also reads `<name>.txt` if it exists. It holds the per-round data the editor format has no room for. The `.map` file stays exactly as the editor writes it.
+
+```
+# round01.txt
+hurry   40          # seconds until HURRY UP, 0 = never        (default 30)
+tileset 1           # room graphics gfx/tileset01..08.png      (default: round number)
+delay   0 0 30 30   # frames before each enemy enters, 0..255, in .map order (default 0)
+special water 15    # special bubbles: none, water, fire or lightning, every n seconds (default none)
+```
+
+Unknown keys, values out of range and a `delay` list whose length doesn't match the enemy count are errors, reported with file and line. The CTest tests `map2c_bad_*` check this.
+
+### Output
+
+One byte per cell (bit 7 = solid, bits 0..2 = airflow), an enemy table with spawn delays, and per round the tileset and the Hurry Up time in frames, and the special bubble type with its interval in frames, as declared in `src/game/level_data.h`.

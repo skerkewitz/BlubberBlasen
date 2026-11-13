@@ -10,7 +10,7 @@ Stage 1 keeps it simple: graphics are plain **24-bit PNG** files, and the colour
 |---|---|---|
 | `sprites.png` | 256 x 256 | Sprite sheet, 16 x 16 cells, 16 per row. Cell number = row * 16 + column. |
 | `font.png` | 256 x 16 | 8 x 8 font, ASCII 32..95 (space to `_`), 32 glyphs per row. White, so the game can tint it. |
-| `tileset01.png` .. `tileset08.png` | 48 x 24 | Room tiles, a 6 x 3 grid of 8 x 8 tiles. Round *n* uses tileset *n* (repeating after 8). |
+| `tileset01.png` .. `tileset08.png` | 48 x 24 | Room tiles, a 6 x 3 grid of 8 x 8 tiles. Each round picks one in its settings file. |
 | `title.png` | 256 x 176 | Title logo. |
 
 ### Sprite sheet cells
@@ -27,8 +27,26 @@ Stage 1 keeps it simple: graphics are plain **24-bit PNG** files, and the colour
 | 35..37 | Bubble with a trapped enemy |
 | 38, 39 | Bubble burst |
 | 40 | Bubble with a trapped angry enemy |
-| 48, 49 | Gem |
-| 50, 51, 52 | Score pop-ups 10, 500, 1000 |
+| 41..43, 44..46 | Empty bubble about to burst (orange, then red) |
+| 48..54 | Food, tier 1..7 (1,000 up to 64,000 points) |
+| 56..58, 59..61 | Trapped enemy about to escape (orange, then red) |
+| 64..81 | Score pop-ups, 32 x 16 = two cells each: 10, 500, 1000, 2000, 4000, 8000, 16000, 32000, 64000 |
+| 96..98, 99..101, 102..104 | Bubble ring for trapped enemies (normal, orange, red), drawn over ... |
+| 105..107 | ... a small enemy: walker, bouncer, thrower |
+| 112, 113 | Bouncer flying |
+| 118, 119, 120 | Thrower walking, throwing |
+| 121, 122 | Rock |
+| 123, 124 | Hurry Up chaser (storm cloud) |
+| 128, 129, 130 | Special bubbles: water, fire, lightning |
+| 131..135 | Letter bubbles E, X, T, N, D |
+| 136, 137 | Water stream |
+| 138 | Fireball; 139, 140 fire carpet |
+| 141, 142 | Lightning bolt |
+| 144..148 | Power-ups: range candy (pink), speed candy (blue), rate candy (yellow), shoes, umbrella |
+
+Score pop-ups also include 100 and 200 (cells 82..85).
+
+Cells 35..37, 40 and 56..61 (trapped walker in one picture) are no longer used.
 
 All sprites face **right**; the game mirrors them for the left.
 
@@ -58,7 +76,12 @@ The platform puts all background graphics into one 256 x 256 texture of 8 x 8 ti
 
 ## Levels (`levels/`)
 
-`roundNN.map` files in the format of the [GierzahnEditor](https://github.com/skerkewitz/GierzahnEditor): 32 x 26 tiles, a static layer, an airflow layer and enemy spawn points. The build converts them with `tools/map2c` (format described in `tools/README.md`). All `*.map` files are used, sorted by name.
+Each round is two files:
+
+- `roundNN.map` in the format of the [GierzahnEditor](https://github.com/skerkewitz/GierzahnEditor): 32 x 26 tiles, a static layer, an airflow layer and enemy spawn points.
+- `roundNN.txt` with the settings the editor can't store: Hurry Up time, tileset, a spawn delay per enemy and which special bubbles the round sends in.
+
+The build converts both with `tools/map2c` (formats in `tools/README.md`). All `*.map` files are used, sorted by name. To try a round directly, start the game with `--round NN`.
 
 Things to keep in mind when designing rooms:
 
@@ -66,10 +89,12 @@ Things to keep in mind when designing rooms:
 - Platforms are one-way: everything can jump up through them. A jump is just over 5 rows high, so platforms 5 rows apart can be climbed.
 - A gap in the bottom row lets things fall out and come back in at the top.
 - Airflow decides where bubbles drift. Cells without airflow make bubbles wander randomly.
+- Special and letter bubbles come in through the first gap in the bottom row (else the top row, else near the bottom centre).
+- Enemy types in the `.map`: 1 = walker, 2 = bouncer (needs no floor), 3 = thrower.
 
 ## Sound effects (`sfx/`)
 
-Mono WAV files, loaded by name: `jump`, `shoot`, `pop`, `trap`, `kill`, `gem`, `death`, `start`, `clear`, `hurry`, `gameover`, `menu`, `pause`. A missing file is skipped silently. There is no music yet.
+Mono WAV files, loaded by name: `jump`, `shoot`, `pop`, `trap`, `kill`, `gem`, `death`, `start`, `clear`, `hurry`, `gameover`, `menu`, `pause`, `extra`. A missing file is skipped silently. There is no music yet.
 
 ## Where the files come from
 
@@ -80,6 +105,6 @@ Mono WAV files, loaded by name: `jump`, `shoot`, `pop`, `trap`, `kill`, `gem`, `
 | Bubble cells 32..34 | `spritesheet/bubble.png` from the Java version. |
 | Rest of `sprites.png`, `font.png` | Placeholder art drawn by a script for this prototype. Replace freely. |
 | `sfx/*.wav` | Placeholder sounds synthesised by a script for this prototype. |
-| `levels/*.map` | New room layouts for this prototype. |
+| `levels/*.map`, `levels/*.txt` | New room layouts and settings for this prototype. |
 
 The Java version also contained a ripped NES sprite sheet, traced character sprites, original game sound effects, music and arcade round layouts. **None of these are used here, and they must not be added** (see the license note in the main README).

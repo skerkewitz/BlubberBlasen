@@ -1,19 +1,28 @@
 /*
- * Short-lived objects: a defeated enemy flying through the room (thrown),
- * falling down and turning into a gem; gems; bubble bursts; score pop-ups.
- * Ported from ThrownEnemySystem / BonusItemSystem.
+ * Short-lived objects: a defeated enemy flying through the room in an arc
+ * and turning into food where it lands; food; bubble bursts; score pop-ups.
+ * Ported from ThrownEnemySystem / BonusItemSystem, extended per the design
+ * guide (food value from the combo position).
  */
 
 #include "game/internal.h"
 
-#define THROWN_SPEED   FX(2, 128)   /* 2.5 px/frame */
-#define THROWN_FRAMES  90           /* + random 0..63 */
-#define GEM_FRAMES     600
-#define BURST_FRAMES   16
-#define POPUP_FRAMES   60
-#define POPUP_SPEED    FX(0, 100)
-#define THROWN_TOP     (FIELD_Y + 8)
-#define THROWN_BOTTOM  (FIELD_BOTTOM - 8 - 16)
+#define THROWN_SPEED_X  FX(1, 128)  /* 1.5 px/frame + random up to 0.5 */
+#define THROWN_SPEED_Y  FX(3, 0)    /* upward start speed + random up to 0.5 */
+#define THROWN_GRAVITY  FX(0, 24)
+#define THROWN_MAX_FALL FX(2, 0)
+#define THROWN_MIN      40          /* frames in the air before it may land */
+#define FOOD_FRAMES     600
+#define BURST_FRAMES    16
+#define POPUP_FRAMES    60
+#define POPUP_SPEED     FX(0, 100)
+#define THROWN_TOP      (FIELD_Y + 8)
+#define ROCK_SPEED      FX(2, 0)
+
+/* Food values 1000 << tier as (ten-thousands, thousands) digits. */
+static const uint8_t food_value[FOOD_TIERS][2] = {
+    { 0, 1 }, { 0, 2 }, { 0, 4 }, { 0, 8 }, { 1, 6 }, { 3, 2 }, { 6, 4 }
+};
 
 void items_clear(void)
 {
@@ -23,60 +32,149 @@ void items_clear(void)
     }
 }
 
-void item_spawn(uint8_t kind, uint16_t x, uint16_t y, int8_t dx, uint8_t tile)
+static Item *alloc_item(uint8_t kind, uint16_t x, uint16_t y, uint8_t tier)
 {
     uint8_t i;
     for (i = 0; i < MAX_ITEMS; i++) {
         Item *it = &g_items[i];
-        if (it->kind != IT_OFF) {
-            continue;
+        if (it->kind == IT_OFF) {
+            it->kind = kind;
+            it->tier = tier;
+            it->x = x;
+            it->y = y;
+            it->vx = 0;
+            it->vy = 0;
+            it->timer = 0;
+            return it;
         }
-        it->kind = kind;
-        it->x = x;
-        it->y = y;
-        it->dx = dx;
-        it->dy = -1;
-        it->tile = tile;
-        switch (kind) {
-        case IT_THROWN: it->timer = (uint16_t)(THROWN_FRAMES + (rng_next() & 63)); break;
-        case IT_BURST:  it->timer = BURST_FRAMES; break;
-        case IT_POPUP:  it->timer = POPUP_FRAMES; break;
-        default:        it->timer = GEM_FRAMES; break;
-        }
-        return;
+    }
+    return 0;
+}
+
+void item_spawn(uint8_t kind, uint16_t x, uint16_t y, uint8_t tier)
+{
+    Item *it = alloc_item(kind, x, y, tier);
+    if (it) {
+        it->timer = (uint16_t)(kind == IT_BURST ? BURST_FRAMES : kind == IT_POPUP ? POPUP_FRAMES : FOOD_FRAMES);
     }
 }
 
-uint8_t items_thrown_count(void)
+void item_spawn_thrown(uint16_t x, uint16_t y, int8_t dir, uint8_t tier)
 {
-    uint8_t i, n = 0;
-    for (i = 0; i < MAX_ITEMS; i++) {
-        n = (uint8_t)(n + (g_items[i].kind == IT_THROWN || g_items[i].kind == IT_FALLING));
+    Item *it = alloc_item(IT_THROWN, x, y, tier);
+    if (it) {
+        fx8_8 speed = (fx8_8)(THROWN_SPEED_X + (fx8_8)(rng_next() & 127));
+        it->vx = (fx8_8)(dir < 0 ? -speed : speed);
+        it->vy = (fx8_8)-(THROWN_SPEED_Y + (fx8_8)(rng_next() & 127));
+        it->timer = THROWN_MIN;
     }
-    return n;
+}
+
+void item_spawn_rock(uint16_t x, uint16_t y, int8_t dir)
+{
+    Item *it = alloc_item(IT_ROCK, x, y, 0);
+    if (it) {
+        it->vx = (fx8_8)(dir < 0 ? -ROCK_SPEED : ROCK_SPEED);
+    }
+}
+
+#define POWERUP_FRAMES 600
+
+void item_spawn_powerup(uint8_t power, uint16_t x, uint16_t y)
+{
+    Item *it = alloc_item(IT_POWERUP, x, y, power);
+    if (it) {
+        it->timer = POWERUP_FRAMES;
+    }
+}
+
+/* Candies and shoes stay with the player until they lose a life;
+ * the umbrella skips rounds. */
+static void collect_powerup(Item *it, Player *p)
+{
+    if (it->tier == POWER_UMBRELLA) {
+        g_skip_rounds = 3;
+        score_add(p->score, 2, 2);   /* +200 */
+        it->tier = POPUP_200;
+    } else {
+        p->powers = (uint8_t)(p->powers | (1u << it->tier));
+        score_add(p->score, 2, 1);   /* +100 */
+        it->tier = POPUP_100;
+    }
+    sfx(SFX_EXTRA);
+    it->kind = IT_POPUP;
+    it->timer = POPUP_FRAMES;
+}
+
+void items_clear_rocks(void)
+{
+    uint8_t i;
+    for (i = 0; i < MAX_ITEMS; i++) {
+        if (g_items[i].kind == IT_ROCK) {
+            g_items[i].kind = IT_OFF;
+        }
+    }
+}
+
+/* A rock flies straight until it hits a wall or a platform. */
+static void update_rock(Item *it)
+{
+    uint8_t cx;
+    it->x = (uint16_t)(it->x + (uint16_t)it->vx);
+    cx = (uint8_t)(PX(it->x) + 8);
+    if (cx < BODY_MIN_CX || cx > BODY_MAX_CX || PX(it->x) >= 0xF0u ||
+        level_solid_px((int16_t)cx, (int16_t)(PX(it->y) + 8))) {
+        it->kind = IT_BURST;
+        it->timer = 8;
+    }
 }
 
 static void update_thrown(Item *it)
 {
     uint8_t cx;
-    it->x = (uint16_t)(it->dx < 0 ? it->x - (uint16_t)THROWN_SPEED : it->x + (uint16_t)THROWN_SPEED);
-    it->y = (uint16_t)(it->dy < 0 ? it->y - (uint16_t)THROWN_SPEED : it->y + (uint16_t)THROWN_SPEED);
 
+    /* Horizontal: bounce off the side walls. */
+    it->x = (uint16_t)(it->x + (uint16_t)it->vx);
     cx = (uint8_t)(PX(it->x) + 8);
     if (cx < BODY_MIN_CX || cx > BODY_MAX_CX || PX(it->x) >= 0xF0u) {
-        it->dx = (int8_t)(cx > 128 ? -1 : 1);
-        level_clamp_x(&it->x);
+        it->vx = (fx8_8)-it->vx;
+        it->x = TO_POS(it->vx > 0 ? BODY_MIN_CX - 8 : BODY_MAX_CX - 8);
     }
-    if (PX(it->y) < THROWN_TOP || PX(it->y) >= WRAP_Y) {
-        it->y = TO_POS(THROWN_TOP);
-        it->dy = 1;
-    } else if (PX(it->y) > THROWN_BOTTOM) {
-        it->y = TO_POS(THROWN_BOTTOM);
-        it->dy = -1;
+
+    /* Vertical: an arc; bounce off the ceiling, land after a minimum time. */
+    it->vy = (fx8_8)(it->vy + THROWN_GRAVITY);
+    if (it->vy > THROWN_MAX_FALL) {
+        it->vy = THROWN_MAX_FALL;
     }
-    if (--it->timer == 0) {
-        it->kind = IT_FALLING;
+    if (it->vy < 0) {
+        it->y = (uint16_t)(it->y + (uint16_t)it->vy);
+        if (PX(it->y) < THROWN_TOP || PX(it->y) >= WRAP_Y) {
+            it->y = TO_POS(THROWN_TOP);
+            it->vy = 0;
+        }
+    } else if (it->timer == 0) {
+        if (level_fall(&it->x, &it->y, it->vy)) {
+            it->kind = IT_FOOD;
+            it->timer = FOOD_FRAMES;
+            return;
+        }
+    } else {
+        it->y = (uint16_t)(it->y + (uint16_t)it->vy);
+        level_wrap_y(&it->y);
     }
+    if (it->timer) {
+        it->timer--;
+    }
+}
+
+static void collect_food(Item *it, Player *p)
+{
+    score_add(p->score, 4, food_value[it->tier][0]);
+    score_add(p->score, 3, food_value[it->tier][1]);
+    sfx(SFX_GEM);
+    it->kind = IT_POPUP;
+    it->tier = (uint8_t)(POPUP_FOOD0 + it->tier);
+    it->timer = POPUP_FRAMES;
 }
 
 void items_update(void)
@@ -89,24 +187,37 @@ void items_update(void)
             update_thrown(it);
             break;
 
-        case IT_FALLING:
-            if (level_fall(&it->x, &it->y, FX(1, 0))) {
-                it->kind = IT_GEM;
-                it->timer = GEM_FRAMES;
-            }
+        case IT_ROCK:
+            update_rock(it);
             break;
 
-        case IT_GEM:
-            if (g_player.state == PS_ALIVE && overlap(g_player.x, g_player.y, it->x, it->y, 12, 12)) {
-                score_add(g_score, 2, 5);   /* +500 */
-                sfx(SFX_GEM);
-                it->kind = IT_POPUP;
-                it->tile = SPR_PTS500;
-                it->timer = POPUP_FRAMES;
-            } else if (--it->timer == 0) {
+        case IT_POWERUP: {
+            uint8_t k;
+            for (k = 0; k < NUM_PLAYERS && it->kind == IT_POWERUP; k++) {
+                Player *p = &g_players[k];
+                if (p->state == PS_ALIVE && overlap(p->x, p->y, it->x, it->y, 12, 12)) {
+                    collect_powerup(it, p);
+                }
+            }
+            if (it->kind == IT_POWERUP && --it->timer == 0) {
                 it->kind = IT_OFF;
             }
             break;
+        }
+
+        case IT_FOOD: {
+            uint8_t k;
+            for (k = 0; k < NUM_PLAYERS && it->kind == IT_FOOD; k++) {
+                Player *p = &g_players[k];
+                if (p->state == PS_ALIVE && overlap(p->x, p->y, it->x, it->y, 12, 12)) {
+                    collect_food(it, p);
+                }
+            }
+            if (it->kind == IT_FOOD && --it->timer == 0) {
+                it->kind = IT_OFF;
+            }
+            break;
+        }
 
         case IT_POPUP:
             it->y = (uint16_t)(it->y - (uint16_t)POPUP_SPEED);
@@ -132,20 +243,39 @@ void items_draw(void)
     uint8_t i;
     for (i = 0; i < MAX_ITEMS; i++) {
         const Item *it = &g_items[i];
-        uint8_t tile;
         switch (it->kind) {
         case IT_THROWN:
-        case IT_FALLING: tile = (uint8_t)(SPR_E_THROWN0 + ((g_frame >> 2) & 3)); break;
-        case IT_GEM:
-            if (it->timer < 120 && (it->timer & 4)) {
-                continue;   /* about to vanish */
-            }
-            tile = (uint8_t)(SPR_GEM0 + ((g_frame >> 4) & 1));
+            oam_add(PX(it->x), PX(it->y), (uint8_t)(SPR_E_THROWN0 + ((g_frame >> 2) & 3)), 0);
             break;
-        case IT_BURST:   tile = (uint8_t)(it->timer > BURST_FRAMES / 2 ? SPR_BURST0 : SPR_BURST1); break;
-        case IT_POPUP:   tile = it->tile; break;
-        default:         continue;
+        case IT_FOOD:
+            if (it->timer >= 120 || !(it->timer & 4)) {   /* blink before it vanishes */
+                oam_add(PX(it->x), PX(it->y), (uint8_t)(SPR_FOOD0 + it->tier), 0);
+            }
+            break;
+        case IT_BURST:
+            oam_add(PX(it->x), PX(it->y), (uint8_t)(it->timer > BURST_FRAMES / 2 ? SPR_BURST0 : SPR_BURST1), 0);
+            break;
+        case IT_ROCK:
+            oam_add(PX(it->x), PX(it->y), (uint8_t)(SPR_ROCK0 + ((g_frame >> 2) & 1)), 0);
+            break;
+        case IT_POWERUP:
+            if (it->timer >= 120 || !(it->timer & 4)) {
+                oam_add(PX(it->x), PX(it->y), (uint8_t)(SPR_POWERUP0 + it->tier), 0);
+            }
+            break;
+        case IT_POPUP: {
+            /* 32 px wide, centred over the 16 px object */
+            uint8_t x = (uint8_t)(PX(it->x) >= 8 ? PX(it->x) - 8 : 0);
+            uint8_t tile = (uint8_t)(SPR_POPUP0 + (it->tier << 1));
+            if (x > SCREEN_W - 32) {
+                x = SCREEN_W - 32;
+            }
+            oam_add(x, PX(it->y), tile, 0);
+            oam_add((uint8_t)(x + 16), PX(it->y), (uint8_t)(tile + 1), 0);
+            break;
         }
-        oam_add(PX(it->x), PX(it->y), tile, 0);
+        default:
+            break;
+        }
     }
 }

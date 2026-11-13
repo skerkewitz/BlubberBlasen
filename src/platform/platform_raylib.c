@@ -35,7 +35,7 @@ static int       sound_loaded[SFX_COUNT];
 
 static const char *const sfx_files[SFX_COUNT] = {
     "jump", "shoot", "pop", "trap", "kill", "gem", "death",
-    "start", "clear", "hurry", "gameover", "menu", "pause"
+    "start", "clear", "hurry", "gameover", "menu", "pause", "extra"
 };
 
 /* Tints for the 8 "palettes" of stage 1. */
@@ -189,21 +189,31 @@ static void sram_save(void)
 
 /* --- Input ---------------------------------------------------------------- */
 /* Keyboard mapping as documented in README.md (Controls). */
-static uint16_t read_keyboard(void)
+static uint16_t read_keyboard(int player)
 {
     uint16_t pad = 0;
-    if (IsKeyDown(KEY_UP)    || IsKeyDown(KEY_W))   pad |= PAD_UP;
-    if (IsKeyDown(KEY_DOWN)  || IsKeyDown(KEY_S))   pad |= PAD_DOWN;
-    if (IsKeyDown(KEY_LEFT)  || IsKeyDown(KEY_A))   pad |= PAD_LEFT;
-    if (IsKeyDown(KEY_RIGHT) || IsKeyDown(KEY_D))   pad |= PAD_RIGHT;
-    if (IsKeyDown(KEY_K))            pad |= PAD_B;   /* jump   */
-    if (IsKeyDown(KEY_J))            pad |= PAD_Y;   /* bubble */
-    if (IsKeyDown(KEY_C))            pad |= PAD_A;
-    if (IsKeyDown(KEY_V))            pad |= PAD_X;
-    if (IsKeyDown(KEY_Q))            pad |= PAD_L;
-    if (IsKeyDown(KEY_E))            pad |= PAD_R;
-    if (IsKeyDown(KEY_ENTER))        pad |= PAD_START;
-    if (IsKeyDown(KEY_RIGHT_SHIFT))  pad |= PAD_SELECT;
+    if (player == 0) {
+        if (IsKeyDown(KEY_W))            pad |= PAD_UP;
+        if (IsKeyDown(KEY_S))            pad |= PAD_DOWN;
+        if (IsKeyDown(KEY_A))            pad |= PAD_LEFT;
+        if (IsKeyDown(KEY_D))            pad |= PAD_RIGHT;
+        if (IsKeyDown(KEY_K))            pad |= PAD_B;   /* jump   */
+        if (IsKeyDown(KEY_J))            pad |= PAD_Y;   /* bubble */
+        if (IsKeyDown(KEY_C))            pad |= PAD_A;
+        if (IsKeyDown(KEY_V))            pad |= PAD_X;
+        if (IsKeyDown(KEY_Q))            pad |= PAD_L;
+        if (IsKeyDown(KEY_E))            pad |= PAD_R;
+        if (IsKeyDown(KEY_ENTER))        pad |= PAD_START;
+        if (IsKeyDown(KEY_RIGHT_SHIFT))  pad |= PAD_SELECT;
+    } else {
+        if (IsKeyDown(KEY_UP))           pad |= PAD_UP;
+        if (IsKeyDown(KEY_DOWN))         pad |= PAD_DOWN;
+        if (IsKeyDown(KEY_LEFT))         pad |= PAD_LEFT;
+        if (IsKeyDown(KEY_RIGHT))        pad |= PAD_RIGHT;
+        if (IsKeyDown(KEY_PERIOD))       pad |= PAD_B;   /* jump   */
+        if (IsKeyDown(KEY_COMMA))        pad |= PAD_Y;   /* bubble */
+        if (IsKeyDown(KEY_RIGHT_CONTROL)) pad |= PAD_START;
+    }
     return pad;
 }
 
@@ -291,17 +301,23 @@ static void play_sounds(uint16_t mask)
 }
 
 /* --- Developer options ------------------------------------------------------
- *   --autoplay        a simple built-in bot plays instead of the keyboard
+ *   --autoplay        a simple built-in bot plays instead of the keyboard (implies --mute)
+ *   --autoplay2       like --autoplay, and a second bot plays player 2
+ *   --mute            no sound
  *   --shot <tick>     save the framebuffer as shot_<tick>.png (repeatable)
  *   --quit <tick>     exit after that many game ticks
  *   --seed <n>        fixed random seed (same seed + same input = same game)
+ *   --round <n>       new games start at round n
  */
 #define MAX_SHOTS 16
 static int      opt_autoplay;
+static int      opt_mute;
+static int      opt_autoplay2;
 static long     opt_shots[MAX_SHOTS];
 static int      opt_shot_count;
 static long     opt_quit = -1;
 static long     opt_seed = -1;
+static long     opt_round = 1;
 
 static void parse_args(int argc, char **argv)
 {
@@ -309,26 +325,35 @@ static void parse_args(int argc, char **argv)
     for (i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--autoplay") == 0) {
             opt_autoplay = 1;
+            opt_mute = 1;
+        } else if (strcmp(argv[i], "--autoplay2") == 0) {
+            opt_autoplay = 1;
+            opt_autoplay2 = 1;
+            opt_mute = 1;
+        } else if (strcmp(argv[i], "--mute") == 0) {
+            opt_mute = 1;
         } else if (strcmp(argv[i], "--shot") == 0 && i + 1 < argc && opt_shot_count < MAX_SHOTS) {
             opt_shots[opt_shot_count++] = strtol(argv[++i], NULL, 10);
         } else if (strcmp(argv[i], "--quit") == 0 && i + 1 < argc) {
             opt_quit = strtol(argv[++i], NULL, 10);
+        } else if (strcmp(argv[i], "--round") == 0 && i + 1 < argc) {
+            opt_round = strtol(argv[++i], NULL, 10);
         } else if (strcmp(argv[i], "--seed") == 0 && i + 1 < argc) {
             opt_seed = strtol(argv[++i], NULL, 10);
         }
     }
 }
 
-static uint16_t autoplay_pad(long t)
+static uint16_t autoplay_pad(long t, int player)
 {
-    static uint16_t dir = PAD_RIGHT;
-    uint16_t pad = dir;
+    static uint16_t dirs[NUM_PLAYERS] = { PAD_RIGHT, PAD_LEFT };
+    uint16_t pad = dirs[player];
     if ((t % 180) == 0) {
-        dir = (uint16_t)(GetRandomValue(0, 1) ? PAD_LEFT : PAD_RIGHT);
+        dirs[player] = (uint16_t)(GetRandomValue(0, 1) ? PAD_LEFT : PAD_RIGHT);
     }
     if ((t % 20) < 2)  pad |= PAD_Y;
     if ((t % 90) < 10) pad |= PAD_B;
-    if ((t % 120) < 2) pad |= PAD_START;   /* title, name entry */
+    if ((t % 1200) < 2) pad |= PAD_START;  /* title, name entry (rarely, so it seldom pauses) */
     return pad;
 }
 
@@ -361,7 +386,9 @@ int main(int argc, char **argv)
     SetWindowMinSize(SCREEN_W, SCREEN_H);
     SetTargetFPS(TICK_HZ);
     SetExitKey(KEY_ESCAPE);
-    InitAudioDevice();
+    if (!opt_mute) {
+        InitAudioDevice();
+    }
 
     fb = LoadRenderTexture(SCREEN_W, SCREEN_H);
     SetTextureFilter(fb.texture, TEXTURE_FILTER_POINT);
@@ -372,6 +399,7 @@ int main(int argc, char **argv)
         SetRandomSeed((unsigned int)opt_seed);
     }
     game_init((uint16_t)(opt_seed >= 0 ? opt_seed : GetRandomValue(1, 0xFFFF)));
+    game_debug_start_round((uint8_t)(opt_round > 0 && opt_round < 256 ? opt_round : 1));
 
     while (!WindowShouldClose()) {
         int ticks = 0;
@@ -384,11 +412,14 @@ int main(int argc, char **argv)
         accumulator += GetFrameTime();
         while (accumulator >= tick && ticks < MAX_CATCHUP) {
             uint16_t pad[NUM_PLAYERS];
-            pad[0] = (uint16_t)(read_keyboard() | read_gamepad(0));
+            pad[0] = (uint16_t)(read_keyboard(0) | read_gamepad(0));
             if (opt_autoplay) {
-                pad[0] = (uint16_t)(pad[0] | autoplay_pad(ticks_total));
+                pad[0] = (uint16_t)(pad[0] | autoplay_pad(ticks_total, 0));
             }
-            pad[1] = read_gamepad(1);
+            pad[1] = (uint16_t)(read_keyboard(1) | read_gamepad(1));
+            if (opt_autoplay2) {
+                pad[1] = (uint16_t)(pad[1] | autoplay_pad(ticks_total + 60, 1));
+            }
             game_tick(pad);
             play_sounds(game_sfx());
             if (game_sram_dirty()) {
@@ -440,7 +471,9 @@ int main(int argc, char **argv)
     TraceLog(LOG_INFO, "GAME: %ld ticks, %.1f s", ticks_total, GetTime());
     unload_assets();
     UnloadRenderTexture(fb);
-    CloseAudioDevice();
+    if (IsAudioDeviceReady()) {
+        CloseAudioDevice();
+    }
     CloseWindow();
     return 0;
 }

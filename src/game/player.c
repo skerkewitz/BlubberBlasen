@@ -1,5 +1,5 @@
 /*
- * The player: walking with acceleration, variable-height jump, shooting
+ * The players: walking with acceleration, variable-height jump, shooting
  * bubbles, popping bubbles, bouncing on bubbles, dying.
  * Physics ported from PlayerSystem / PlayerComponent of the Java version;
  * its floating-point values (pixels per second at 60 Hz) converted to 8.8 per frame.
@@ -15,33 +15,44 @@
 #define GRAVITY_DOWN  FX(0, 80)
 #define MAX_FALL      FX(2, 0)
 
+#define WALK_ACCEL_SHOES FX(0, 80)
+#define WALK_MAX_SHOES   FX(1, 74)  /* 1.3 px/frame */
 #define SHOOT_DELAY   15
+#define SHOOT_DELAY_RATE 7         /* with the rate candy */
 #define SHOOT_POSE    10
 #define DEATH_FRAMES  120
 #define INVULN_FRAMES 120
 
-static Player *const p = &g_player;
+/* Player 1 starts bottom-left facing right, player 2 bottom-right facing left. */
+static uint8_t spawn_x(const Player *p)
+{
+    return (uint8_t)(p->id == 0 ? PLAYER_SPAWN_X : SCREEN_W - PLAYER_SPAWN_X - 16);
+}
 
-void player_start(void)
+void player_start(Player *p)
 {
     p->state = PS_ALIVE;
-    p->facing_left = 0;
+    p->facing_left = p->id;
     p->on_ground = 1;
     p->shoot_cooldown = 0;
     p->shoot_pose = 0;
     p->invulnerable = INVULN_FRAMES;
     p->timer = 0;
-    p->x = TO_POS(PLAYER_SPAWN_X);
+    p->x = TO_POS(spawn_x(p));
     p->y = TO_POS(PLAYER_SPAWN_Y);
     p->vx = 0;
     p->vy = 0;
+    p->stun = 0;
 }
 
 /* A new round: drift from the current position to the spawn point. */
-void player_enter_round(void)
+void player_enter_round(Player *p)
 {
+    if (p->state == PS_OFF) {
+        return;
+    }
     if (p->state != PS_ALIVE) {
-        player_start();
+        player_start(p);
     }
     p->state = PS_ENTERING;
     p->vx = 0;
@@ -49,9 +60,49 @@ void player_enter_round(void)
     p->shoot_pose = 0;
 }
 
-uint8_t player_entering(void)
+uint8_t players_entering(void)
 {
-    return (uint8_t)(p->state == PS_ENTERING);
+    uint8_t i;
+    for (i = 0; i < NUM_PLAYERS; i++) {
+        if (g_players[i].state == PS_ENTERING) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+uint8_t players_in_game(void)
+{
+    uint8_t i, n = 0;
+    for (i = 0; i < NUM_PLAYERS; i++) {
+        n = (uint8_t)(n + (g_players[i].state != PS_OFF));
+    }
+    return n;
+}
+
+/* The living player closest to (x, y); player 1 if nobody is alive. */
+const Player *player_nearest(uint16_t x, uint16_t y)
+{
+    const Player *best = &g_players[0];
+    uint16_t best_d = 0xFFFFu;
+    uint8_t i;
+
+    for (i = 0; i < NUM_PLAYERS; i++) {
+        const Player *p = &g_players[i];
+        int16_t dx, dy;
+        uint16_t d;
+        if (p->state != PS_ALIVE) {
+            continue;
+        }
+        dx = (int16_t)((int16_t)PX(p->x) - (int16_t)PX(x));
+        dy = (int16_t)((int16_t)PX(p->y) - (int16_t)PX(y));
+        d = (uint16_t)((dx < 0 ? -dx : dx) + (dy < 0 ? -dy : dy));
+        if (d < best_d) {
+            best_d = d;
+            best = p;
+        }
+    }
+    return best;
 }
 
 static void move_towards(uint16_t *v, uint8_t target)
@@ -66,24 +117,28 @@ static void move_towards(uint16_t *v, uint8_t target)
     }
 }
 
-static void walk(uint16_t pad)
+static void walk(Player *p, uint16_t pad)
 {
+    uint8_t shoes = (uint8_t)((p->powers & (1u << POWER_SHOES)) != 0);
+    fx8_8 accel = shoes ? WALK_ACCEL_SHOES : WALK_ACCEL;
+    fx8_8 max = shoes ? WALK_MAX_SHOES : WALK_MAX;
+
     if (pad & PAD_LEFT) {
-        p->vx = (fx8_8)(p->vx - WALK_ACCEL);
-        if (p->vx < -WALK_MAX) {
-            p->vx = (fx8_8)-WALK_MAX;
+        p->vx = (fx8_8)(p->vx - accel);
+        if (p->vx < -max) {
+            p->vx = (fx8_8)-max;
         }
         p->facing_left = 1;
     } else if (pad & PAD_RIGHT) {
-        p->vx = (fx8_8)(p->vx + WALK_ACCEL);
-        if (p->vx > WALK_MAX) {
-            p->vx = WALK_MAX;
+        p->vx = (fx8_8)(p->vx + accel);
+        if (p->vx > max) {
+            p->vx = max;
         }
         p->facing_left = 0;
     } else if (p->vx > 0) {
-        p->vx = (fx8_8)(p->vx > WALK_ACCEL ? p->vx - WALK_ACCEL : 0);
+        p->vx = (fx8_8)(p->vx > accel ? p->vx - accel : 0);
     } else if (p->vx < 0) {
-        p->vx = (fx8_8)(p->vx < -WALK_ACCEL ? p->vx + WALK_ACCEL : 0);
+        p->vx = (fx8_8)(p->vx < -accel ? p->vx + accel : 0);
     }
 
     if (p->vx != 0) {
@@ -91,13 +146,17 @@ static void walk(uint16_t pad)
         if (level_wall_ahead(p->x, p->y, dir)) {
             p->vx = 0;
         } else {
+            uint8_t before = PX(p->x);
             p->x = (uint16_t)(p->x + (uint16_t)p->vx);
             level_clamp_x(&p->x);
+            if (PX(p->x) != before && g_count.walked < 0xFFFFu) {
+                g_count.walked++;
+            }
         }
     }
 }
 
-static void jump_and_fall(uint16_t pad)
+static void jump_and_fall(Player *p, uint16_t pad)
 {
     uint8_t jump_held = (uint8_t)((pad & PAD_B) != 0);
 
@@ -106,6 +165,9 @@ static void jump_and_fall(uint16_t pad)
         if (jump_held) {
             p->vy = (fx8_8)-JUMP_SPEED;
             p->on_ground = 0;
+            if (g_count.jumps < 255) {
+                g_count.jumps++;
+            }
             sfx(SFX_JUMP);
         } else {
             p->vy = 0;
@@ -135,7 +197,7 @@ static void jump_and_fall(uint16_t pad)
     }
 }
 
-static void shoot(uint16_t pressed)
+static void shoot(Player *p, uint16_t pressed)
 {
     if (p->shoot_cooldown) {
         p->shoot_cooldown--;
@@ -145,73 +207,48 @@ static void shoot(uint16_t pressed)
     }
     if ((pressed & PAD_Y) && p->shoot_cooldown == 0) {
         uint16_t bx = (uint16_t)(p->facing_left ? p->x - TO_POS(8) : p->x + TO_POS(8));
-        bubble_shoot(bx, p->y, p->facing_left);
-        p->shoot_cooldown = SHOOT_DELAY;
+        bubble_shoot(bx, p->y, p->facing_left, p->powers);
+        p->shoot_cooldown = (uint8_t)((p->powers & (1u << POWER_RATE)) ? SHOOT_DELAY_RATE : SHOOT_DELAY);
         p->shoot_pose = SHOOT_POSE;
         sfx(SFX_SHOOT);
     }
 }
 
-static void touch_bubbles(uint16_t pad)
+/* Touching a floating bubble pops it (and starts a chain reaction);
+ * falling onto one with jump held bounces off it instead. */
+static void touch_bubbles(Player *p, uint16_t pad)
 {
     uint8_t i;
     for (i = 0; i < MAX_BUBBLES; i++) {
         Bubble *b = &g_bubbles[i];
-        if (b->state == BS_OFF || b->state == BS_SHOOT || !overlap(p->x, p->y, b->x, b->y, 12, 12)) {
+        if ((b->state != BS_FLOAT && b->state != BS_TRAPPED) || !overlap(p->x, p->y, b->x, b->y, 12, 12)) {
             continue;
         }
-        if (b->state == BS_TRAPPED) {
-            item_spawn(IT_THROWN, b->x, b->y, (int8_t)(p->facing_left ? -1 : 1), 0);
-            item_spawn(IT_POPUP, b->x, b->y, 0, SPR_PTS1000);
-            score_add(g_score, 3, 1);           /* +1000 */
-            b->state = BS_OFF;
-            sfx(SFX_KILL);
-        } else if (p->vy > 0 && (pad & PAD_B) && PX(p->y) + 8 <= PX(b->y)) {
-            /* Falling onto a bubble with jump held: bounce off it. */
+        if (p->vy > 0 && (pad & PAD_B) && PX(p->y) + 8 <= PX(b->y)) {
             p->vy = (fx8_8)-JUMP_SPEED;
             sfx(SFX_JUMP);
         } else {
-            item_spawn(IT_BURST, b->x, b->y, 0, 0);
-            score_add(g_score, 1, 1);           /* +10 */
-            b->state = BS_OFF;
-            sfx(SFX_POP);
+            bubble_pop(b, (int8_t)(p->facing_left ? -1 : 1), p->id);
         }
     }
 }
 
-static void touch_enemies(void)
-{
-    uint8_t i;
-    if (p->invulnerable) {
-        return;
-    }
-    for (i = 0; i < MAX_ENEMIES; i++) {
-        const Enemy *e = &g_enemies[i];
-        if (e->active && !e->entering && overlap(p->x, p->y, e->x, e->y, 10, 12)) {
-            p->state = PS_DYING;
-            p->timer = 0;
-            sfx(SFX_DEATH);
-            return;
-        }
-    }
-}
-
-void player_update(uint16_t pad, uint16_t pressed)
+void player_update(Player *p, uint16_t pad, uint16_t pressed)
 {
     switch (p->state) {
     case PS_ENTERING:
-        move_towards(&p->x, PLAYER_SPAWN_X);
+        move_towards(&p->x, spawn_x(p));
         move_towards(&p->y, PLAYER_SPAWN_Y);
-        if (PX(p->x) == PLAYER_SPAWN_X && PX(p->y) == PLAYER_SPAWN_Y) {
+        if (PX(p->x) == spawn_x(p) && PX(p->y) == PLAYER_SPAWN_Y) {
             p->state = PS_ALIVE;
-            p->facing_left = 0;
+            p->facing_left = p->id;
             p->on_ground = 1;
         }
         break;
 
     case PS_DYING:
         if (++p->timer >= DEATH_FRAMES) {
-            player_killed();
+            player_killed(p);
         }
         break;
 
@@ -219,11 +256,20 @@ void player_update(uint16_t pad, uint16_t pressed)
         if (p->invulnerable) {
             p->invulnerable--;
         }
-        walk(pad);
-        jump_and_fall(pad);
-        shoot(pressed);
-        touch_bubbles(pad);
-        touch_enemies();
+        if (p->stun) {
+            p->stun--;          /* burnt: no control for a moment */
+            pad = 0;
+            pressed = 0;
+        }
+        walk(p, pad);
+        jump_and_fall(p, pad);
+        shoot(p, pressed);
+        touch_bubbles(p, pad);
+        if (!p->invulnerable && enemies_touch(p->x, p->y)) {
+            p->state = PS_DYING;
+            p->timer = 0;
+            sfx(SFX_DEATH);
+        }
         break;
 
     default:
@@ -231,10 +277,15 @@ void player_update(uint16_t pad, uint16_t pressed)
     }
 }
 
-void player_draw(void)
+void player_draw(const Player *p)
 {
     uint8_t tile = SPR_P_WALK0;
     uint8_t attr = (uint8_t)(p->facing_left ? SPR_ATTR_FLIP_X : 0u);
+
+    /* Player 2 is the same character, tinted. */
+    if (p->id == 1) {
+        attr = (uint8_t)(attr | (PAL_CYAN << SPR_ATTR_PAL_SHIFT));
+    }
 
     switch (p->state) {
     case PS_ENTERING:
@@ -246,6 +297,9 @@ void player_draw(void)
     case PS_ALIVE:
         if (p->invulnerable && (p->invulnerable & 4)) {
             return;   /* blink */
+        }
+        if (p->stun) {
+            attr = (uint8_t)((attr & (0xFFu ^ SPR_ATTR_PAL_MASK)) | (PAL_ORANGE << SPR_ATTR_PAL_SHIFT));
         }
         if (p->shoot_pose) {
             tile = SPR_P_SHOOT;

@@ -1,0 +1,2 @@
+hurry 30
+delay 0 0 30    # round01 has 4 enemies, only 3 values

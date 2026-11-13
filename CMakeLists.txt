@@ -22,13 +22,14 @@ add_subdirectory(tools)
 
 # --- Generated level data: assets/levels/*.map -> level_data.c ----------------
 file(GLOB LEVEL_FILES CONFIGURE_DEPENDS ${PROJECT_SOURCE_DIR}/assets/levels/*.map)
+file(GLOB LEVEL_SETTINGS CONFIGURE_DEPENDS ${PROJECT_SOURCE_DIR}/assets/levels/*.txt)
 list(SORT LEVEL_FILES)
 set(LEVEL_DATA_C ${PROJECT_BINARY_DIR}/generated/level_data.c)
 add_custom_command(
     OUTPUT  ${LEVEL_DATA_C}
     COMMAND ${CMAKE_COMMAND} -E make_directory ${PROJECT_BINARY_DIR}/generated
     COMMAND map2c -o ${LEVEL_DATA_C} ${LEVEL_FILES}
-    DEPENDS map2c ${LEVEL_FILES}
+    DEPENDS map2c ${LEVEL_FILES} ${LEVEL_SETTINGS}
     COMMENT "map2c: converting levels"
     VERBATIM
 )
@@ -63,3 +64,10 @@ enable_testing()
 add_executable(test_game tests/test_game.c)
 target_link_libraries(test_game PRIVATE game)
 add_test(NAME game COMMAND test_game)
+
+# map2c must reject broken settings files
+foreach(bad bad_delay bad_key)
+    add_test(NAME map2c_${bad}
+             COMMAND map2c -o ${PROJECT_BINARY_DIR}/generated/${bad}.c ${PROJECT_SOURCE_DIR}/tests/map2c/${bad}.map)
+    set_tests_properties(map2c_${bad} PROPERTIES WILL_FAIL TRUE)
+endforeach()

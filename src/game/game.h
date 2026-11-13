@@ -86,7 +86,7 @@ typedef struct {
 /* --- Sound effects (one bit each, requested per tick) --------------------- */
 enum {
     SFX_JUMP, SFX_SHOOT, SFX_POP, SFX_TRAP, SFX_KILL, SFX_GEM, SFX_DEATH,
-    SFX_START, SFX_CLEAR, SFX_HURRY, SFX_GAMEOVER, SFX_MENU, SFX_PAUSE,
+    SFX_START, SFX_CLEAR, SFX_HURRY, SFX_GAMEOVER, SFX_MENU, SFX_PAUSE, SFX_EXTRA,
     SFX_COUNT
 };
 
@@ -101,5 +101,6 @@ const uint16_t *game_bg(uint8_t layer);                      /* BG_W * BG_H entr
 uint16_t        game_sfx(void);    /* bit mask of SFX_* requested by the last tick */
 uint8_t        *game_sram(void);   /* SRAM_SIZE bytes; platform loads/saves them */
 uint8_t         game_sram_dirty(void); /* 1 once after the game changed SRAM */
+void            game_debug_start_round(uint8_t round); /* developer option: new games start here (1-based) */
 
 #endif /* BB_GAME_H */

@@ -9,12 +9,13 @@
 #define START_LIVES     3
 #define INTRO_FRAMES    120
 #define CLEAR_FRAMES    300      /* collect the gems, then the next round */
-#define HURRY_FRAMES    1800     /* 30 s, then the enemies get angry */
 #define HURRY_TEXT      120
 #define GAME_OVER_FRAMES 240
 #define TITLE_FRAMES    600
 #define HISCORE_FRAMES  420
 #define ENTRY_TIMEOUT   1800
+#define MAX_LIVES       9
+#define CHASER_DELAY    600      /* frames after HURRY UP until the chaser comes */
 
 /* --- Shared state ------------------------------------------------------------ */
 GameState g_state;
@@ -23,11 +24,11 @@ uint16_t  g_level_frames;
 uint8_t   g_level;
 uint8_t   g_round;
 uint8_t   g_hurry;
-uint8_t   g_lives;
-uint8_t   g_score[8];
 uint16_t  g_sfx;
+uint8_t   g_skip_rounds;
+Counters  g_count;
 
-Player    g_player;
+Player    g_players[NUM_PLAYERS];
 Enemy     g_enemies[MAX_ENEMIES];
 Bubble    g_bubbles[MAX_BUBBLES];
 Item      g_items[MAX_ITEMS];
@@ -41,11 +42,19 @@ static uint16_t rng;
 static uint16_t prev_pad[NUM_PLAYERS];
 static uint16_t clear_timer;
 static uint8_t  hurry_text;
+static uint8_t  first_level;     /* developer option, see game_debug_start_round() */
+static uint8_t  played[NUM_PLAYERS];  /* took part in this game (for the high scores) */
 
+/* Extra lives at 30,000 and 100,000 points. */
+static const uint8_t extend_scores[2][8] = {
+    { 0, 0, 0, 3, 0, 0, 0, 0 },
+    { 0, 0, 1, 0, 0, 0, 0, 0 },
+};
+
+static uint8_t  entry_player;
 static char     entry_name[4];
 static uint8_t  entry_pos;
 static uint8_t  entry_rank;
-static uint8_t  table_highlight;
 
 static const char entry_chars[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ.!- ";
 #define ENTRY_CHAR_COUNT ((uint8_t)(sizeof entry_chars - 1))
@@ -100,28 +109,89 @@ static void set_state(GameState s)
 
 static void clear_objects(void)
 {
+    uint8_t i;
     enemies_clear();
     bubbles_clear();
     items_clear();
-    g_player.state = PS_OFF;
+    for (i = 0; i < NUM_PLAYERS; i++) {
+        g_players[i].id = i;
+        g_players[i].state = PS_OFF;
+    }
 }
 
-/* --- HUD ------------------------------------------------------------------------ */
+static uint8_t any_alive(void)
+{
+    uint8_t i;
+    for (i = 0; i < NUM_PLAYERS; i++) {
+        if (g_players[i].state == PS_ALIVE) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* --- HUD ------------------------------------------------------------------------
+ * Row 0: 1UP + lives, HIGH SCORE, 2UP + lives. Row 1: the three scores.
+ * The round number sits on the left wall. */
 static void draw_hud_labels(void)
 {
-    text_put(3, 0, "1UP", PAL_GREEN);
-    text_put(10, 0, "HIGH SCORE", PAL_RED);
-    text_put(21, 0, "ROUND", PAL_YELLOW);
-    text_put(27, 0, "LIVES", PAL_CYAN);
+    text_put(2, 0, "1UP", PAL_GREEN);
+    text_put(11, 0, "HIGH SCORE", PAL_RED);
+    text_put(25, 0, "2UP", PAL_CYAN);
+}
+
+static const uint8_t *best_score(void)
+{
+    const uint8_t *best = hiscore_best();
+    uint8_t i;
+    for (i = 0; i < NUM_PLAYERS; i++) {
+        if (score_cmp(g_players[i].score, best) > 0) {
+            best = g_players[i].score;
+        }
+    }
+    return best;
 }
 
 static void draw_hud_values(void)
 {
-    const uint8_t *best = hiscore_best();
-    text_digits(0, 1, g_score, 8, PAL_NONE);
-    text_digits(11, 1, score_cmp(g_score, best) > 0 ? g_score : best, 8, PAL_NONE);
-    text_number(22, 1, g_round, PAL_NONE);
-    text_number(28, 1, g_lives, PAL_NONE);
+    static const uint8_t score_col[NUM_PLAYERS] = { 0, 24 };
+    static const uint8_t lives_col[NUM_PLAYERS] = { 6, 29 };
+    uint8_t i;
+
+    for (i = 0; i < NUM_PLAYERS; i++) {
+        const Player *p = &g_players[i];
+        if (p->state == PS_OFF) {
+            text_put(lives_col[i], 0, "  ", PAL_NONE);
+            if (g_frame & 32) {
+                text_put(score_col[i], 1, " START  ", PAL_YELLOW);
+            } else {
+                text_digits(score_col[i], 1, p->score, 8, PAL_NONE);
+            }
+        } else {
+            char lives[3];
+            lives[0] = '*';
+            lives[1] = (char)('0' + p->lives);   /* MAX_LIVES is a single digit */
+            lives[2] = 0;
+            text_put(lives_col[i], 0, lives, PAL_YELLOW);
+            text_digits(score_col[i], 1, p->score, 8, PAL_NONE);
+        }
+    }
+    text_digits(11, 1, best_score(), 8, PAL_NONE);
+    text_number(0, HUD_ROWS, g_round, PAL_YELLOW);
+
+    /* EXTEND letters on the side walls: player 1 left, player 2 right. */
+    for (i = 0; i < NUM_PLAYERS; i++) {
+        static const char letters[] = "EXTEND";
+        uint8_t k;
+        for (k = 0; k < 6; k++) {
+            char s[2];
+            uint8_t have = (uint8_t)((g_players[i].letters >> k) & 1u);
+            s[0] = letters[k];
+            s[1] = 0;
+            text_put((uint8_t)(i == 0 ? 0 : BG_W - 1), (uint8_t)(HUD_ROWS + 4 + (k << 1)),
+                     g_players[i].state == PS_OFF ? " " : s, have ? PAL_YELLOW : PAL_GREY);
+        }
+    }
 }
 
 /* --- Title ---------------------------------------------------------------------- */
@@ -148,7 +218,6 @@ static void enter_hiscores(uint8_t highlight)
     clear_objects();
     bg_clear(0);
     bg_clear(1);
-    table_highlight = highlight;
     text_put(9, 4, "BEST BLASTERS", PAL_YELLOW);
     hiscore_draw_table(9, highlight);
     set_state(GS_HISCORES);
@@ -157,12 +226,18 @@ static void enter_hiscores(uint8_t highlight)
 /* --- Rounds --------------------------------------------------------------------- */
 static void start_round(void)
 {
+    uint8_t i;
+
     level_load(g_level);
     bubbles_clear();
     items_clear();
+    effects_clear();
     enemies_clear();
+    g_skip_rounds = 0;
     enemies_spawn_level();
-    player_enter_round();
+    for (i = 0; i < NUM_PLAYERS; i++) {
+        player_enter_round(&g_players[i]);
+    }
 
     g_level_frames = 0;
     g_hurry = 0;
@@ -179,74 +254,164 @@ static void start_round(void)
     set_state(GS_ROUND_INTRO);
 }
 
-static void new_game(void)
+/* A player starts or continues: fresh lives, the score is kept. */
+static void join(Player *p)
 {
-    uint8_t i;
-    for (i = 0; i < 8; i++) {
-        g_score[i] = 0;
-    }
-    g_lives = START_LIVES;
-    g_level = 0;
-    g_round = 1;
+    p->lives = START_LIVES;
+    played[p->id] = 1;
+    player_start(p);
+    sfx(SFX_START);
+}
+
+static void new_game(uint8_t starter)
+{
+    uint8_t i, k;
+
     clear_objects();
-    player_start();
+    for (i = 0; i < NUM_PLAYERS; i++) {
+        for (k = 0; k < 8; k++) {
+            g_players[i].score[k] = 0;
+        }
+        g_players[i].lives = 0;
+        g_players[i].extends_given = 0;
+        g_players[i].letters = 0;
+        g_players[i].powers = 0;
+        played[i] = 0;
+    }
+    g_count.blown = 0;
+    g_count.popped = 0;
+    g_count.jumps = 0;
+    g_count.water = 0;
+    g_count.walked = 0;
+    g_count.queued = 0;
+    g_level = first_level;
+    g_round = (uint8_t)(first_level + 1);
+    join(&g_players[starter]);
     start_round();
 }
 
-static void next_round(void)
+static void next_round(uint8_t advance)
 {
-    g_level++;
-    if (g_level >= level_count) {
-        g_level = 0;
-    }
-    if (g_round < 99) {
-        g_round++;
+    while (advance--) {
+        g_level++;
+        if (g_level >= level_count) {
+            g_level = 0;
+        }
+        if (g_round < 99) {
+            g_round++;
+        }
     }
     start_round();
 }
 
-/* Called by the player module when the death animation has finished. */
-void player_killed(void)
+/* Called by the player module when a death animation has finished.
+ * Losing a life calms the enemies down and restarts the round timer. */
+void player_killed(Player *p)
 {
-    if (g_lives) {
-        g_lives--;
+    if (p->lives) {
+        p->lives--;
     }
-    if (g_lives == 0) {
-        g_player.state = PS_OFF;
+    p->powers = 0;   /* power-ups are lost with a life */
+    enemies_calm_down();
+    chaser_reset();
+    items_clear_rocks();
+    g_level_frames = 0;
+    g_hurry = 0;
+
+    if (p->lives) {
+        player_start(p);
+        return;
+    }
+    p->state = PS_OFF;
+    if (players_in_game() == 0) {
         text_put(11, 13, "GAME OVER", PAL_RED);
         sfx(SFX_GAMEOVER);
         set_state(GS_GAME_OVER);
-    } else {
-        player_start();
     }
 }
 
-static void update_play(uint16_t pad, uint16_t pressed)
+static void check_extra_lives(Player *p)
 {
-    if (pressed & PAD_START) {
-        text_put(13, 13, "PAUSE", PAL_NONE);
-        sfx(SFX_PAUSE);
-        set_state(GS_PAUSE);
+    if (p->state != PS_OFF && p->extends_given < 2 &&
+        score_cmp(p->score, extend_scores[p->extends_given]) >= 0) {
+        p->extends_given++;
+        if (p->lives < MAX_LIVES) {
+            p->lives++;
+        }
+        sfx(SFX_EXTRA);
+    }
+}
+
+/* Start: a player who is not in the game joins (or continues); a player
+ * who is, pauses. */
+static uint8_t handle_start(const uint16_t pressed[NUM_PLAYERS])
+{
+    uint8_t i;
+    for (i = 0; i < NUM_PLAYERS; i++) {
+        if (!(pressed[i] & PAD_START)) {
+            continue;
+        }
+        if (g_players[i].state == PS_OFF) {
+            join(&g_players[i]);
+        } else if (g_state == GS_PLAY) {
+            text_put(13, 13, "PAUSE", PAL_NONE);
+            sfx(SFX_PAUSE);
+            set_state(GS_PAUSE);
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static void update_play(const uint16_t pad[NUM_PLAYERS], const uint16_t pressed[NUM_PLAYERS])
+{
+    uint8_t i;
+
+    if (handle_start(pressed)) {
         return;
     }
 
     g_level_frames++;
-    player_update(pad, pressed);
+    for (i = 0; i < NUM_PLAYERS; i++) {
+        player_update(&g_players[i], pad[i], pressed[i]);
+    }
 
-    /* While the player dies, the rest of the room stands still. */
-    if (g_player.state == PS_DYING || g_state != GS_PLAY) {
+    /* While nobody is alive (everyone dying), the room stands still. */
+    if (!any_alive() || g_state != GS_PLAY) {
         return;
     }
 
     bubbles_update();
     enemies_update();
+    chaser_update();
     items_update();
+    effects_update();
+    counters_check();
+    powerup_round_tick();
 
-    if (!g_hurry && g_level_frames >= HURRY_FRAMES && enemies_count()) {
-        g_hurry = 1;
-        hurry_text = HURRY_TEXT;
-        enemies_make_angry();
-        sfx(SFX_HURRY);
+    /* EXTEND completed or umbrella collected: the round ends at once. */
+    if (g_skip_rounds) {
+        next_round(g_skip_rounds);
+        return;
+    }
+
+    {
+        uint16_t limit = level_defs[g_level].hurry_frames;
+        uint8_t left = enemies_count();
+        if (!g_hurry && limit && g_level_frames >= limit && left) {
+            g_hurry = 1;
+            hurry_text = HURRY_TEXT;
+            enemies_make_angry();
+            sfx(SFX_HURRY);
+        }
+        if (g_hurry && !chaser_active() && !clear_timer && left && g_level_frames >= limit + CHASER_DELAY) {
+            chaser_spawn();
+            sfx(SFX_HURRY);
+        }
+        /* The last enemy standing gets angry. */
+        if (left == 1 && bubbles_trapped_count() == 0 && !enemies_entering()) {
+            enemies_make_angry();
+        }
     }
     if (hurry_text) {
         hurry_text--;
@@ -257,12 +422,18 @@ static void update_play(uint16_t pad, uint16_t pressed)
         }
     }
 
+    for (i = 0; i < NUM_PLAYERS; i++) {
+        check_extra_lives(&g_players[i]);
+    }
+
     if (clear_timer) {
         if (--clear_timer == 0) {
-            next_round();
+            next_round(1);
         }
     } else if ((g_level_frames & 7) == 0 && enemies_count() == 0 && bubbles_trapped_count() == 0) {
         clear_timer = CLEAR_FRAMES;
+        chaser_reset();
+        items_clear_rocks();
         sfx(SFX_CLEAR);
     }
 }
@@ -289,16 +460,17 @@ static void draw_name_entry(void)
         if (i == entry_pos && (state_timer & 16)) {
             s[0] = ' ';
         }
-        text_put((uint8_t)(14 + i), 16, i == entry_pos ? s : (i < entry_pos ? s : "."),
+        text_put((uint8_t)(14 + i), 16, i <= entry_pos ? s : ".",
                  (uint8_t)(i == entry_pos ? PAL_YELLOW : PAL_NONE));
     }
 }
 
-static void enter_name_entry(uint8_t rank)
+static void enter_name_entry(uint8_t player, uint8_t rank)
 {
     clear_objects();
     bg_clear(0);
     bg_clear(1);
+    entry_player = player;
     entry_rank = rank;
     entry_pos = 0;
     entry_name[0] = 'A';
@@ -306,15 +478,30 @@ static void enter_name_entry(uint8_t rank)
     entry_name[2] = 'A';
     entry_name[3] = 0;
     text_put(8, 4, "CONGRATULATIONS!", PAL_YELLOW);
-    text_put(8, 7, "ENTER YOUR NAME", PAL_CYAN);
+    text_put(8, 7, player == 0 ? "PLAYER 1" : "PLAYER 2", player == 0 ? PAL_GREEN : PAL_CYAN);
+    text_put(8, 8, "ENTER YOUR NAME", PAL_CYAN);
     text_put(8, 10, "SCORE", PAL_NONE);
-    text_digits(15, 10, g_score, 8, PAL_NONE);
+    text_digits(15, 10, g_players[player].score, 8, PAL_NONE);
     text_put(8, 12, "ROUND", PAL_NONE);
     text_number(15, 12, g_round, PAL_NONE);
     text_put(5, 21, "UP/DOWN  CHOOSE LETTER", PAL_GREY);
     text_put(5, 23, "B OR Y   CONFIRM", PAL_GREY);
     text_put(5, 25, "LEFT     BACK", PAL_GREY);
     set_state(GS_NAME_ENTRY);
+}
+
+/* After game over: name entry for each player who made the table, in turn. */
+static void next_name_entry(uint8_t from, uint8_t highlight)
+{
+    uint8_t i;
+    for (i = from; i < NUM_PLAYERS; i++) {
+        uint8_t rank = hiscore_rank(g_players[i].score);
+        if (played[i] && rank < HISCORE_COUNT) {
+            enter_name_entry(i, rank);
+            return;
+        }
+    }
+    enter_hiscores(highlight);
 }
 
 static void update_name_entry(uint16_t pressed)
@@ -339,8 +526,10 @@ static void update_name_entry(uint16_t pressed)
             entry_pos++;
             entry_name[entry_pos] = entry_name[entry_pos - 1];
         } else {
-            hiscore_insert(entry_rank, entry_name, g_score, g_round);
-            enter_hiscores(entry_rank);
+            uint8_t player = entry_player;
+            hiscore_insert(entry_rank, entry_name, g_players[player].score, g_round);
+            played[player] = 0;
+            next_name_entry((uint8_t)(player + 1), entry_rank);
             return;
         }
     }
@@ -355,7 +544,11 @@ static void build_oam(void)
 
     if (g_state == GS_ROUND_INTRO || g_state == GS_PLAY || g_state == GS_PAUSE || g_state == GS_GAME_OVER) {
         /* Lower index = higher priority (drawn on top). */
-        player_draw();
+        for (i = 0; i < NUM_PLAYERS; i++) {
+            player_draw(&g_players[i]);
+        }
+        chaser_draw();
+        effects_draw();
         items_draw();
         enemies_draw();
         bubbles_draw();
@@ -380,6 +573,7 @@ void game_init(uint16_t seed)
         prev_pad[i] = 0;
     }
     hiscore_init();
+    clear_objects();
     enter_title();
     build_oam();
 }
@@ -408,7 +602,7 @@ void game_tick(const uint16_t pad[NUM_PLAYERS])
             text_clear_row(23);
         }
         if (any_pressed & PAD_START) {
-            new_game();
+            new_game((uint8_t)((pressed[0] & PAD_START) ? 0 : 1));
         } else if (state_timer >= TITLE_FRAMES) {
             enter_hiscores(HISCORE_COUNT);
         }
@@ -416,17 +610,20 @@ void game_tick(const uint16_t pad[NUM_PLAYERS])
 
     case GS_HISCORES:
         if (any_pressed & PAD_START) {
-            new_game();
+            new_game((uint8_t)((pressed[0] & PAD_START) ? 0 : 1));
         } else if (state_timer >= HISCORE_FRAMES) {
             enter_title();
         }
         break;
 
     case GS_ROUND_INTRO:
-        player_update(0, 0);
+        (void)handle_start(pressed);
+        for (i = 0; i < NUM_PLAYERS; i++) {
+            player_update(&g_players[i], 0, 0);
+        }
         enemies_update();
         draw_hud_values();
-        if (state_timer >= INTRO_FRAMES && !player_entering() && !enemies_entering()) {
+        if (state_timer >= INTRO_FRAMES && !players_entering() && !enemies_entering()) {
             text_clear_row(12);
             text_clear_row(15);
             set_state(GS_PLAY);
@@ -434,12 +631,12 @@ void game_tick(const uint16_t pad[NUM_PLAYERS])
         break;
 
     case GS_PLAY:
-        update_play(pad[0], pressed[0]);
+        update_play(pad, pressed);
         draw_hud_values();
         break;
 
     case GS_PAUSE:
-        if (pressed[0] & PAD_START) {
+        if (any_pressed & PAD_START) {
             text_clear_row(13);
             g_state = GS_PLAY;
         }
@@ -447,22 +644,22 @@ void game_tick(const uint16_t pad[NUM_PLAYERS])
 
     case GS_GAME_OVER:
         if (state_timer >= GAME_OVER_FRAMES) {
-            uint8_t rank = hiscore_rank(g_score);
-            if (rank < HISCORE_COUNT) {
-                enter_name_entry(rank);
-            } else {
-                enter_hiscores(HISCORE_COUNT);
-            }
+            next_name_entry(0, HISCORE_COUNT);
         }
         break;
 
     case GS_NAME_ENTRY:
-        update_name_entry(any_pressed);
+        update_name_entry(pressed[entry_player]);
         break;
     }
 
     state_timer++;
     build_oam();
+}
+
+void game_debug_start_round(uint8_t round)
+{
+    first_level = (uint8_t)(round >= 1 && round <= level_count ? round - 1 : 0);
 }
 
 const Sprite *game_oam(void)

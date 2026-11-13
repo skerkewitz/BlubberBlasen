@@ -203,14 +203,35 @@ static uint8_t autotile(int16_t x, int16_t y)
     return 0xFF;   /* empty */
 }
 
+/* Special bubbles drift in through a gap in the bottom row, else the top
+ * row; rooms without an opening release them near the bottom centre. */
+void level_opening(uint16_t *x, uint16_t *y)
+{
+    int16_t row, c;
+    for (row = LEVEL_H - 1; row >= 0; row = (int16_t)(row - (LEVEL_H - 1))) {
+        for (c = 2; c < LEVEL_W - 2; c++) {
+            if (!level_solid_tile(c, row)) {
+                *x = TO_POS(c << 3);   /* centred over the first open column */
+                *y = TO_POS(row == 0 ? FIELD_Y + 8 : FIELD_BOTTOM - 8 - 16);
+                return;
+            }
+        }
+        if (row == 0) {
+            break;
+        }
+    }
+    *x = TO_POS(120);
+    *y = TO_POS(FIELD_BOTTOM - 40);
+}
+
 void level_load(uint8_t index)
 {
     uint16_t base;
     int16_t x, y;
-    uint8_t ts = index;
+    uint8_t ts = level_defs[index].tileset;
 
-    while (ts >= CHR_TILESET_COUNT) {
-        ts = (uint8_t)(ts - CHR_TILESET_COUNT);
+    if (ts >= CHR_TILESET_COUNT) {
+        ts = 0;
     }
     base = (uint16_t)(CHR_TILESET_BASE + ((uint16_t)ts << 5));
 

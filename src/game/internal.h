@@ -36,8 +36,29 @@ enum {
     SPR_P_DEATH0 = 5, SPR_P_RING = 9,
     SPR_E_WALK0 = 16, SPR_E_ANGRY0 = 18, SPR_E_THROWN0 = 20,
     SPR_BUBBLE0 = 32, SPR_TRAP0 = 35, SPR_BURST0 = 38, SPR_BURST1 = 39, SPR_TRAP_ANGRY = 40,
-    SPR_GEM0 = 48, SPR_PTS10 = 50, SPR_PTS500 = 51, SPR_PTS1000 = 52
+    SPR_BUBBLE_ORANGE0 = 41, SPR_BUBBLE_RED0 = 44,        /* empty bubble about to expire */
+    SPR_FOOD0 = 48,                                       /* food tier 0..6 */
+    SPR_TRAP_ORANGE0 = 56, SPR_TRAP_RED0 = 59,            /* enemy about to escape */
+    SPR_POPUP0 = 64,                                      /* 32x16 pop-ups, two cells each */
+    SPR_RING0 = 96, SPR_RING_ORANGE0 = 99, SPR_RING_RED0 = 102,  /* trapped: ring over ... */
+    SPR_SMALL_ENEMY0 = 105,                               /* ... a small enemy, by type */
+    SPR_BOUNCER0 = 112, SPR_THROWER0 = 118, SPR_THROWER_THROW = 120,
+    SPR_ROCK0 = 121, SPR_CHASER0 = 123,
+    SPR_SPECIAL_WATER = 128, SPR_SPECIAL_FIRE = 129, SPR_SPECIAL_LIGHTNING = 130,
+    SPR_LETTER0 = 131,                                    /* E X T N D */
+    SPR_WATER0 = 136, SPR_FIREBALL = 138, SPR_FIRE0 = 139, SPR_BOLT0 = 141,
+    SPR_POWERUP0 = 144                                    /* POWER_* order */
 };
+
+/* Score pop-ups (index into the pop-up cells). Food tier t uses POPUP_FOOD0 + t. */
+enum { POPUP_10 = 0, POPUP_500 = 1, POPUP_FOOD0 = 2, POPUP_100 = 9, POPUP_200 = 10 };
+
+/* Power-ups. The first four are kept by the player until they lose a life. */
+enum { POWER_RANGE, POWER_SPEED, POWER_RATE, POWER_SHOES, POWER_UMBRELLA, POWER_COUNT };
+
+/* EXTEND: six letters per player (bit 0 = E ... bit 5 = D). */
+#define EXTEND_ALL 0x3Fu
+#define FOOD_TIERS 7    /* 1000, 2000, 4000, ... 64000 */
 
 /* --- Top-level state ------------------------------------------------------- */
 typedef enum {
@@ -54,7 +75,14 @@ typedef enum {
 typedef enum { PS_OFF, PS_ALIVE, PS_DYING, PS_ENTERING } PlayerState;
 
 typedef struct {
-    uint8_t  state;        /* PlayerState */
+    uint8_t  id;           /* 0 = player 1, 1 = player 2 */
+    uint8_t  state;        /* PlayerState; PS_OFF = not in the game */
+    uint8_t  lives;
+    uint8_t  extends_given;/* score-based extra lives already awarded */
+    uint8_t  score[8];     /* decimal digits, most significant first */
+    uint8_t  letters;      /* EXTEND letters collected (bit mask) */
+    uint8_t  powers;       /* power-ups held (bit mask of 1 << POWER_*) */
+    uint8_t  stun;         /* frames left stunned by fire */
     uint8_t  facing_left;
     uint8_t  on_ground;
     uint8_t  shoot_cooldown;
@@ -69,9 +97,14 @@ typedef struct {
 
 typedef struct {
     uint8_t  active;
+    uint8_t  type;         /* ENEMY_TYPE_* */
     uint8_t  facing_left;
+    uint8_t  moving_down;  /* bouncer */
+    uint8_t  throw_timer;  /* thrower: frames until it may throw again */
+    uint8_t  throw_pose;   /* thrower: frames left standing in the throw pose */
     uint8_t  angry;
     uint8_t  entering;     /* moving to its spawn point, AI paused */
+    uint8_t  spawn_delay;  /* frames until it starts entering (hidden until then) */
     uint8_t  jump_left;    /* pixels left in the current jump */
     uint8_t  gap_jump;
     uint8_t  walk_over_edge;
@@ -80,26 +113,34 @@ typedef struct {
 } Enemy;
 
 #define MAX_BUBBLES 16
-typedef enum { BS_OFF, BS_SHOOT, BS_FLOAT, BS_TRAPPED } BubbleState;
+typedef enum { BS_OFF, BS_SHOOT, BS_FLOAT, BS_TRAPPED, BS_POPPING } BubbleState;
+typedef enum { BK_NORMAL, BK_WATER, BK_FIRE, BK_LIGHTNING, BK_LETTER } BubbleKind;
 
 typedef struct {
     uint8_t  state;        /* BubbleState */
     uint8_t  dir;          /* AIR_* direction it currently drifts in */
     uint8_t  angry;        /* trapped enemy was angry */
     uint8_t  anim;         /* animation phase offset */
+    uint8_t  trapped;      /* holds an enemy (also while popping) */
+    uint8_t  etype;        /* type of the trapped enemy */
+    uint8_t  kind;         /* BubbleKind */
+    uint8_t  letter;       /* BK_LETTER: 0..5 = E X T E N D */
+    uint8_t  shot_frames;  /* how long it flies (range power-up) */
+    fx8_8    shot_speed;   /* how fast it flies (speed power-up) */
+    uint8_t  pop_timer;    /* frames until a popping bubble bursts */
     uint16_t age;          /* frames */
     uint16_t x, y;         /* 8.8 */
 } Bubble;
 
 #define MAX_ITEMS 16
-typedef enum { IT_OFF, IT_THROWN, IT_FALLING, IT_GEM, IT_BURST, IT_POPUP } ItemKind;
+typedef enum { IT_OFF, IT_THROWN, IT_FOOD, IT_BURST, IT_POPUP, IT_ROCK, IT_POWERUP } ItemKind;
 
 typedef struct {
     uint8_t  kind;         /* ItemKind */
-    uint8_t  tile;         /* popup graphic */
-    int8_t   dx, dy;       /* thrown direction */
+    uint8_t  tier;         /* food tier (thrown, food) or POPUP_* (pop-up) */
     uint16_t timer;        /* frames left in this phase */
     uint16_t x, y;         /* 8.8 */
+    fx8_8    vx, vy;       /* thrown enemy */
 } Item;
 
 /* --- Shared state (defined in game.c) -------------------------------------- */
@@ -109,11 +150,21 @@ extern uint16_t  g_level_frames;   /* frames since the round started */
 extern uint8_t   g_level;          /* 0-based index into level_defs */
 extern uint8_t   g_round;          /* 1-based round number shown to the player */
 extern uint8_t   g_hurry;          /* hurry-up mode active */
-extern uint8_t   g_lives;
-extern uint8_t   g_score[8];       /* decimal digits, most significant first */
 extern uint16_t  g_sfx;
+extern uint8_t   g_skip_rounds;    /* >0: end the round now and advance that many */
 
-extern Player    g_player;
+/* Hidden counters that unlock power-ups (shared by both players). */
+typedef struct {
+    uint8_t  blown;        /* bubbles blown          -> range candy  */
+    uint8_t  popped;       /* bubbles popped         -> speed candy  */
+    uint8_t  jumps;        /* jumps                  -> rate candy   */
+    uint8_t  water;        /* water bubbles popped   -> umbrella     */
+    uint16_t walked;       /* pixels walked          -> shoes        */
+    uint8_t  queued;       /* unlocked power-ups waiting (1 << POWER_*) */
+} Counters;
+extern Counters  g_count;
+
+extern Player    g_players[NUM_PLAYERS];
 extern Enemy     g_enemies[MAX_ENEMIES];
 extern Bubble    g_bubbles[MAX_BUBBLES];
 extern Item      g_items[MAX_ITEMS];
@@ -126,7 +177,7 @@ uint8_t  chance(uint8_t p256);     /* 1 with probability p256 / 256 */
 void     sfx(uint8_t id);
 void     oam_add(uint8_t x, uint8_t y, uint8_t tile, uint8_t attr);
 uint8_t  overlap(uint16_t ax, uint16_t ay, uint16_t bx, uint16_t by, uint8_t w, uint8_t h);
-void     player_killed(void);
+void     player_killed(Player *p);
 
 /* --- level.c ---------------------------------------------------------------- */
 void     level_load(uint8_t index);
@@ -140,6 +191,7 @@ void     level_clamp_x(uint16_t *x);
 void     level_wrap_y(uint16_t *y);
 uint8_t  level_can_jump_up(uint16_t x, uint16_t y);
 uint8_t  level_gap_ahead(uint16_t x, uint16_t y, int8_t dir);
+void     level_opening(uint16_t *x, uint16_t *y);  /* where special bubbles enter */
 uint8_t  level_can_gap_jump(uint16_t x, uint16_t y, int8_t dir);
 
 /* --- text.c ----------------------------------------------------------------- */
@@ -152,35 +204,61 @@ void     score_add(uint8_t *score, uint8_t pos, uint8_t digit);
 int8_t   score_cmp(const uint8_t *a, const uint8_t *b);
 
 /* --- player.c --------------------------------------------------------------- */
-void     player_start(void);
-void     player_enter_round(void);
-uint8_t  player_entering(void);
-void     player_update(uint16_t pad, uint16_t pressed);
-void     player_draw(void);
+void     player_start(Player *p);
+void     player_enter_round(Player *p);
+uint8_t  players_entering(void);
+uint8_t  players_in_game(void);
+const Player *player_nearest(uint16_t x, uint16_t y);
+void     player_update(Player *p, uint16_t pad, uint16_t pressed);
+void     player_draw(const Player *p);
 
 /* --- enemy.c ---------------------------------------------------------------- */
 void     enemies_clear(void);
 void     enemies_spawn_level(void);
-void     enemy_spawn(uint16_t x, uint16_t y, uint8_t angry, uint8_t facing_left);
+void     enemy_spawn(uint16_t x, uint16_t y, uint8_t type, uint8_t angry, uint8_t facing_left);
 uint8_t  enemies_entering(void);
 uint8_t  enemies_count(void);
 void     enemies_make_angry(void);
+void     enemies_calm_down(void);
+uint8_t  enemies_touch(uint16_t x, uint16_t y);   /* 1 if an enemy, rock or the chaser touches */
+
+/* Hurry Up chaser: invincible, flies through walls towards the player. */
+void     chaser_reset(void);
+void     chaser_spawn(void);
+uint8_t  chaser_active(void);
+void     chaser_update(void);
+void     chaser_draw(void);
 void     enemies_update(void);
 void     enemies_draw(void);
 
 /* --- bubble.c --------------------------------------------------------------- */
 void     bubbles_clear(void);
-void     bubble_shoot(uint16_t x, uint16_t y, uint8_t facing_left);
+void     bubble_shoot(uint16_t x, uint16_t y, uint8_t facing_left, uint8_t powers);
+void     bubble_spawn_special(uint8_t kind, uint8_t letter, uint16_t x, uint16_t y);
+void     bubble_pop(Bubble *b, int8_t dir, uint8_t player);   /* starts a chain reaction */
 uint8_t  bubbles_trapped_count(void);
 void     bubbles_update(void);
 void     bubbles_draw(void);
 
 /* --- item.c ----------------------------------------------------------------- */
 void     items_clear(void);
-void     item_spawn(uint8_t kind, uint16_t x, uint16_t y, int8_t dx, uint8_t tile);
-uint8_t  items_thrown_count(void);
+void     item_spawn(uint8_t kind, uint16_t x, uint16_t y, uint8_t tier);
+void     item_spawn_thrown(uint16_t x, uint16_t y, int8_t dir, uint8_t tier);
+void     item_spawn_rock(uint16_t x, uint16_t y, int8_t dir);
+void     item_spawn_powerup(uint8_t power, uint16_t x, uint16_t y);
+void     items_clear_rocks(void);
 void     items_update(void);
 void     items_draw(void);
+
+/* --- effect.c --------------------------------------------------------------- */
+void     effects_clear(void);                     /* new round */
+void     effect_start(uint8_t kind, uint16_t x, uint16_t y, int8_t dir, uint8_t player);
+void     effects_update(void);
+void     effects_draw(void);
+void     extend_letters_earned(uint8_t count);    /* queue letter bubbles */
+void     extend_collect(uint8_t player, uint8_t letter);
+void     counters_check(void);                    /* unlock power-ups */
+void     powerup_round_tick(void);                /* place a queued power-up */
 
 /* --- hiscore.c -------------------------------------------------------------- */
 #define HISCORE_COUNT 5
