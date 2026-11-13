@@ -17,13 +17,13 @@ set(BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(BUILD_GAMES    OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(raylib)
 
-# --- Host tools ----------------------------------------------------------------
-add_subdirectory(tools)
-
 # --- Generated level data: assets/levels/*.map -> level_data.c ----------------
 file(GLOB LEVEL_FILES CONFIGURE_DEPENDS ${PROJECT_SOURCE_DIR}/assets/levels/*.map)
 file(GLOB LEVEL_SETTINGS CONFIGURE_DEPENDS ${PROJECT_SOURCE_DIR}/assets/levels/*.txt)
 list(SORT LEVEL_FILES)
+
+# --- Host tools (they use LEVEL_FILES) ------------------------------------------
+add_subdirectory(tools)
 set(LEVEL_DATA_C ${PROJECT_BINARY_DIR}/generated/level_data.c)
 add_custom_command(
     OUTPUT  ${LEVEL_DATA_C}

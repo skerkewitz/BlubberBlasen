@@ -12,10 +12,7 @@
  *   special <type> <seconds>  special bubbles: water, fire or lightning, every n seconds
  *   # comment
  *
- * Input format (big endian, as written by the old Java editor):
- *   832 bytes  static layer, 32 x 26, row-major; 0 = empty, non-zero = solid
- *   832 bytes  airflow layer; 0 = none, 1 = up, 2 = down, 3 = left, 4 = right
- *   optional:  int32 enemy count, then per enemy int32 x, y, type, lookingLeft
+ * Input format: see tools/common/mapfile.h.
  *
  * Output: see src/game/level_data.h. Levels are numbered in argument order.
  *
@@ -27,17 +24,13 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "game/level_data.h"
+#include "common/mapfile.h"
 
-#define MAX_LEVELS 99
-#define MAX_FILE   4096
+#define MAX_LEVELS 120
 #define DEFAULT_HURRY_SECONDS 30
 
 typedef struct {
-    const char *path;
-    uint8_t     cells[LEVEL_CELLS];
-    LevelEnemy  enemies[LEVEL_MAX_ENEMIES];
-    int         enemy_count;
+    MapFile     m;
     int         tileset;        /* 0-based */
     long        hurry_frames;
     int         special;
@@ -47,86 +40,6 @@ typedef struct {
 } Level;
 
 static Level levels[MAX_LEVELS];
-
-static long read_be32(const unsigned char *p)
-{
-    unsigned long v = ((unsigned long)p[0] << 24) | ((unsigned long)p[1] << 16) |
-                      ((unsigned long)p[2] << 8) | (unsigned long)p[3];
-    return (v & 0x80000000ul) ? -(long)(0xFFFFFFFFul - v) - 1 : (long)v;
-}
-
-static int load_level(const char *path, Level *lv)
-{
-    unsigned char buf[MAX_FILE];
-    size_t size;
-    long count, i;
-    FILE *f = fopen(path, "rb");
-
-    if (!f) {
-        fprintf(stderr, "map2c: %s: cannot open file\n", path);
-        return 0;
-    }
-    size = fread(buf, 1, sizeof buf, f);
-    fclose(f);
-
-    if (size < 2 * LEVEL_CELLS) {
-        fprintf(stderr, "map2c: %s: file too short (%u bytes, need at least %d)\n",
-                path, (unsigned)size, 2 * LEVEL_CELLS);
-        return 0;
-    }
-
-    lv->path = path;
-    for (i = 0; i < LEVEL_CELLS; i++) {
-        unsigned char solid = buf[i];
-        unsigned char air = buf[LEVEL_CELLS + i];
-        if (air > AIR_RIGHT) {
-            fprintf(stderr, "map2c: %s: invalid airflow value %u at x=%ld y=%ld\n",
-                    path, air, i % LEVEL_W, i / LEVEL_W);
-            return 0;
-        }
-        lv->cells[i] = (uint8_t)((solid ? CELL_SOLID : 0u) | air);
-    }
-
-    lv->enemy_count = 0;
-    if (size == 2 * LEVEL_CELLS) {
-        return 1;   /* old files without enemy layer */
-    }
-    if (size < 2 * LEVEL_CELLS + 4) {
-        fprintf(stderr, "map2c: %s: truncated enemy count\n", path);
-        return 0;
-    }
-    count = read_be32(buf + 2 * LEVEL_CELLS);
-    if (count < 0 || count > LEVEL_MAX_ENEMIES) {
-        fprintf(stderr, "map2c: %s: %ld enemies, allowed are 0..%d\n", path, count, LEVEL_MAX_ENEMIES);
-        return 0;
-    }
-    if (size < (size_t)(2 * LEVEL_CELLS + 4 + count * 16)) {
-        fprintf(stderr, "map2c: %s: truncated enemy list\n", path);
-        return 0;
-    }
-    for (i = 0; i < count; i++) {
-        const unsigned char *p = buf + 2 * LEVEL_CELLS + 4 + i * 16;
-        long x = read_be32(p), y = read_be32(p + 4), type = read_be32(p + 8), left = read_be32(p + 12);
-        if (x < 0 || x >= LEVEL_W || y < 0 || y >= LEVEL_H) {
-            fprintf(stderr, "map2c: %s: enemy %ld outside the map (x=%ld y=%ld)\n", path, i, x, y);
-            return 0;
-        }
-        if (type < ENEMY_TYPE_WALKER || type > ENEMY_TYPE_COUNT) {
-            fprintf(stderr, "map2c: %s: warning: enemy %ld has unknown type %ld, using walker\n", path, i, type);
-            type = ENEMY_TYPE_WALKER;
-        }
-        if (lv->cells[y * LEVEL_W + x] & CELL_SOLID) {
-            fprintf(stderr, "map2c: %s: warning: enemy %ld spawns inside a solid tile\n", path, i);
-        }
-        lv->enemies[i].x = (uint8_t)x;
-        lv->enemies[i].y = (uint8_t)y;
-        lv->enemies[i].type = (uint8_t)type;
-        lv->enemies[i].flags = (uint8_t)(left ? LEVEL_ENEMY_FACE_LEFT : 0u);
-        lv->enemies[i].delay = 0;
-    }
-    lv->enemy_count = (int)count;
-    return 1;
-}
 
 /* Parse a whole number; returns 0 if the token is not one. */
 static int parse_long(const char *tok, long *out)
@@ -150,7 +63,7 @@ static int settings_error(const Level *lv, int line, const char *msg)
 static int load_settings(Level *lv, int index)
 {
     char buf[256];
-    size_t len = strlen(lv->path);
+    size_t len = strlen(lv->m.path);
     int line = 0;
     FILE *f;
 
@@ -163,7 +76,7 @@ static int load_settings(Level *lv, int index)
     if (len < 4 || len + 1 > sizeof lv->settings_path) {
         return 1;
     }
-    memcpy(lv->settings_path, lv->path, len - 4);
+    memcpy(lv->settings_path, lv->m.path, len - 4);
     strcpy(lv->settings_path + len - 4, ".txt");
     f = fopen(lv->settings_path, "r");
     if (!f) {
@@ -205,13 +118,13 @@ static int load_settings(Level *lv, int index)
                     fclose(f);
                     return settings_error(lv, line, "delay values must be frames 0..255");
                 }
-                if (n >= lv->enemy_count) {
+                if (n >= lv->m.enemy_count) {
                     fclose(f);
                     return settings_error(lv, line, "more delay values than enemies in the .map");
                 }
-                lv->enemies[n++].delay = (uint8_t)v;
+                lv->m.enemies[n++].delay = (uint8_t)v;
             }
-            if (n != lv->enemy_count) {
+            if (n != lv->m.enemy_count) {
                 fclose(f);
                 return settings_error(lv, line, "fewer delay values than enemies in the .map");
             }
@@ -275,27 +188,27 @@ static int write_output(const char *out_path, int n)
 
     fprintf(f, "/* Generated by tools/map2c. Do not edit; edit the .map files instead.\n");
     for (l = 0; l < n; l++) {
-        fprintf(f, " *   level %2d: %s%s\n", l + 1, base_name(levels[l].path),
+        fprintf(f, " *   level %2d: %s%s\n", l + 1, base_name(levels[l].m.path),
                 levels[l].has_settings ? " + settings" : "");
     }
     fprintf(f, " */\n\n#include \"game/level_data.h\"\n\n");
 
     for (l = 0; l < n; l++) {
         const Level *lv = &levels[l];
-        fprintf(f, "/* %s */\nstatic const uint8_t level%02d_cells[LEVEL_CELLS] = {\n", base_name(lv->path), l + 1);
+        fprintf(f, "/* %s */\nstatic const uint8_t level%02d_cells[LEVEL_CELLS] = {\n", base_name(lv->m.path), l + 1);
         for (i = 0; i < LEVEL_CELLS; i++) {
             if (i % LEVEL_W == 0) {
                 fprintf(f, "    ");
             }
-            fprintf(f, "0x%02X,", lv->cells[i]);
+            fprintf(f, "0x%02X,", lv->m.cells[i]);
             fprintf(f, (i % LEVEL_W == LEVEL_W - 1) ? "\n" : "");
         }
         fprintf(f, "};\n");
-        if (lv->enemy_count > 0) {
-            fprintf(f, "static const LevelEnemy level%02d_enemies[%d] = {\n", l + 1, lv->enemy_count);
-            for (i = 0; i < lv->enemy_count; i++) {
-                fprintf(f, "    { %2u, %2u, %u, 0x%02X, %3u },\n", lv->enemies[i].x, lv->enemies[i].y,
-                        lv->enemies[i].type, lv->enemies[i].flags, lv->enemies[i].delay);
+        if (lv->m.enemy_count > 0) {
+            fprintf(f, "static const LevelEnemy level%02d_enemies[%d] = {\n", l + 1, lv->m.enemy_count);
+            for (i = 0; i < lv->m.enemy_count; i++) {
+                fprintf(f, "    { %2u, %2u, %u, 0x%02X, %3u },\n", lv->m.enemies[i].x, lv->m.enemies[i].y,
+                        lv->m.enemies[i].type, lv->m.enemies[i].flags, lv->m.enemies[i].delay);
             }
             fprintf(f, "};\n");
         }
@@ -304,9 +217,9 @@ static int write_output(const char *out_path, int n)
 
     fprintf(f, "const LevelDef level_defs[%d] = {\n", n);
     for (l = 0; l < n; l++) {
-        if (levels[l].enemy_count > 0) {
+        if (levels[l].m.enemy_count > 0) {
             fprintf(f, "    { level%02d_cells, level%02d_enemies, %d, %d, %ld, %d, %ld },\n", l + 1, l + 1,
-                    levels[l].enemy_count, levels[l].tileset, levels[l].hurry_frames,
+                    levels[l].m.enemy_count, levels[l].tileset, levels[l].hurry_frames,
                     levels[l].special, levels[l].special_frames);
         } else {
             fprintf(f, "    { level%02d_cells, 0, 0, %d, %ld, %d, %ld },\n", l + 1, levels[l].tileset,
@@ -343,7 +256,7 @@ int main(int argc, char **argv)
                 fprintf(stderr, "map2c: too many levels (max %d)\n", MAX_LEVELS);
                 return 1;
             }
-            if (!load_level(argv[i], &levels[n]) || !load_settings(&levels[n], n)) {
+            if (!mapfile_load("map2c", argv[i], &levels[n].m) || !load_settings(&levels[n], n)) {
                 return 1;
             }
             n++;

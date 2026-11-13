@@ -44,7 +44,7 @@ static void test_levels(void)
     uint8_t l;
     uint16_t i;
 
-    CHECK(level_count == 10, "expected 10 levels, got %u", level_count);
+    CHECK(level_count == 20, "expected 20 levels, got %u", level_count);
     CHECK(level_defs[0].hurry_frames == 40 * 60, "round01.txt sets hurry 40");
     CHECK(level_defs[0].enemies[2].delay == 30, "round01.txt sets delay 30 for enemy 3");
     CHECK(level_defs[1].special == SPECIAL_WATER && level_defs[1].special_frames == 15 * 60,

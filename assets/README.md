@@ -81,7 +81,7 @@ Each round is two files:
 - `roundNN.map` in the format of the [GierzahnEditor](https://github.com/skerkewitz/GierzahnEditor): 32 x 26 tiles, a static layer, an airflow layer and enemy spawn points.
 - `roundNN.txt` with the settings the editor can't store: Hurry Up time, tileset, a spawn delay per enemy and which special bubbles the round sends in.
 
-The build converts both with `tools/map2c` (formats in `tools/README.md`). All `*.map` files are used, sorted by name. To try a round directly, start the game with `--round NN`.
+The build converts both with `tools/map2c` (formats in `tools/README.md`). All `*.map` files are used, sorted by name. To look at all rooms side by side, build the `rooms_sheet` target (`build/rooms.png`, made by `tools/mapview`). To try a round directly, start the game with `--round NN`.
 
 Things to keep in mind when designing rooms:
 

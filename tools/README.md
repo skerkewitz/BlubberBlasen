@@ -5,7 +5,7 @@ from `assets/` into data the game uses.
 
 ## Conventions
 
-- Plain C99, one folder per tool (`tools/<name>/<name>.c`), no third-party libraries.
+- Plain C99, one folder per tool (`tools/<name>/<name>.c`), no third-party libraries. Code used by several tools lives in `tools/common/` (for example `mapfile.c`, which reads `.map` files).
 - They are built by CMake as host executables and run automatically during the build when their input changes.
 - The game-code rules (no `malloc`, no `float`) do not apply here.
 - Shared formats come from the game headers (`src/game/*.h`), so the tool and the game cannot disagree on a constant.
@@ -48,3 +48,19 @@ Unknown keys, values out of range and a `delay` list whose length doesn't match 
 ### Output
 
 One byte per cell (bit 7 = solid, bits 0..2 = airflow), an enemy table with spawn delays, and per round the tileset and the Hurry Up time in frames, and the special bubble type with its interval in frames, as declared in `src/game/level_data.h`.
+
+## mapview
+
+Renders rooms into one PNG contact sheet, for reviewing levels without starting the game.
+
+```
+mapview -o <sheet.png> [-c <columns>] [-s <scale>] <level.map>...
+```
+
+Each room shows the walls (pink), the airflow (grey arrows), the enemy spawn points (walker purple, bouncer cyan, thrower orange; a white bar marks the side the enemy faces), the player start points (green = player 1, white = player 2) and the round number taken from the file name. Default: 5 columns, scale 1.
+
+All rooms at once:
+
+```
+cmake --build build --target rooms_sheet     # writes build/rooms.png
+```

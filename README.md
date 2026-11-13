@@ -53,7 +53,7 @@ BlubberBlasen/
 │   │   └── level_data.h     #   level format shared with tools/map2c
 │   └── platform/            # platform_raylib.c: window, input, rendering, audio, 60 Hz tick
 ├── assets/                  # Graphics, sound and level files (see assets/README.md)
-├── tools/                   # Host tools, e.g. map2c: level files -> const C arrays (see tools/README.md)
+├── tools/                   # Host tools: map2c (levels -> const C arrays), mapview (room previews); see tools/README.md
 └── tests/                   # Headless tests of the game library
 ```
 
