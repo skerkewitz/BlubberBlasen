@@ -29,7 +29,7 @@ Input format (big endian):
 | 0 | 832 bytes | Static layer, 32 x 26 tiles; 0 = empty, non-zero = solid |
 | 832 | 832 bytes | Airflow; 0 = none, 1 = up, 2 = down, 3 = left, 4 = right |
 | 1664 | int32 | Number of enemies (optional; missing = 0) |
-| then | 4 x int32 each | x, y (tile of the feet), type (1 = walker, 2 = bouncer, 3 = thrower), looking left (0/1) |
+| then | 4 x int32 each | x, y (tile of the feet), type (1 walker, 2 bouncer, 3 thrower, 4 flutter, 5 hopper, 6 spitter, 7 dropper), looking left (0/1) |
 
 ### Settings file
 
@@ -54,10 +54,12 @@ One byte per cell (bit 7 = solid, bits 0..2 = airflow), an enemy table with spaw
 Renders rooms into one PNG contact sheet, for reviewing levels without starting the game.
 
 ```
-mapview -o <sheet.png> [-c <columns>] [-s <scale>] <level.map>...
+mapview [-o <sheet.png>] [-c <columns>] [-s <scale>] [--check] <level.map>...
 ```
 
-Each room shows the walls (pink), the airflow (grey arrows), the enemy spawn points (walker purple, bouncer cyan, thrower orange; a white bar marks the side the enemy faces), the player start points (green = player 1, white = player 2) and the round number taken from the file name. Default: 5 columns, scale 1.
+`--check` tests that each room can be played, with a simplified movement model: walking, falling, wrapping through gaps in the bottom row, and jumping up to 5 rows (through one-way platforms) and 4 columns sideways. It reports enemies that walk but cannot be reached, enemies that need a floor but have none, and a missing floor at the player start. The CTest test `rooms_playable` runs it on all rooms, so a room made in the editor that cannot be played fails the tests.
+
+Each room shows the walls (pink), the airflow (grey arrows), the enemy spawn points (walker purple, bouncer cyan, thrower orange, flutter yellow, hopper green, spitter red, dropper grey; a white bar marks the side the enemy faces), the player start points (green = player 1, white = player 2) and the round number taken from the file name. Default: 5 columns, scale 1.
 
 All rooms at once:
 

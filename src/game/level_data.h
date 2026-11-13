@@ -24,7 +24,11 @@ enum { AIR_NONE = 0, AIR_UP = 1, AIR_DOWN = 2, AIR_LEFT = 3, AIR_RIGHT = 4 };
 #define ENEMY_TYPE_WALKER  1   /* walks, jumps up to the player, drops off edges */
 #define ENEMY_TYPE_BOUNCER 2   /* flies diagonally, ignores platforms */
 #define ENEMY_TYPE_THROWER 3   /* walker that stops and throws rocks */
-#define ENEMY_TYPE_COUNT   3
+#define ENEMY_TYPE_FLUTTER 4   /* flies freely through platforms, changes direction often */
+#define ENEMY_TYPE_HOPPER  5   /* bounces in arcs on a spring, rebounds off walls */
+#define ENEMY_TYPE_SPITTER 6   /* fast walker, weak jumper, spits fireballs while running */
+#define ENEMY_TYPE_DROPPER 7   /* patrols left/right, drops off edges, shoots straight down */
+#define ENEMY_TYPE_COUNT   7
 #define LEVEL_ENEMY_FACE_LEFT 0x01u
 
 /* Special bubbles a round sends in through its opening. */

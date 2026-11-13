@@ -49,8 +49,14 @@ enum {
     SPR_WATER0 = 136, SPR_FIREBALL = 138, SPR_FIRE0 = 139, SPR_BOLT0 = 141,
     SPR_POWERUP0 = 144,                                   /* POWER_* order */
     SPR_BONUS0 = 149,                                     /* bonus food of the round */
-    SPR_LIFE1 = 153, SPR_LIFE2 = 154                      /* one / two life icons */
+    SPR_LIFE1 = 153, SPR_LIFE2 = 154,                     /* one / two life icons */
+    SPR_FLUTTER0 = 160, SPR_HOPPER0 = 162, SPR_SPITTER0 = 164, SPR_DROPPER0 = 166,
+    SPR_SPIT = 168, SPR_DOWN_SHOT = 169,
+    SPR_SMALL_ENEMY4 = 170                                /* small flutter, hopper, spitter, dropper */
 };
+
+/* Enemy shots (Item.tier of an IT_ROCK). */
+enum { SHOT_ROCK, SHOT_SPIT, SHOT_DOWN };
 
 /* Score pop-ups (index into the pop-up cells). Food tier t uses POPUP_FOOD0 + t. */
 enum { POPUP_10 = 0, POPUP_500 = 1, POPUP_FOOD0 = 2, POPUP_100 = 9, POPUP_200 = 10, POPUP_700 = 11 };
@@ -105,9 +111,10 @@ typedef struct {
     uint8_t  active;
     uint8_t  type;         /* ENEMY_TYPE_* */
     uint8_t  facing_left;
-    uint8_t  moving_down;  /* bouncer */
-    uint8_t  throw_timer;  /* thrower: frames until it may throw again */
+    uint8_t  moving_down;  /* bouncer / flutter: 0 up, 1 down, 2 level */
+    uint8_t  throw_timer;  /* shooters: frames until the next shot; flutter: until it turns */
     uint8_t  throw_pose;   /* thrower: frames left standing in the throw pose */
+    fx8_8    vy;           /* hopper */
     uint8_t  angry;
     uint8_t  entering;     /* moving to its spawn point, AI paused */
     uint8_t  spawn_delay;  /* frames until it starts entering (hidden until then) */
@@ -257,7 +264,8 @@ void     bubbles_draw(void);
 void     items_clear(void);
 void     item_spawn(uint8_t kind, uint16_t x, uint16_t y, uint8_t tier);
 void     item_spawn_thrown(uint16_t x, uint16_t y, int8_t dir, uint8_t tier);
-void     item_spawn_rock(uint16_t x, uint16_t y, int8_t dir);
+void     item_spawn_shot(uint8_t shot, uint16_t x, uint16_t y, int8_t dir);   /* SHOT_* */
+uint8_t  small_enemy_tile(uint8_t type);   /* picture inside a trapped bubble */
 void     item_spawn_powerup(uint8_t power, uint16_t x, uint16_t y);
 void     items_clear_rocks(void);
 void     bonus_round_tick(void);    /* places the round's bonus food */

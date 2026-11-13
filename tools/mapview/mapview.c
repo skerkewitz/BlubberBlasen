@@ -1,10 +1,18 @@
 /*
- * mapview - render level files (*.map) into one PNG contact sheet for review.
+ * mapview - render level files (*.map) into one PNG contact sheet for review,
+ * and/or check that every room can be played.
  *
- * Usage: mapview -o <sheet.png> [-c <columns>] [-s <scale>] <level.map>...
+ * Usage: mapview [-o <sheet.png>] [-c <columns>] [-s <scale>] [--check] <level.map>...
+ *
+ * --check uses a simplified movement model (walk, fall, wrap through gaps in
+ * the bottom row, jump up to 5 rows through one-way platforms and 4 columns
+ * sideways) and reports rooms where an enemy that walks cannot be reached,
+ * an enemy that needs a floor has none, or the player start has no floor.
+ * Exit code 1 if any room fails.
  *
  * Each room shows: walls (pink), airflow (grey arrows), enemy spawn points
- * (walker purple, bouncer cyan, thrower orange; a white bar marks the side
+ * (walker purple, bouncer cyan, thrower orange, flutter yellow, hopper green,
+ * spitter red, dropper grey; a white bar marks the side
  * it faces), the player start points (green = 1, white = 2) and the round
  * number taken from the file name (round11.map -> 11).
  *
@@ -36,7 +44,9 @@ static const Rgb C_WALL_D = { 150, 40, 100 };
 static const Rgb C_AIR    = { 80, 80, 105 };
 static const Rgb C_WHITE  = { 255, 255, 255 };
 static const Rgb C_LABEL  = { 255, 230, 60 };
-static const Rgb C_TYPE[4] = { { 0, 0, 0 }, { 160, 90, 230 }, { 90, 200, 255 }, { 230, 140, 60 } };
+/* enemy types 1..7: walker, bouncer, thrower, flutter, hopper, spitter, dropper */
+static const Rgb C_TYPE[8] = { { 0, 0, 0 }, { 160, 90, 230 }, { 90, 200, 255 }, { 230, 140, 60 },
+                               { 250, 220, 80 }, { 120, 230, 120 }, { 240, 70, 60 }, { 170, 170, 190 } };
 static const Rgb C_P1 = { 80, 220, 90 };
 static const Rgb C_P2 = { 240, 240, 240 };
 
@@ -142,7 +152,7 @@ static void draw_room(const MapFile *m, int ox, int oy, int number)
     marker(ox, oy, ROOM_W - 40, 24 * 8 - 8, C_P2, 1);
     for (i = 0; i < m->enemy_count; i++) {
         const LevelEnemy *e = &m->enemies[i];
-        int t = e->type >= 1 && e->type <= 3 ? e->type : 1;
+        int t = e->type >= 1 && e->type <= ENEMY_TYPE_COUNT ? e->type : 1;
         marker(ox, oy, e->x * 8, e->y * 8 - 8, C_TYPE[t], (e->flags & LEVEL_ENEMY_FACE_LEFT) != 0);
     }
     /* round number on the top-left wall */
@@ -266,16 +276,142 @@ static int write_png(const char *path)
     return ok;
 }
 
+/* --- reachability check ---------------------------------------------------------- */
+static const MapFile *chk;
+
+static int chk_solid(int c, int r)
+{
+    if (c < 0 || c >= LEVEL_W) {
+        return 1;
+    }
+    if (r < 0 || r >= LEVEL_H) {
+        return 0;
+    }
+    return (chk->cells[r * LEVEL_W + c] & CELL_SOLID) != 0;
+}
+
+/* Like the game: the top border only counts at the side walls. */
+static int chk_ground(int c, int r)
+{
+    if (r == 0 && c >= 2 && c < LEVEL_W - 2) {
+        return 0;
+    }
+    return chk_solid(c, r);
+}
+
+/* Position (c, r): sprite left edge at column c (body in columns c, c+1), feet in row r. */
+static int chk_stands(int c, int r)
+{
+    if (c < 2 || c > LEVEL_W - 4 || r < 0 || r > LEVEL_H - 2) {
+        return 0;
+    }
+    if (chk_ground(c, r) || chk_ground(c + 1, r)) {
+        return 0;
+    }
+    return chk_ground(c, r + 1) || chk_ground(c + 1, r + 1);
+}
+
+static int chk_fall(int c, int *r)
+{
+    int n, y = *r;
+    for (n = 0; n < 3 * LEVEL_H; n++) {
+        if (chk_stands(c, y)) {
+            *r = y;
+            return 1;
+        }
+        y++;
+        if (y > LEVEL_H - 2) {
+            if (chk_solid(c, LEVEL_H - 1) && chk_solid(c + 1, LEVEL_H - 1)) {
+                return 0;
+            }
+            y = 0;   /* fell through a gap: comes back in at the top */
+        }
+    }
+    return 0;
+}
+
+static int enemy_needs_floor(int type)
+{
+    return type != ENEMY_TYPE_BOUNCER && type != ENEMY_TYPE_FLUTTER;
+}
+
+static int enemy_walks(int type)
+{
+    return enemy_needs_floor(type) && type != ENEMY_TYPE_HOPPER;
+}
+
+static int check_room(const MapFile *m)
+{
+    static unsigned char seen[LEVEL_W][LEVEL_H];
+    static int stack[LEVEL_W * LEVEL_H][2];
+    int sp = 0, ok = 1, i;
+
+    chk = m;
+    memset(seen, 0, sizeof seen);
+    if (!chk_stands(3, LEVEL_H - 2)) {
+        fprintf(stderr, "mapview: %s: no floor at the player 1 start\n", m->path);
+        return 0;
+    }
+    seen[3][LEVEL_H - 2] = 1;
+    stack[sp][0] = 3;
+    stack[sp][1] = LEVEL_H - 2;
+    sp++;
+
+    while (sp > 0) {
+        int c, r, nc, nr, d;
+        sp--;
+        c = stack[sp][0];
+        r = stack[sp][1];
+        /* walk one column and fall if there is no floor */
+        for (d = -1; d <= 1; d += 2) {
+            nc = c + d;
+            nr = r;
+            if (nc >= 2 && nc <= LEVEL_W - 4 && !chk_solid(nc, r) && !chk_solid(nc + 1, r) && chk_fall(nc, &nr) &&
+                !seen[nc][nr]) {
+                seen[nc][nr] = 1;
+                stack[sp][0] = nc;
+                stack[sp][1] = nr;
+                sp++;
+            }
+        }
+        /* jump: up to 5 rows up, 4 columns sideways */
+        for (nr = r - 5 < 0 ? 0 : r - 5; nr <= r; nr++) {
+            for (nc = c - 4 < 2 ? 2 : c - 4; nc <= c + 4 && nc <= LEVEL_W - 4; nc++) {
+                if (chk_stands(nc, nr) && !seen[nc][nr]) {
+                    seen[nc][nr] = 1;
+                    stack[sp][0] = nc;
+                    stack[sp][1] = nr;
+                    sp++;
+                }
+            }
+        }
+    }
+
+    for (i = 0; i < m->enemy_count; i++) {
+        const LevelEnemy *e = &m->enemies[i];
+        int x = e->x, y = e->y;
+        if (enemy_needs_floor(e->type) && !chk_stands(x, y) && !chk_stands(x - 1, y)) {
+            fprintf(stderr, "mapview: %s: enemy %d (x=%d y=%d) has no floor to stand on\n", m->path, i, x, y);
+            ok = 0;
+        } else if (enemy_walks(e->type) && !(x - 1 >= 0 && seen[x - 1][y]) && !seen[x][y] &&
+                   !(x + 1 < LEVEL_W && seen[x + 1][y])) {
+            fprintf(stderr, "mapview: %s: enemy %d (x=%d y=%d) cannot be reached\n", m->path, i, x, y);
+            ok = 0;
+        }
+    }
+    return ok;
+}
+
 static void usage(void)
 {
-    fprintf(stderr, "usage: mapview -o <sheet.png> [-c <columns>] [-s <scale>] <level.map>...\n");
+    fprintf(stderr, "usage: mapview [-o <sheet.png>] [-c <columns>] [-s <scale>] [--check] <level.map>...\n");
 }
 
 int main(int argc, char **argv)
 {
     static MapFile maps[MAX_MAPS];
     const char *out = NULL;
-    int n = 0, cols = 5, i, rows;
+    int n = 0, cols = 5, i, rows, check = 0;
 
     for (i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-o") == 0 && i + 1 < argc) {
@@ -284,6 +420,8 @@ int main(int argc, char **argv)
             cols = atoi(argv[++i]);
         } else if (strcmp(argv[i], "-s") == 0 && i + 1 < argc) {
             scale = atoi(argv[++i]);
+        } else if (strcmp(argv[i], "--check") == 0) {
+            check = 1;
         } else if (argv[i][0] == '-') {
             usage();
             return 2;
@@ -298,9 +436,22 @@ int main(int argc, char **argv)
             n++;
         }
     }
-    if (!out || n == 0 || cols < 1 || scale < 1 || scale > 4) {
+    if ((!out && !check) || n == 0 || cols < 1 || scale < 1 || scale > 4) {
         usage();
         return 2;
+    }
+    if (check) {
+        int failed = 0;
+        for (i = 0; i < n; i++) {
+            failed += !check_room(&maps[i]);
+        }
+        printf("mapview: checked %d room(s), %d with problems\n", n, failed);
+        if (failed) {
+            return 1;
+        }
+        if (!out) {
+            return 0;
+        }
     }
     if (cols > n) {
         cols = n;

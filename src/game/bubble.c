@@ -373,7 +373,7 @@ void bubbles_draw(void)
 
         if (b->state == BS_TRAPPED || (b->state == BS_POPPING && b->trapped)) {
             /* A ring drawn over a small picture of the trapped enemy. */
-            uint8_t inner = (uint8_t)(SPR_SMALL_ENEMY0 + b->etype - 1);
+            uint8_t inner = small_enemy_tile(b->etype);
             uint8_t inner_attr = (uint8_t)(b->angry ? (PAL_RED << SPR_ATTR_PAL_SHIFT) : 0u);
             if (b->age >= TRAP_RED) {
                 if (b->age & 4) {

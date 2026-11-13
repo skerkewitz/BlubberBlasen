@@ -43,6 +43,14 @@ Stage 1 keeps it simple: graphics are plain **24-bit PNG** files, and the colour
 | 138 | Fireball; 139, 140 fire carpet |
 | 141, 142 | Lightning bolt |
 | 144..148 | Power-ups: range candy (pink), speed candy (blue), rate candy (yellow), shoes, umbrella |
+| 149..152 | Bonus food: cherry, apple, melon, cake |
+| 153, 154 | Life icons (one / two heads in the bottom half) |
+| 160, 161 | Flutter |
+| 162, 163 | Hopper (stretched, squashed) |
+| 164, 165 | Spitter |
+| 166, 167 | Dropper |
+| 168, 169 | Spitter fireball, dropper shot |
+| 170..173 | Small flutter, hopper, spitter, dropper (inside trapped bubbles) |
 
 Score pop-ups also include 100 and 200 (cells 82..85).
 
@@ -90,7 +98,8 @@ Things to keep in mind when designing rooms:
 - A gap in the bottom row lets things fall out and come back in at the top.
 - Airflow decides where bubbles drift. Cells without airflow make bubbles wander randomly.
 - Special and letter bubbles come in through the first gap in the bottom row (else the top row, else near the bottom centre).
-- Enemy types in the `.map`: 1 = walker, 2 = bouncer (needs no floor), 3 = thrower.
+- Enemy types in the `.map`: 1 walker, 2 bouncer, 3 thrower, 4 flutter, 5 hopper, 6 spitter, 7 dropper. Bouncers and flutters fly and need no floor; all others must stand on one.
+- `mapview --check` (CTest `rooms_playable`) verifies that every room can be played.
 
 ## Sound effects (`sfx/`)
 

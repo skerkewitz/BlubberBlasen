@@ -7,6 +7,10 @@
  *    its height and in front of it.
  *  - Bouncer: flies diagonally through platforms, bouncing off the walls,
  *    the floor and the ceiling.
+ *  - Flutter: flies freely through platforms and changes direction often.
+ *  - Hopper: bounces in arcs on a spring, rebounds off walls.
+ *  - Spitter: fast walker, weak jumper, spits fireballs while running.
+ *  - Dropper: patrols left and right, drops off edges, shoots straight down.
  *  - Chaser: appears some time after HURRY UP, is invincible, flies through
  *    everything towards the player and gets faster.
  */
@@ -23,6 +27,15 @@
 #define THROW_POSE      24           /* frames standing still while throwing */
 #define THROW_RELEASE   10           /* the rock leaves at this pose frame */
 #define THROW_COOLDOWN  120          /* + random 0..127 */
+#define SPEED_SPITTER   FX(1, 128)
+#define SPEED_DROPPER   FX(0, 192)
+#define ANGRY_EXTRA     FX(0, 77)
+#define HOP_SPEED       FX(0, 204)   /* sideways while hopping */
+#define HOP_JUMP        FX(2, 128)   /* + random up to 0.5 */
+#define HOP_GRAVITY     FX(0, 28)
+#define HOP_MAX_FALL    FX(2, 128)
+#define SPIT_COOLDOWN   90           /* + random 0..63 */
+#define DROP_COOLDOWN   80           /* + random 0..63 */
 #define FLY_TOP         (FIELD_Y + 8)
 #define FLY_BOTTOM      (FIELD_BOTTOM - 8 - 16)
 
@@ -65,6 +78,7 @@ static Enemy *alloc_enemy(uint8_t type)
             e->moving_down = 1;
             e->throw_timer = (uint8_t)(THROW_COOLDOWN >> 1);
             e->throw_pose = 0;
+            e->vy = 0;
             return e;
         }
     }
@@ -173,9 +187,23 @@ static void step_towards(uint16_t *v, uint8_t target)
     }
 }
 
+uint8_t small_enemy_tile(uint8_t type)
+{
+    if (type >= ENEMY_TYPE_FLUTTER && type <= ENEMY_TYPE_DROPPER) {
+        return (uint8_t)(SPR_SMALL_ENEMY4 + type - ENEMY_TYPE_FLUTTER);
+    }
+    return (uint8_t)(SPR_SMALL_ENEMY0 + (type >= 1 && type <= 3 ? type - 1 : 0));
+}
+
+static fx8_8 walk_speed(const Enemy *e)
+{
+    fx8_8 base = e->type == ENEMY_TYPE_SPITTER ? SPEED_SPITTER : e->type == ENEMY_TYPE_DROPPER ? SPEED_DROPPER : SPEED;
+    return (fx8_8)(e->angry ? base + ANGRY_EXTRA : base);
+}
+
 static void step_x(Enemy *e, int8_t dir)
 {
-    fx8_8 speed = e->angry ? SPEED_ANGRY : SPEED;
+    fx8_8 speed = walk_speed(e);
     if (!level_wall_ahead(e->x, e->y, dir)) {
         e->x = (uint16_t)(dir < 0 ? e->x - (uint16_t)speed : e->x + (uint16_t)speed);
     }
@@ -189,7 +217,7 @@ static uint8_t try_throw(Enemy *e, int8_t dir)
     if (e->throw_pose) {
         e->throw_pose--;
         if (e->throw_pose == THROW_RELEASE) {
-            item_spawn_rock(e->x, e->y, dir);
+            item_spawn_shot(SHOT_ROCK, e->x, e->y, dir);
         }
         return 1;
     }
@@ -219,6 +247,59 @@ static uint8_t try_throw(Enemy *e, int8_t dir)
     return 0;
 }
 
+/* Some living player at the same height, in front of the enemy. */
+static uint8_t player_in_line(const Enemy *e, int8_t dir)
+{
+    uint8_t i;
+    for (i = 0; i < NUM_PLAYERS; i++) {
+        const Player *p = &g_players[i];
+        int16_t dy, dx;
+        if (p->state != PS_ALIVE) {
+            continue;
+        }
+        dy = (int16_t)((int16_t)PX(e->y) - (int16_t)PX(p->y));
+        dx = (int16_t)((int16_t)PX(p->x) - (int16_t)PX(e->x));
+        if (dy > -8 && dy < 8 && ((dir < 0 && dx < 0) || (dir > 0 && dx > 0))) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* Some living player below the enemy, roughly in its column. */
+static uint8_t player_below(const Enemy *e)
+{
+    uint8_t i;
+    for (i = 0; i < NUM_PLAYERS; i++) {
+        const Player *p = &g_players[i];
+        int16_t dx;
+        if (p->state != PS_ALIVE || PX(p->y) <= PX(e->y) + 8) {
+            continue;
+        }
+        dx = (int16_t)((int16_t)PX(p->x) - (int16_t)PX(e->x));
+        if (dx > -12 && dx < 12) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* Spitter and dropper shoot while they keep moving. */
+static void shoot_on_the_move(Enemy *e, int8_t dir)
+{
+    if (e->throw_timer) {
+        e->throw_timer--;
+        return;
+    }
+    if (e->type == ENEMY_TYPE_SPITTER && player_in_line(e, dir)) {
+        item_spawn_shot(SHOT_SPIT, (uint16_t)(dir < 0 ? e->x - TO_POS(6) : e->x + TO_POS(6)), e->y, dir);
+        e->throw_timer = (uint8_t)(SPIT_COOLDOWN + (rng_next() & 63));
+    } else if (e->type == ENEMY_TYPE_DROPPER && player_below(e)) {
+        item_spawn_shot(SHOT_DOWN, e->x, (uint16_t)(e->y + TO_POS(8)), 0);
+        e->throw_timer = (uint8_t)(DROP_COOLDOWN + (rng_next() & 63));
+    }
+}
+
 static void think_walker(Enemy *e, uint8_t think_now)
 {
     int8_t dir = (int8_t)(e->facing_left ? -1 : 1);
@@ -227,8 +308,17 @@ static void think_walker(Enemy *e, uint8_t think_now)
     uint8_t player_above = (uint8_t)(ey > py + 16);
     uint8_t player_below = (uint8_t)(ey < py - 32);
 
+    uint8_t can_climb = (uint8_t)(e->type == ENEMY_TYPE_WALKER || e->type == ENEMY_TYPE_THROWER);
+    uint8_t can_gap_jump = (uint8_t)(e->type != ENEMY_TYPE_DROPPER);
+
     if (e->type == ENEMY_TYPE_THROWER && !e->jump_left && try_throw(e, dir)) {
         return;
+    }
+    if (e->type == ENEMY_TYPE_SPITTER || e->type == ENEMY_TYPE_DROPPER) {
+        shoot_on_the_move(e, dir);
+    }
+    if (e->type == ENEMY_TYPE_DROPPER) {
+        e->walk_over_edge = 1;   /* always walks off edges */
     }
 
     if (e->jump_left) {
@@ -239,7 +329,10 @@ static void think_walker(Enemy *e, uint8_t think_now)
         }
     } else if (level_on_ground(e->x, e->y)) {
         e->gap_jump = 0;
-        if (think_now && player_above && level_can_jump_up(e->x, e->y) && chance(102)) {
+        if (e->type == ENEMY_TYPE_DROPPER) {
+            e->walk_over_edge = 1;
+        }
+        if (can_climb && think_now && player_above && level_can_jump_up(e->x, e->y) && chance(102)) {
             e->jump_left = JUMP_PIXELS;
         } else {
             if (level_gap_ahead(e->x, e->y, dir)) {
@@ -247,7 +340,7 @@ static void think_walker(Enemy *e, uint8_t think_now)
                     e->walk_over_edge = 1;
                 }
                 if (!e->walk_over_edge) {
-                    if (level_can_gap_jump(e->x, e->y, dir) && chance(64)) {
+                    if (can_gap_jump && level_can_gap_jump(e->x, e->y, dir) && chance(64)) {
                         e->jump_left = GAP_JUMP_PIXELS;
                         e->gap_jump = 1;
                     } else {
@@ -274,13 +367,33 @@ static void think_walker(Enemy *e, uint8_t think_now)
     level_wrap_y(&e->y);
 }
 
-static void think_bouncer(Enemy *e)
+/* Bouncer and flutter: straight lines through everything, bouncing off the
+ * room's edges. The flutter also picks a new direction now and then. */
+static void think_flyer(Enemy *e)
 {
     fx8_8 speed = e->angry ? FLY_SPEED_ANGRY : FLY_SPEED;
     uint8_t cx;
 
+    if (e->type == ENEMY_TYPE_FLUTTER) {
+        if (e->throw_timer) {
+            e->throw_timer--;
+        } else {
+            uint16_t r = rng_next();
+            e->facing_left = (uint8_t)(r & 1);
+            e->moving_down = (uint8_t)((r >> 1) & 3);   /* 0 up, 1 down, 2 and 3 level */
+            if (e->moving_down == 3) {
+                e->moving_down = 2;
+            }
+            e->throw_timer = (uint8_t)(32 + ((r >> 3) & 63));
+        }
+    }
+
     e->x = (uint16_t)(e->facing_left ? e->x - (uint16_t)speed : e->x + (uint16_t)speed);
-    e->y = (uint16_t)(e->moving_down ? e->y + (uint16_t)speed : e->y - (uint16_t)speed);
+    if (e->moving_down == 1) {
+        e->y = (uint16_t)(e->y + (uint16_t)speed);
+    } else if (e->moving_down == 0) {
+        e->y = (uint16_t)(e->y - (uint16_t)speed);
+    }
 
     cx = (uint8_t)(PX(e->x) + 8);
     if (cx < BODY_MIN_CX || PX(e->x) >= 0xF0u) {
@@ -296,6 +409,45 @@ static void think_bouncer(Enemy *e)
     } else if (PX(e->y) > FLY_BOTTOM) {
         e->moving_down = 0;
         e->y = TO_POS(FLY_BOTTOM);
+    }
+}
+
+/* Hopper: jumps again as soon as it lands, sometimes towards a player. */
+static void think_hopper(Enemy *e)
+{
+    fx8_8 speed = (fx8_8)(e->angry ? HOP_SPEED + ANGRY_EXTRA : HOP_SPEED);
+    int8_t dir;
+
+    if (e->vy >= 0 && level_on_ground(e->x, e->y)) {
+        e->vy = (fx8_8)-(HOP_JUMP + (fx8_8)(rng_next() & 127));
+        if (chance(128)) {
+            e->facing_left = (uint8_t)(PX(player_nearest(e->x, e->y)->x) < PX(e->x));
+        }
+    }
+    dir = (int8_t)(e->facing_left ? -1 : 1);
+    if (level_wall_ahead(e->x, e->y, dir)) {
+        e->facing_left = (uint8_t)!e->facing_left;
+    } else {
+        uint16_t before = e->x;
+        e->x = (uint16_t)(dir < 0 ? e->x - (uint16_t)speed : e->x + (uint16_t)speed);
+        level_clamp_x(&e->x);
+        if (e->x == before) {
+            e->facing_left = (uint8_t)!e->facing_left;
+        }
+    }
+
+    e->vy = (fx8_8)(e->vy + HOP_GRAVITY);
+    if (e->vy > HOP_MAX_FALL) {
+        e->vy = HOP_MAX_FALL;
+    }
+    if (e->vy < 0) {
+        e->y = (uint16_t)(e->y + (uint16_t)e->vy);
+        if (PX(e->y) < FLY_TOP || PX(e->y) >= WRAP_Y) {
+            e->y = TO_POS(FLY_TOP);
+            e->vy = 0;
+        }
+    } else if (level_fall(&e->x, &e->y, e->vy)) {
+        e->vy = 0;
     }
 }
 
@@ -329,10 +481,17 @@ void enemies_update(void)
         if (g_state != GS_PLAY) {
             continue;
         }
-        if (e->type == ENEMY_TYPE_BOUNCER) {
-            think_bouncer(e);
-        } else {
+        switch (e->type) {
+        case ENEMY_TYPE_BOUNCER:
+        case ENEMY_TYPE_FLUTTER:
+            think_flyer(e);
+            break;
+        case ENEMY_TYPE_HOPPER:
+            think_hopper(e);
+            break;
+        default:
             think_walker(e, think_now);
+            break;
         }
     }
 }
@@ -356,6 +515,18 @@ void enemies_draw(void)
         case ENEMY_TYPE_THROWER:
             tile = e->throw_pose ? (uint8_t)SPR_THROWER_THROW
                                  : (uint8_t)(SPR_THROWER0 + ((g_frame >> fast) & 1));
+            break;
+        case ENEMY_TYPE_FLUTTER:
+            tile = (uint8_t)(SPR_FLUTTER0 + ((g_frame >> 2) & 1));
+            break;
+        case ENEMY_TYPE_HOPPER:
+            tile = (uint8_t)(SPR_HOPPER0 + (e->vy == 0 || e->vy > FX(1, 128) ? 1 : 0));
+            break;
+        case ENEMY_TYPE_SPITTER:
+            tile = (uint8_t)(SPR_SPITTER0 + ((g_frame >> (fast - 1)) & 1));
+            break;
+        case ENEMY_TYPE_DROPPER:
+            tile = (uint8_t)(SPR_DROPPER0 + ((g_frame >> 4) & 1));
             break;
         default:
             tile = (uint8_t)((e->angry ? SPR_E_ANGRY0 : SPR_E_WALK0) + ((g_frame >> fast) & 1));

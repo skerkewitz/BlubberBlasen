@@ -71,3 +71,8 @@ foreach(bad bad_delay bad_key)
              COMMAND map2c -o ${PROJECT_BINARY_DIR}/generated/${bad}.c ${PROJECT_SOURCE_DIR}/tests/map2c/${bad}.map)
     set_tests_properties(map2c_${bad} PROPERTIES WILL_FAIL TRUE)
 endforeach()
+
+# every room must be playable (reachability check)
+add_test(NAME rooms_playable COMMAND mapview --check ${LEVEL_FILES})
+add_test(NAME rooms_check_detects_problems COMMAND mapview --check ${PROJECT_SOURCE_DIR}/tests/rooms/unreachable.map)
+set_tests_properties(rooms_check_detects_problems PROPERTIES WILL_FAIL TRUE)

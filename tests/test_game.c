@@ -44,7 +44,7 @@ static void test_levels(void)
     uint8_t l;
     uint16_t i;
 
-    CHECK(level_count == 20, "expected 20 levels, got %u", level_count);
+    CHECK(level_count == 30, "expected 30 levels, got %u", level_count);
     CHECK(level_defs[0].hurry_frames == 40 * 60, "round01.txt sets hurry 40");
     CHECK(level_defs[0].enemies[2].delay == 30, "round01.txt sets delay 30 for enemy 3");
     CHECK(level_defs[1].special == SPECIAL_WATER && level_defs[1].special_frames == 15 * 60,
@@ -143,7 +143,7 @@ static RunResult run(uint16_t seed, uint32_t frames, int check_invariants)
             res.hash = fnv(res.hash, (uint32_t)oam[i].x | ((uint32_t)oam[i].y << 8) |
                                      ((uint32_t)oam[i].tile << 16) | ((uint32_t)oam[i].attr << 24));
             if (check_invariants && oam[i].y < SCREEN_H) {
-                CHECK(oam[i].tile < 160, "frame %lu: sprite %d uses unknown cell %u", (unsigned long)f, i, oam[i].tile);
+                CHECK(oam[i].tile < 176, "frame %lu: sprite %d uses unknown cell %u", (unsigned long)f, i, oam[i].tile);
             }
         }
         for (l = 0; l < BG_LAYERS; l++) {
@@ -681,6 +681,99 @@ static void test_transition(void)
     CHECK(game_bg_window_top() == FIELD_Y, "the level must not show behind the HUD");
 }
 
+static int count_shots(uint8_t shot)
+{
+    int i, n = 0;
+    for (i = 0; i < MAX_ITEMS; i++) {
+        n += g_items[i].kind == IT_ROCK && g_items[i].tier == shot;
+    }
+    return n;
+}
+
+/* Flutter: changes direction, stays inside the room. */
+static void test_flutter(void)
+{
+    int f, turns = 0;
+    uint8_t last;
+    Enemy *e;
+
+    setup_room(5);
+    enemy_spawn(TO_POS(100), TO_POS(100), ENEMY_TYPE_FLUTTER, 0, 0);
+    e = &g_enemies[0];
+    last = (uint8_t)(e->facing_left | (e->moving_down << 1));
+    for (f = 0; f < 1800; f++) {
+        uint8_t now;
+        enemies_update();
+        now = (uint8_t)(e->facing_left | (e->moving_down << 1));
+        turns += now != last;
+        last = now;
+        CHECK(PX(e->y) >= FIELD_Y && PX(e->y) < FIELD_BOTTOM - 8, "flutter left the room");
+        CHECK(PX(e->x) + 8 >= BODY_MIN_CX && PX(e->x) + 8 <= BODY_MAX_CX, "flutter left the room sideways");
+        if (failures > 5) {
+            return;
+        }
+    }
+    CHECK(turns >= 10, "flutter should change direction often (%d)", turns);
+}
+
+/* Hopper: leaves the ground again and again and lands each time. */
+static void test_hopper(void)
+{
+    int f, takeoffs = 0, was_down = 1, top = 255;
+    Enemy *e;
+
+    setup_room(0);
+    enemy_spawn(TO_POS(100), TO_POS(PLAYER_SPAWN_Y), ENEMY_TYPE_HOPPER, 0, 0);
+    e = &g_enemies[0];
+    for (f = 0; f < 600; f++) {
+        int down;
+        enemies_update();
+        down = level_on_ground(e->x, e->y);
+        takeoffs += was_down && !down;
+        was_down = down;
+        if (PX(e->y) < top) {
+            top = PX(e->y);
+        }
+    }
+    CHECK(takeoffs >= 5, "hopper should keep hopping (%d)", takeoffs);
+    CHECK(top < PLAYER_SPAWN_Y - 20, "hopper jumps too low (top %d)", top);
+}
+
+/* Spitter: spits at a player in line without stopping. */
+static void test_spitter(void)
+{
+    int f, moved = 0;
+    uint16_t x0;
+
+    setup_room(0);
+    enemy_spawn(TO_POS(180), TO_POS(PLAYER_SPAWN_Y), ENEMY_TYPE_SPITTER, 0, 1);
+    g_enemies[0].throw_timer = 0;
+    x0 = g_enemies[0].x;
+    for (f = 0; f < 30 && count_shots(SHOT_SPIT) == 0; f++) {
+        enemies_update();
+        items_update();
+    }
+    moved = g_enemies[0].x != x0;
+    CHECK(count_shots(SHOT_SPIT) > 0, "spitter never spat");
+    CHECK(moved, "spitter should keep moving while it spits");
+}
+
+/* Dropper: shoots down at a player below it. */
+static void test_dropper(void)
+{
+    int f;
+
+    setup_room(0);
+    /* on the left platform of round 1 (row 20), the player below it */
+    enemy_spawn(TO_POS(24), TO_POS(FIELD_Y + 19 * 8 - 8), ENEMY_TYPE_DROPPER, 0, 0);
+    g_enemies[0].throw_timer = 0;
+    g_players[0].x = TO_POS(28);
+    for (f = 0; f < 30 && count_shots(SHOT_DOWN) == 0; f++) {
+        enemies_update();
+    }
+    CHECK(count_shots(SHOT_DOWN) > 0, "dropper never shot down");
+}
+
 int main(void)
 {
     const char *t = getenv("BB_TRACE");
@@ -704,6 +797,10 @@ int main(void)
     test_bonus_food();
     test_water_carries();
     test_transition();
+    test_flutter();
+    test_hopper();
+    test_spitter();
+    test_dropper();
     test_determinism_and_play();
 
     if (failures) {

@@ -18,6 +18,8 @@
 #define POPUP_SPEED     FX(0, 100)
 #define THROWN_TOP      (FIELD_Y + 8)
 #define ROCK_SPEED      FX(2, 0)
+#define SPIT_SPEED      FX(2, 128)
+#define DOWN_SHOT_SPEED FX(2, 128)
 
 /* Food values 1000 << tier as (ten-thousands, thousands) digits. */
 static const uint8_t food_value[FOOD_TIERS][2] = {
@@ -79,11 +81,14 @@ void item_spawn_thrown(uint16_t x, uint16_t y, int8_t dir, uint8_t tier)
     }
 }
 
-void item_spawn_rock(uint16_t x, uint16_t y, int8_t dir)
+/* Enemy shots: rocks and fireballs fly sideways, the dropper's shot straight down. */
+void item_spawn_shot(uint8_t shot, uint16_t x, uint16_t y, int8_t dir)
 {
-    Item *it = alloc_item(IT_ROCK, x, y, 0);
+    Item *it = alloc_item(IT_ROCK, x, y, shot);
     if (it) {
-        it->vx = (fx8_8)(dir < 0 ? -ROCK_SPEED : ROCK_SPEED);
+        fx8_8 speed = shot == SHOT_SPIT ? SPIT_SPEED : ROCK_SPEED;
+        it->vx = shot == SHOT_DOWN ? 0 : (fx8_8)(dir < 0 ? -speed : speed);
+        it->vy = shot == SHOT_DOWN ? DOWN_SHOT_SPEED : 0;
     }
 }
 
@@ -147,10 +152,18 @@ void items_clear_rocks(void)
     }
 }
 
-/* A rock flies straight until it hits a wall or a platform. */
+/* A sideways shot flies until it hits a wall or a platform; a downward
+ * shot passes through platforms and ends at the floor. */
 static void update_rock(Item *it)
 {
     uint8_t cx;
+    if (it->tier == SHOT_DOWN) {
+        it->y = (uint16_t)(it->y + (uint16_t)it->vy);
+        if (PX(it->y) >= FIELD_BOTTOM - 8 - 16 || PX(it->y) >= WRAP_Y) {
+            it->kind = IT_OFF;
+        }
+        return;
+    }
     it->x = (uint16_t)(it->x + (uint16_t)it->vx);
     cx = (uint8_t)(PX(it->x) + 8);
     if (cx < BODY_MIN_CX || cx > BODY_MAX_CX || PX(it->x) >= 0xF0u ||
@@ -305,7 +318,13 @@ void items_draw(void)
             oam_add(PX(it->x), PX(it->y), (uint8_t)(it->timer > BURST_FRAMES / 2 ? SPR_BURST0 : SPR_BURST1), 0);
             break;
         case IT_ROCK:
-            oam_add(PX(it->x), PX(it->y), (uint8_t)(SPR_ROCK0 + ((g_frame >> 2) & 1)), 0);
+            if (it->tier == SHOT_SPIT) {
+                oam_add(PX(it->x), PX(it->y), SPR_SPIT, (uint8_t)(it->vx < 0 ? SPR_ATTR_FLIP_X : 0u));
+            } else if (it->tier == SHOT_DOWN) {
+                oam_add(PX(it->x), PX(it->y), SPR_DOWN_SHOT, 0);
+            } else {
+                oam_add(PX(it->x), PX(it->y), (uint8_t)(SPR_ROCK0 + ((g_frame >> 2) & 1)), 0);
+            }
             break;
         case IT_BONUS:
             if (it->timer >= 120 || !(it->timer & 4)) {
