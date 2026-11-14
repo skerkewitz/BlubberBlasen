@@ -59,6 +59,7 @@ void bubbles_clear(void)
     for (i = 0; i < NUM_PLAYERS; i++) {
         push_shots[i].active = 0;
     }
+    vacuums_clear();
     chain_kills = 0;
 }
 
@@ -467,6 +468,7 @@ void bubbles_update(void)
     uint8_t i;
     uint8_t popping = 0;
 
+    vacuums_tick();
     for (i = 0; i < NUM_PLAYERS; i++) {
         update_push(i);
     }
@@ -494,6 +496,8 @@ void bubbles_update(void)
 
         if (b->vx || b->vy) {
             slide(b);              /* shoved by a push bubble */
+        } else if (vacuum_move(&b->x, &b->y)) {
+            clamp_bubble(b);       /* drawn in by a vacuum */
         } else {
             /* Follow the airflow; re-read it every 16 frames. */
             if ((b->age & 15) == 0) {

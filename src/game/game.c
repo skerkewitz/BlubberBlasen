@@ -45,6 +45,7 @@ uint8_t   g_window_top;
 /* --- Local state ------------------------------------------------------------- */
 static Sprite   oam[MAX_SPRITES];
 static uint8_t  oam_count;
+static ColorWindow windows[NUM_WINDOWS];
 static uint16_t state_timer;
 static uint16_t rng;
 static uint16_t prev_pad[NUM_PLAYERS];
@@ -961,7 +962,7 @@ static void draw_options(void)
         text_put(21, row, values[i], pal);
     }
     text_put(3, 21, g_opt.plus ? "PLUS: DASH WITH L/R, ENERGY," : "ARCADE: THE CLASSIC RULES.  ", PAL_GREY);
-    text_put(3, 22, g_opt.plus ? "PUSH BUBBLE: TOP BUTTON.    " : "                            ", PAL_GREY);
+    text_put(3, 22, g_opt.plus ? "PUSH: TOP. VACUUM: RIGHT.   " : "                            ", PAL_GREY);
     text_put(4, 25, "UP/DOWN, LEFT/RIGHT, START", PAL_GREY);
 }
 
@@ -1124,6 +1125,25 @@ static void draw_lives(void)
     }
 }
 
+/* Windows start empty every frame; the vacuums fill theirs. */
+static void build_windows(void)
+{
+    uint8_t i;
+    uint16_t y;
+    for (i = 0; i < NUM_WINDOWS; i++) {
+        windows[i].add_r = 0;
+        windows[i].add_g = 0;
+        windows[i].add_b = 0;
+        for (y = 0; y < SCREEN_H; y++) {
+            windows[i].left[y] = 255;
+            windows[i].right[y] = 0;
+        }
+    }
+    if (g_state == GS_PLAY || g_state == GS_PAUSE) {
+        vacuums_windows(windows);
+    }
+}
+
 static void build_oam(void)
 {
     uint8_t i;
@@ -1189,6 +1209,7 @@ void game_init(uint16_t seed)
     door_open = 0;
     enter_title();
     build_oam();
+    build_windows();
 }
 
 void game_tick(const uint16_t real_pad[NUM_PLAYERS])
@@ -1322,6 +1343,7 @@ void game_tick(const uint16_t real_pad[NUM_PLAYERS])
 
     state_timer++;
     build_oam();
+    build_windows();
 }
 
 
@@ -1372,6 +1394,11 @@ void game_debug_clear_round(void)
 const Sprite *game_oam(void)
 {
     return oam;
+}
+
+const ColorWindow *game_windows(void)
+{
+    return windows;
 }
 
 const uint16_t *game_bg(uint8_t layer)

@@ -66,6 +66,20 @@ typedef struct {
     uint8_t attr;   /* palette and flip bits */
 } Sprite;
 
+/* --- Colour windows (SNES windows + colour math) -------------------------------
+ * Up to NUM_WINDOWS shapes, each a left and right edge per scanline (on the
+ * SNES an HDMA table for the window registers). Inside a window the platform
+ * adds a colour to the background layer 0 and the backdrop, not to sprites or
+ * layer 1 (colour math enabled for BG1 and the backdrop only). On a line with
+ * left > right the window is empty; add_r/g/b all 0 means the window is off. */
+#define NUM_WINDOWS 2
+
+typedef struct {
+    uint8_t left[SCREEN_H];          /* first pixel inside */
+    uint8_t right[SCREEN_H];         /* last pixel inside */
+    uint8_t add_r, add_g, add_b;     /* added colour, SNES 5-bit (0..31) */
+} ColorWindow;
+
 /* --- Background tilemaps -----------------------------------------------------
  * Layer 0 is a 32 x 64 map (two screens on top of each other) that scrolls
  * vertically; layer 1 is a fixed 32 x 28 map. Entries of 8x8 tiles, SNES layout:
@@ -98,6 +112,7 @@ enum {
     SFX_START, SFX_CLEAR, SFX_HURRY, SFX_GAMEOVER, SFX_MENU, SFX_PAUSE, SFX_EXTRA,
     SFX_READY, SFX_FULL, SFX_DASH,   /* Plus mode: dash available, bar full, dash */
     SFX_HELP,                        /* a player in the rescue bubble calls for help */
+    SFX_VACUUM,                      /* Plus mode: a vacuum is placed */
     SFX_COUNT                        /* at most 32: game_sfx() is a 32-bit mask */
 };
 
@@ -111,6 +126,7 @@ enum { MUSIC_NONE, MUSIC_TITLE, MUSIC_GAME, MUSIC_COUNT };
 void            game_init(uint16_t seed);                    /* after SRAM was filled */
 void            game_tick(const uint16_t pad[NUM_PLAYERS]);  /* exactly once per 60 Hz frame */
 const Sprite   *game_oam(void);                              /* MAX_SPRITES entries */
+const ColorWindow *game_windows(void);                       /* NUM_WINDOWS entries */
 const uint16_t *game_bg(uint8_t layer);   /* layer 0: BG_W * BG0_ROWS, layer 1: BG_W * BG_H entries */
 uint16_t        game_bg_scroll_y(void);   /* layer 0 vertical scroll in pixels, 0..BG0_ROWS*8-1 */
 uint8_t         game_bg_window_top(void); /* layer 0 is only shown from this screen y down */
@@ -127,6 +143,7 @@ enum {
     DBG_AIR,              /* platform draws the air currents (game_debug_cell) */
     DBG_FULL_ENERGY,      /* Plus mode: energy bars stay full */
     DBG_CPU_VIEW,         /* platform draws the CPU partner's danger check (game_debug_cpu_view) */
+    DBG_VACUUM_WALLS,     /* Plus mode: walls stop bubbles inside a vacuum (A/B test) */
     DBG_COUNT
 };
 

@@ -53,7 +53,7 @@ static const char *const music_files[MUSIC_COUNT] = {
 static const char *const sfx_files[SFX_COUNT] = {
     "jump", "shoot", "pop", "trap", "kill", "gem", "death",
     "start", "clear", "hurry", "gameover", "menu", "pause", "extra",
-    "ready", "full", "dash", "UhHelpMe"
+    "ready", "full", "dash", "UhHelpMe", "vacuum"
 };
 
 /* Tints for the 8 "palettes" of stage 1. */
@@ -329,6 +329,7 @@ static uint16_t read_keyboard(int player)
         if (IsKeyDown(KEY_K))            pad |= PAD_B;   /* jump   */
         if (IsKeyDown(KEY_J))            pad |= PAD_Y;   /* bubble */
         if (IsKeyDown(KEY_C))            pad |= PAD_A;
+        if (IsKeyDown(KEY_U))            pad |= PAD_A;   /* vacuum (Plus) */
         if (IsKeyDown(KEY_H))            pad |= PAD_X;   /* push bubble (Plus) */
         if (IsKeyDown(KEY_V))            pad |= PAD_X;
         if (IsKeyDown(KEY_Q))            pad |= PAD_L;
@@ -345,6 +346,7 @@ static uint16_t read_keyboard(int player)
         if (IsKeyDown(KEY_PERIOD))       pad |= PAD_B;   /* jump   */
         if (IsKeyDown(KEY_COMMA))        pad |= PAD_Y;   /* bubble */
         if (IsKeyDown(KEY_M))            pad |= PAD_X;   /* push bubble (Plus) */
+        if (IsKeyDown(KEY_N))            pad |= PAD_A;   /* vacuum (Plus) */
         if (IsKeyDown(KEY_SLASH))        pad |= PAD_L | PAD_R;   /* dash: held direction or facing */
         if (IsKeyDown(KEY_RIGHT_CONTROL)) pad |= PAD_START;
     }
@@ -420,6 +422,32 @@ static void draw_bg(const uint16_t *map, int rows, int scroll_y, int window_top)
         }
     }
     EndScissorMode();
+}
+
+/* SNES colour math in windows: inside each window's span on every scanline
+ * the window's colour is added (clamped) to what layer 0 and the backdrop
+ * drew. Called between layer 0 and the sprites, so sprites stay untouched. */
+static void draw_windows(const ColorWindow *w)
+{
+    int i, y;
+    BeginBlendMode(BLEND_ADDITIVE);
+    for (i = 0; i < NUM_WINDOWS; i++) {
+        Color c;
+        if (!w[i].add_r && !w[i].add_g && !w[i].add_b) {
+            continue;
+        }
+        /* 5-bit to 8-bit like the SNES DAC: v << 3 | v >> 2 */
+        c.r = (unsigned char)((w[i].add_r << 3) | (w[i].add_r >> 2));
+        c.g = (unsigned char)((w[i].add_g << 3) | (w[i].add_g >> 2));
+        c.b = (unsigned char)((w[i].add_b << 3) | (w[i].add_b >> 2));
+        c.a = 255;
+        for (y = 0; y < SCREEN_H; y++) {
+            if (w[i].left[y] <= w[i].right[y]) {
+                DrawRectangle(w[i].left[y], y, w[i].right[y] - w[i].left[y] + 1, 1, c);
+            }
+        }
+    }
+    EndBlendMode();
 }
 
 static void draw_sprites(const Sprite *oam)
@@ -598,6 +626,7 @@ static void debug_keys(void)
     if (IsKeyPressed(KEY_F4)) dbg_toggle(DBG_HITBOXES, "HITBOXES");
     if (IsKeyPressed(KEY_F5)) dbg_toggle(DBG_AIR, "AIR CURRENTS");
     if (IsKeyPressed(KEY_F6)) dbg_toggle(DBG_FULL_ENERGY, "FULL ENERGY");
+    if (IsKeyPressed(KEY_F12)) dbg_toggle(DBG_VACUUM_WALLS, "VACUUM WALLS");
     if (IsKeyPressed(KEY_F7)) {
         dbg_paused = !dbg_paused;
         snprintf(dbg_message, sizeof dbg_message, "FRAME STEP %s (F8 = next frame)", dbg_paused ? "ON" : "OFF");
@@ -666,10 +695,10 @@ static void debug_overlays(void)
 static void debug_status(void)
 {
     char line[96];
-    snprintf(line, sizeof line, "DEBUG %s%s%s%s%s%s%s%s",
+    snprintf(line, sizeof line, "DEBUG %s%s%s%s%s%s%s%s%s",
              game_debug_get(DBG_CPU_VIEW) ? "CPU " : "", game_debug_get(DBG_INVINCIBLE) ? "INV " : "", game_debug_get(DBG_INFINITE_LIVES) ? "LIVES " : "",
              game_debug_get(DBG_HITBOXES) ? "BOXES " : "", game_debug_get(DBG_AIR) ? "AIR " : "",
-             game_debug_get(DBG_FULL_ENERGY) ? "ENERGY " : "", dbg_paused ? "PAUSED " : "", dbg_slow ? "SLOW" : "");
+             game_debug_get(DBG_FULL_ENERGY) ? "ENERGY " : "", game_debug_get(DBG_VACUUM_WALLS) ? "VACWALLS " : "", dbg_paused ? "PAUSED " : "", dbg_slow ? "SLOW" : "");
     if (strcmp(line, "DEBUG ") != 0) {
         DrawText(line, 8, 8, 20, YELLOW);
     }
@@ -887,6 +916,7 @@ static int frame(void)
     BeginTextureMode(fb);
     ClearBackground(BLACK);
     draw_bg(game_bg(0), BG0_ROWS, game_bg_scroll_y(), game_bg_window_top());
+    draw_windows(game_windows());
     draw_sprites(game_oam());
     draw_bg(game_bg(1), BG_H, 0, 0);
 #ifdef BB_DEBUG

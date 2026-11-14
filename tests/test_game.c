@@ -1571,6 +1571,198 @@ static void test_push_bubble(void)
     g_opt.plus = 0;
 }
 
+/* Plus mode vacuum (docs/brainstorm/vacuum_2026-11-14.md). */
+static void vacuum_setup(void)
+{
+    setup_room(0);
+    g_opt.plus = 1;
+    g_players[0].x = TO_POS(100);
+    g_players[0].y = TO_POS(PLAYER_SPAWN_Y);
+}
+
+static void test_vacuum(void)
+{
+    Bubble *near_b, *far_b;
+    uint16_t cx, cy, x0;
+    int f, r, tx;
+    fx8_8 step_far, step_near;
+
+    /* A places it where the player stands; bubbles inside the circle gather
+     * at its centre, bubbles outside keep following the room's air */
+    vacuum_setup();
+    player_update(&g_players[0], PAD_A, PAD_A);
+    cx = g_players[0].x;
+    cy = g_players[0].y;
+    CHECK(vacuum_active(0), "A starts a vacuum in Plus mode");
+    bubble_spawn_special(BK_NORMAL, 0, (uint16_t)(cx + TO_POS(30)), (uint16_t)(cy - TO_POS(20)));
+    bubble_spawn_special(BK_NORMAL, 0, (uint16_t)(cx - TO_POS(80)), cy);
+    near_b = &g_bubbles[0];
+    far_b = &g_bubbles[1];
+    g_players[0].x = TO_POS(30);   /* the vacuum stays where it was placed */
+    for (f = 0; f < 60; f++) {
+        bubbles_update();
+    }
+    CHECK(PX(near_b->x) == PX(cx) && PX(near_b->y) == PX(cy), "a bubble in the circle reaches the centre (%u,%u -> %u,%u)",
+          PX(near_b->x), PX(near_b->y), PX(cx), PX(cy));
+    CHECK(PX(cx) - PX(far_b->x) >= 60, "a bubble outside the circle is not drawn in (%d px away)", PX(cx) - PX(far_b->x));
+    for (f = 0; f < 29; f++) {
+        bubbles_update();
+    }
+    CHECK(vacuum_active(0), "the vacuum lasts 90 ticks");
+    bubbles_update();
+    CHECK(!vacuum_active(0), "the vacuum ends after 1.5 s");
+
+    /* the circle is shown as a colour window, and what it shows is exactly
+     * what pulls: 39 px to the side is inside, 42 px is not */
+    {
+        static ColorWindow w[NUM_WINDOWS];
+        int y, cxp, cyp, empty_above = 1;
+        for (f = 0; f < NUM_WINDOWS; f++) {
+            w[f].add_r = w[f].add_g = w[f].add_b = 0;
+            for (y = 0; y < SCREEN_H; y++) {
+                w[f].left[y] = 255;
+                w[f].right[y] = 0;
+            }
+        }
+        vacuum_setup();
+        g_players[0].y = TO_POS(FIELD_Y + 100);
+        vacuum_start(0, g_players[0].x, g_players[0].y);
+        vacuums_windows(w);
+        cxp = PX(g_players[0].x) + 8;
+        cyp = PX(g_players[0].y) + 8;
+        for (y = 0; y < cyp - 40; y++) {
+            empty_above &= w[0].left[y] > w[0].right[y];
+        }
+        CHECK(w[0].left[cyp] == cxp - 40 && w[0].right[cyp] == cxp + 40, "the window spans 40 px each side on the middle line");
+        CHECK(w[0].left[cyp - 40] == cxp && w[0].right[cyp - 40] == cxp, "the window closes to a point at the top");
+        CHECK(empty_above && w[1].add_b == 0, "nothing outside the circle, no second window");
+        CHECK(w[0].add_b > 0, "the window adds a colour");
+
+        bubble_spawn_special(BK_NORMAL, 0, (uint16_t)(g_players[0].x + TO_POS(39)), g_players[0].y);
+        bubble_spawn_special(BK_NORMAL, 0, (uint16_t)(g_players[0].x - TO_POS(42)), g_players[0].y);
+        x0 = g_bubbles[1].x;
+        cx = g_bubbles[0].x;
+        bubbles_update();
+        CHECK(g_bubbles[0].x < cx, "39 px away, inside the shown circle: pulled");
+        CHECK(g_bubbles[1].x - x0 < TO_POS(1), "42 px away, outside the shown circle: not pulled");
+    }
+
+    /* through the whole game: A in a Plus game reports a window */
+    {
+        uint16_t pad[NUM_PLAYERS] = { PAD_START, 0 };
+        for (f = 0; f < SRAM_SIZE; f++) {
+            game_sram()[f] = 0;
+        }
+        game_init(5);
+        game_debug_options(1, 0, 0);
+        game_tick(pad);
+        pad[0] = 0;
+        for (f = 0; f < 600 && g_state != GS_PLAY; f++) {
+            game_tick(pad);
+        }
+        g_players[0].invulnerable = 200;
+        pad[0] = PAD_A;
+        game_tick(pad);
+        CHECK(game_windows()[0].add_b > 0, "A in a Plus game shows the vacuum window");
+        CHECK(game_sfx() & (1u << SFX_VACUUM), "placing a vacuum plays its sound");
+        pad[0] = 0;
+        for (f = 0; f < 100; f++) {
+            g_players[0].invulnerable = 200;
+            game_tick(pad);
+        }
+        CHECK(game_windows()[0].add_b == 0, "the window is gone when the vacuum ends");
+        game_debug_options(0, 0, 0);
+    }
+
+    /* faster the closer to the centre */
+    vacuum_setup();
+    vacuum_start(0, g_players[0].x, g_players[0].y);
+    bubble_spawn_special(BK_NORMAL, 0, (uint16_t)(g_players[0].x + TO_POS(38)), g_players[0].y);
+    x0 = g_bubbles[0].x;
+    bubbles_update();
+    step_far = (fx8_8)(x0 - g_bubbles[0].x);
+    g_bubbles[0].x = (uint16_t)(g_players[0].x + TO_POS(12));
+    x0 = g_bubbles[0].x;
+    bubbles_update();
+    step_near = (fx8_8)(x0 - g_bubbles[0].x);
+    CHECK(step_near > step_far && step_far > 0, "bubbles speed up near the centre (%d at 38 px, %d at 12 px)", step_far,
+          step_near);
+
+    /* a bubble sliding from a push keeps its push */
+    vacuum_setup();
+    vacuum_start(0, g_players[0].x, g_players[0].y);
+    bubble_spawn_special(BK_NORMAL, 0, (uint16_t)(g_players[0].x + TO_POS(20)), g_players[0].y);
+    g_bubbles[0].vx = FX(3, 0);
+    x0 = g_bubbles[0].x;
+    bubbles_update();
+    CHECK(g_bubbles[0].x > x0, "a pushed bubble slides on through a vacuum");
+
+    /* nothing in Arcade mode */
+    vacuum_setup();
+    g_opt.plus = 0;
+    player_update(&g_players[0], PAD_A, PAD_A);
+    CHECK(!vacuum_active(0), "no vacuum in Arcade mode");
+
+    /* a partner's rescue bubble is drawn in, and freed on reaching the player */
+    g_opt.rescue = 1;
+    setup_two_players(0);
+    g_opt.plus = 1;
+    g_players[0].x = TO_POS(100);
+    g_players[0].y = TO_POS(PLAYER_SPAWN_Y);
+    g_players[1].state = PS_RESCUE;
+    g_players[1].rescue = 200;
+    g_players[1].x = TO_POS(130);
+    g_players[1].y = TO_POS(PLAYER_SPAWN_Y - 20);
+    player_update(&g_players[0], PAD_A, PAD_A);
+    for (f = 0; f < 60 && g_players[1].state == PS_RESCUE; f++) {
+        bubbles_update();
+        player_update(&g_players[0], 0, 0);
+        player_update(&g_players[1], 0, 0);
+    }
+    CHECK(g_players[1].state == PS_ALIVE, "the vacuum draws the partner's rescue bubble in (state %d)", g_players[1].state);
+    g_opt.rescue = 0;
+
+    /* walls: pass-through by default; the developer switch makes them block.
+     * Find a one-tile platform with free space 3 rows above and 2 below. */
+    for (r = 5, tx = -1; r < LEVEL_H - 6 && tx < 0; r++) {
+        int c;
+        for (c = 4; c < LEVEL_W - 4 && tx < 0; c++) {
+            int px = c * 8 + 4, k, ok = level_solid_px((int16_t)px, (int16_t)(FIELD_Y + r * 8 + 4));
+            for (k = -3; k <= 2 && ok; k++) {
+                ok = k == 0 || !level_solid_px((int16_t)px, (int16_t)(FIELD_Y + (r + k) * 8 + 4));
+            }
+            if (ok) {
+                tx = c;
+            }
+        }
+    }
+    r--;
+    CHECK(tx >= 0, "room 1 should have a thin platform for the wall test");
+    if (tx >= 0) {
+        uint16_t bx = TO_POS(tx * 8 - 4);                      /* bubble centre on that column */
+        uint16_t above = TO_POS(FIELD_Y + (r - 3) * 8 - 4);   /* centre in the row 3 above */
+        uint16_t below = TO_POS(FIELD_Y + (r + 2) * 8 - 4);   /* vacuum 2 rows below */
+        int blocked_mode;
+        for (blocked_mode = 0; blocked_mode < 2; blocked_mode++) {
+            vacuum_setup();
+            game_debug_set(DBG_VACUUM_WALLS, (uint8_t)blocked_mode);
+            vacuum_start(0, bx, below);
+            bubble_spawn_special(BK_NORMAL, 0, bx, above);
+            for (f = 0; f < 60; f++) {
+                bubbles_update();
+            }
+            if (blocked_mode) {
+                CHECK(PX(g_bubbles[0].y) + 8 < FIELD_Y + r * 8, "with the switch, the platform stops the bubble (y %u)",
+                      PX(g_bubbles[0].y));
+            } else {
+                CHECK(g_bubbles[0].y == below, "by default the bubble passes the platform (y %u)", PX(g_bubbles[0].y));
+            }
+        }
+        game_debug_set(DBG_VACUUM_WALLS, 0);
+    }
+    g_opt.plus = 0;
+}
+
 /* The CPU partner climbs to a platform five rows up (a full jump): it
  * must keep jump held while rising, like a player who wants the full height. */
 static void test_cpu_climbs(void)
@@ -1707,6 +1899,7 @@ int main(void)
     test_cpu_partner();
     test_round_change_resets();
     test_push_bubble();
+    test_vacuum();
     test_cpu_climbs();
     test_debug_switches();
     test_cpu_soak();

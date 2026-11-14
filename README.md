@@ -26,7 +26,7 @@ The game has a version number `major.minor.revision`, It is set in one place, `G
 - **Platform layer:** raylib, used **only** in `src/platform/`. Game code never includes `raylib.h` (ADR-0001, not written yet).
 - **SNES-shaped interface** between game and platform:
   - Input: one 16-bit button word per player per frame (SNES joypad bit layout).
-  - Output: a shadow sprite table (OAM-like, 16 × 16 sprites) and two 8 × 8 tilemaps, rendered into a 256 × 224 framebuffer and scaled to the window. Layer 0 (level, below the sprites) is 32 × 64 tiles, scrolls vertically and has a window line so it never shows behind the HUD; layer 1 (text, above the sprites) is fixed.
+  - Output: a shadow sprite table (OAM-like, 16 × 16 sprites), two colour windows (a left and right edge per scanline with a colour added inside, like SNES windows with colour math) and two 8 × 8 tilemaps, rendered into a 256 × 224 framebuffer and scaled to the window. Layer 0 (level, below the sprites) is 32 × 64 tiles, scrolls vertically and has a window line so it never shows behind the HUD; layer 1 (text, above the sprites) is fixed.
   - Graphics (stage 1): 24-bit PNGs, magenta = transparent. A "palette" is a tint for now. See [assets/README.md](assets/README.md).
   - Audio: sound effects requested by ID (one bit per effect per tick) and one music track ID; the platform streams the track.
   - Save RAM: 128 bytes (high score table in the first 64, options from byte 64) that the platform keeps in a file, like a battery-backed cartridge.
@@ -183,6 +183,7 @@ All developer options and debug switches exist only in builds with the CMake opt
 | `F7` / `F8` | Pause and step one frame at a time / next frame |
 | `F9` | Slow motion (quarter speed) |
 | `F10` | Spawn the next item or special bubble in front of player 1 |
+| `F12` | Vacuum walls: walls stop bubbles inside a vacuum (to compare with the default pass-through) |
 | `--shot <tick>` | Save the framebuffer as `shot_<tick>.png` in the working directory (repeatable) |
 | `--quit <tick>` | Exit after that many game ticks |
 
@@ -233,18 +234,18 @@ Keeping `game` as a separate library without a raylib link dependency makes acci
 | D-Pad | `WASD` | Arrow keys | D-Pad / left stick |
 | B (jump) | `K` | `.` | South button |
 | Y (bubble) | `J` | `,` | West button |
-| A | `C` | | East button |
+| A (vacuum, Plus mode) | `U` or `C` | `N` | East button (Xbox B, PlayStation ○) |
 | X (push bubble, Plus mode) | `H` or `V` | `M` | North button (Xbox Y, PlayStation △) |
 | L / R (dash left / right, Plus mode) | `Q` / `E` | | |
 | Dash (held direction, else facing) | `L` | `/` | LB or RB |
 | Start | `Enter` | `Right Ctrl` | Start |
 | Select | `Shift` (either) | | Back / Select |
 
-On the title screen, Select opens the options: **mode** (Arcade, or Plus with dash, energy bar and push bubble), **co-op rescue** (on/off) and **player 2** (human or CPU partner). They are saved with the high scores.
+On the title screen, Select opens the options: **mode** (Arcade, or Plus with dash, energy bar, push bubble and vacuum), **co-op rescue** (on/off) and **player 2** (human or CPU partner). They are saved with the high scores.
 
 The first gamepad belongs to player 1, the second to player 2. The game starts on the title screen: press Start to begin. The other player can join at any time with their Start button. A player with no lives left can continue the same way (the score is kept). During play, Start pauses.
 
-On a phone or tablet the web page shows touch controls for player 1: a D-pad, Jump, Bubble, Push, Dash, Start and Options. They are part of `web/shell.html` and only send the matching keyboard keys, so the game itself has no touch code. Player 2 needs a keyboard, a gamepad or the CPU partner.
+On a phone or tablet the web page shows touch controls for player 1: a D-pad, Jump, Bubble, Push, Suck (vacuum), Dash, Start and Options. They are part of `web/shell.html` and only send the matching keyboard keys, so the game itself has no touch code. Player 2 needs a keyboard, a gamepad or the CPU partner.
 
 Mappings live in `src/platform/platform_raylib.c` and may change. `Esc` quits, `F11` toggles full screen, `Tab` toggles the retro TV filter.
 
@@ -255,6 +256,8 @@ Shoot bubbles (Y) at the enemies to trap them, then touch the trapped enemy to d
 **Plus mode** adds an energy bar per player (on the bottom wall). It only fills by defeating enemies (more in combos) and drains when you stop attacking; losing a life empties it. L / R dash about seven tiles left or right without turning around (the dash key, `L` on the keyboard or either shoulder button on a gamepad, dashes the way you hold or, if you hold nothing, the way you face). A dash pops every bubble it sweeps through, passes through inner walls and platforms, never ends inside a wall, keeps you invulnerable for the whole dash and half a second after it (you blink), works once per jump, costs a bit of energy, and a press up to six frames too early (for example just before landing) still counts. The player sprite shows the energy: a yellow glow with small spikes when a dash is available, cycling colours when the bar is full (each with a chime), a flash and two afterimages while dashing.
 
 **Push bubble** (Plus mode): X, the top face button (Y on an Xbox pad, △ on PlayStation), blows a small, fast bubble that traps nothing. It works like a cue ball: it bursts on the first floating bubble it meets and shoves it, empty or with an enemy inside. A hit on the bubble's upper third pushes it down, on the lower third up, in the middle along the push bubble's way. The shoved bubble slides, ignoring the air, slows down and stops at the walls; an empty one traps the first enemy it slides into, like a fired bubble. A special bubble (water, fire, lightning, an EXTEND letter) is set off as if you touched it. The push bubble destroys enemy shots and bursts without effect on enemies, players and the boss; it collects nothing. Each player has one at a time, and it costs no energy.
+
+**Vacuum** (Plus mode): A, the right face button (B on an Xbox pad, ○ on PlayStation), puts a vacuum where you are; a softly pulsing glow shows exactly how far it reaches. For 1.5 seconds the air inside a circle of 5 tiles around it points to its centre, so floating bubbles (empty, with an enemy, special, letters) and a partner's rescue bubble gather there, faster the closer they get, and form a cluster ready for a chain. Then the room's air takes over again. The vacuum stays where you placed it, also when you press A mid-jump; pressing again moves it. Bubbles pass through walls on their way in. It moves no enemies or items, pops nothing by itself and costs no energy.
 
 **Co-op rescue** (two players): an enemy that touches you traps you in a rescue bubble instead of killing you. It drifts with the air; your partner frees you by touching it, with no life lost. If it runs out, you lose a life. Shots, the storm cloud and the boss still kill.
 

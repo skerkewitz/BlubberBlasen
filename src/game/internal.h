@@ -354,6 +354,14 @@ void     bubbles_trapped_to_gems(void);   /* items: trapped enemies become gems 
 void     bubble_spawn_special(uint8_t kind, uint8_t letter, uint16_t x, uint16_t y);
 uint8_t  push_shoot(uint8_t player, uint16_t x, uint16_t y, uint8_t facing_left);   /* Plus mode; 0 = one already flying */
 uint8_t  push_active(uint8_t player);
+
+/* --- vacuum.c (Plus mode) ---------------------------------------------------- */
+void     vacuums_clear(void);
+void     vacuum_start(uint8_t player, uint16_t x, uint16_t y);   /* 8.8 centre (a player's top left) */
+uint8_t  vacuum_active(uint8_t player);
+void     vacuums_tick(void);
+uint8_t  vacuum_move(uint16_t *x, uint16_t *y);   /* 1 = inside a vacuum: moved or held, skip the air */
+void     vacuums_windows(ColorWindow *w);   /* fills window i for player i's vacuum */
 void     bubble_pop(Bubble *b, int8_t dir, uint8_t player);   /* starts a chain reaction */
 uint8_t  bubbles_trapped_count(void);
 void     bubbles_update(void);

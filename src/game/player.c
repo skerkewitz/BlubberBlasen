@@ -222,12 +222,14 @@ static void update_rescue(Player *p)
             p->rescue_dir = (uint8_t)(1 + (rng_next() & 3));
         }
     }
-    switch (p->rescue_dir) {
-    case AIR_UP:    p->y = (uint16_t)(p->y - (uint16_t)RESCUE_SPEED); break;
-    case AIR_DOWN:  p->y = (uint16_t)(p->y + (uint16_t)RESCUE_SPEED); break;
-    case AIR_LEFT:  p->x = (uint16_t)(p->x - (uint16_t)RESCUE_SPEED); break;
-    case AIR_RIGHT: p->x = (uint16_t)(p->x + (uint16_t)RESCUE_SPEED); break;
-    default: break;
+    if (!vacuum_move(&p->x, &p->y)) {   /* a vacuum draws it in too */
+        switch (p->rescue_dir) {
+        case AIR_UP:    p->y = (uint16_t)(p->y - (uint16_t)RESCUE_SPEED); break;
+        case AIR_DOWN:  p->y = (uint16_t)(p->y + (uint16_t)RESCUE_SPEED); break;
+        case AIR_LEFT:  p->x = (uint16_t)(p->x - (uint16_t)RESCUE_SPEED); break;
+        case AIR_RIGHT: p->x = (uint16_t)(p->x + (uint16_t)RESCUE_SPEED); break;
+        default: break;
+        }
     }
     level_clamp_x(&p->x);
     if (PX(p->y) < FIELD_Y + 6 || PX(p->y) >= WRAP_Y) {
@@ -459,6 +461,13 @@ static void shoot(Player *p, uint16_t pressed)
             p->shoot_pose = SHOOT_POSE;
             sfx(SFX_SHOOT);
         }
+    }
+
+    /* Plus mode: A (the right face button) puts a vacuum where the player
+     * is; it stays there, also when placed mid-jump. */
+    if (g_opt.plus && (pressed & PAD_A)) {
+        vacuum_start(p->id, p->x, p->y);
+        sfx(SFX_VACUUM);
     }
 
     fire = (uint8_t)((pressed & PAD_Y) != 0);

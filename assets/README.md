@@ -25,7 +25,8 @@ Stage 1 keeps it simple: graphics are plain **24-bit PNG** files, and the colour
 | 20..23 | Defeated enemy flying (spin) |
 | 32..34 | Bubble (animation) |
 | 35 | Push bubble (Plus mode), a small light-blue bubble |
-| 36, 37 | Bubble with a trapped enemy (not used) |
+| 36 | Vacuum swirl (not used any more; the vacuum is shown as a colour window) |
+| 37 | Bubble with a trapped enemy (not used) |
 | 38, 39 | Bubble burst |
 | 40 | Bubble with a trapped angry enemy |
 | 41..43, 44..46 | Empty bubble about to burst (orange, then red) |
@@ -60,7 +61,7 @@ Stage 1 keeps it simple: graphics are plain **24-bit PNG** files, and the colour
 
 Score pop-ups also include 100 and 200 (cells 82..85).
 
-Cells 36, 37, 40 and 56..61 (trapped walker in one picture) are no longer used. Cell 35 held one of them and is now the push bubble.
+Cells 37, 40 and 56..61 (trapped walker in one picture) are no longer used. Cells 35 and 36 held two of them and are now the push bubble and the vacuum swirl.
 
 All sprites face **right**; the game mirrors them for the left.
 
@@ -111,9 +112,9 @@ Things to keep in mind when designing rooms:
 
 ## Sound effects (`sfx/`)
 
-Mono WAV files, loaded by name: `jump`, `shoot`, `pop`, `trap`, `kill`, `gem`, `death`, `start`, `clear`, `hurry`, `gameover`, `menu`, `pause`, `extra`, `ready`, `full`, `dash`, `UhHelpMe`. A missing file is skipped silently.
+Mono WAV files, loaded by name: `jump`, `shoot`, `pop`, `trap`, `kill`, `gem`, `death`, `start`, `clear`, `hurry`, `gameover`, `menu`, `pause`, `extra`, `ready`, `full`, `dash`, `UhHelpMe`, `vacuum`. A missing file is skipped silently.
 
-`UhHelpMe` plays when a player is caught in a rescue bubble (co-op rescue) and once more when two thirds of the bubble's time are over.
+`UhHelpMe` plays when a player is caught in a rescue bubble (co-op rescue) and once more when two thirds of the bubble's time are over. `vacuum` plays when a player places a vacuum (Plus mode).
 
 ## Music (`music/`)
 
@@ -133,8 +134,8 @@ Two temporary tracks, streamed by the platform layer (`music_files` in `src/plat
 | `tileset01..08.png` | The room tiles from the Java version (`level/round01..08.png`), unchanged. |
 | Bubble cells 32..34 | `spritesheet/bubble.png` from the Java version. |
 | Rest of `sprites.png`, `font.png` | Placeholder art drawn by a script for this prototype. Replace freely. |
-| `sfx/*.wav` | Placeholder sounds synthesised by a script for this prototype, except `UhHelpMe.wav`. |
-| `sfx/UhHelpMe.wav` | Added by the project owner (2026-11-14). |
+| `sfx/*.wav` | Placeholder sounds synthesised by a script for this prototype, except `UhHelpMe.wav` and `vacuum.wav`. |
+| `sfx/UhHelpMe.wav`, `sfx/vacuum.wav` | Added by the project owner (2026-11-14). |
 | `levels/*.map`, `levels/*.txt` | New room layouts and settings for this prototype. |
 
 The Java version also contained a ripped NES sprite sheet, traced character sprites, original game sound effects, music and arcade round layouts. **None of these are used here, and they must not be added** (see the license note in the main README).
