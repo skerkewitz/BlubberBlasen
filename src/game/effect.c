@@ -383,7 +383,10 @@ void effects_draw(void)
         case EF_FIRE:
             for (k = ef->left; k < ef->right; k = (uint8_t)(k + 16)) {
                 uint8_t x = (uint8_t)(k + 16 > ef->right ? ef->right - 16 : k);
-                oam_add(x, PX(ef->y), (uint8_t)(SPR_FIRE0 + ((anim + (k >> 4)) & 1)), 0);
+                /* Neighbouring pieces are a frame apart, and every other pair is
+                 * mirrored, so the carpet does not show a repeating pattern. */
+                oam_add(x, PX(ef->y), (uint8_t)(SPR_FIRE0 + ((anim + (k >> 4)) & 1)),
+                        (uint8_t)((k & 32) ? SPR_ATTR_FLIP_X : 0u));
             }
             break;
         case EF_BOLT:

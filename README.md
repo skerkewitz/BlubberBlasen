@@ -237,6 +237,8 @@ On the title screen, Select opens the options: **mode** (Arcade, or Plus with da
 
 The first gamepad belongs to player 1, the second to player 2. The game starts on the title screen: press Start to begin. The other player can join at any time with their Start button. A player with no lives left can continue the same way (the score is kept). During play, Start pauses.
 
+On a phone or tablet the web page shows touch controls for player 1: a D-pad, Jump, Bubble, Dash, Start and Options. They are part of `web/shell.html` and only send the matching keyboard keys, so the game itself has no touch code. Player 2 needs a keyboard, a gamepad or the CPU partner.
+
 Mappings live in `src/platform/platform_raylib.c` and may change. `Esc` quits, `F11` toggles full screen, `Tab` toggles the retro TV filter.
 
 ## How to play

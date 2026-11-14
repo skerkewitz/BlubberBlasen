@@ -54,10 +54,64 @@
     background: #222;
     font-family: inherit;
   }
+  /* --- Touch controls (phones and tablets only) ---------------------------
+     The buttons fake the keyboard keys of player 1, so the game needs no
+     touch code of its own. */
+  #touch { display: none; }
+  @media (pointer: coarse) {
+    html, body { touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+    #touch { display: block; }
+    /* portrait: game at the top, controls below it */
+    @media (orientation: portrait) {
+      #stage { align-items: flex-start; }
+      #touch .btn.start, #touch .btn.select { top: calc(100vw * 224 / 256 + 16px); }
+    }
+  }
+  #touch .pad, #touch .btn {
+    position: fixed;
+    border: 2px solid rgba(255, 255, 255, 0.35);
+    background: rgba(255, 255, 255, 0.10);
+    color: rgba(255, 255, 255, 0.75);
+    font: bold 13px system-ui, sans-serif;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    touch-action: none;
+  }
+  #touch .pad {
+    left: max(16px, env(safe-area-inset-left));
+    bottom: max(24px, env(safe-area-inset-bottom));
+    width: 150px; height: 150px;
+    border-radius: 50%;
+  }
+  #touch .pad::before {   /* a plain cross as a hint */
+    content: "";
+    position: absolute;
+    inset: 30%;
+    border-radius: 6px;
+    box-shadow: 0 -45px 0 -8px rgba(255,255,255,.25), 0 45px 0 -8px rgba(255,255,255,.25),
+                -45px 0 0 -8px rgba(255,255,255,.25), 45px 0 0 -8px rgba(255,255,255,.25);
+  }
+  #touch .btn { width: 64px; height: 64px; border-radius: 50%; }
+  #touch .btn.small { width: 72px; height: 30px; border-radius: 15px; font-size: 11px; }
+  #touch .btn.down, #touch .pad.down { background: rgba(255, 224, 102, 0.35); }
+  #touch .jump   { right: max(16px, env(safe-area-inset-right));         bottom: max(60px, env(safe-area-inset-bottom)); }
+  #touch .bubble { right: calc(max(16px, env(safe-area-inset-right)) + 76px); bottom: max(24px, env(safe-area-inset-bottom)); }
+  #touch .dash   { right: calc(max(16px, env(safe-area-inset-right)) + 40px); bottom: calc(max(60px, env(safe-area-inset-bottom)) + 76px); }
+  #touch .start  { right: max(16px, env(safe-area-inset-right)); top: max(12px, env(safe-area-inset-top)); }
+  #touch .select { left: max(16px, env(safe-area-inset-left));   top: max(12px, env(safe-area-inset-top)); }
 </style>
 </head>
 <body>
 <div id="stage"><canvas id="canvas" tabindex="-1" oncontextmenu="event.preventDefault()"></canvas></div>
+<div id="touch">
+  <div class="pad"></div>
+  <div class="btn jump"   data-key="75">JUMP</div>
+  <div class="btn bubble" data-key="74">BUBBLE</div>
+  <div class="btn dash"   data-key="76">DASH</div>
+  <div class="btn small start"  data-key="13">START</div>
+  <div class="btn small select" data-key="16">OPTIONS</div>
+</div>
 <div id="start">
   <h1>BLUBBER BLASEN</h1>
   <p id="status">Loading …</p>
@@ -69,17 +123,19 @@
   var startLayer = document.getElementById('start');
   var statusLine = document.getElementById('status');
   var canvas = document.getElementById('canvas');
+  var isTouch = window.matchMedia('(pointer: coarse)').matches;
+  var startText = isTouch ? 'Tap to start' : 'Click to start';
 
   var Module = {
     canvas: canvas,
     print: function (text) { console.log(text); },
     printErr: function (text) { console.warn(text); },
     setStatus: function (text) {
-      statusLine.textContent = text ? text : 'Click to start';
+      statusLine.textContent = text ? text : startText;
     },
     monitorRunDependencies: function (left) {
       if (left === 0) {
-        statusLine.textContent = 'Click to start';
+        statusLine.textContent = startText;
       }
     }
   };
@@ -100,6 +156,28 @@
     canvas.focus();
   });
   window.addEventListener('pointerdown', activate, true);
+
+  /* iPhone/iPad: Web Audio is muted by the silent switch unless the page
+     says it plays media (Safari 16.4+). */
+  if (navigator.audioSession) {
+    try { navigator.audioSession.type = 'playback'; } catch (e) {}
+  }
+  /* Safari only starts an audio context inside a tap or key handler, and it
+     suspends it again after an app switch, a call or the lock screen.
+     miniaudio (raylib's audio) tries to resume only once, so resume on every
+     tap and key press. window.miniaudio exists once the game opened audio. */
+  function resumeAudio() {
+    var ma = window.miniaudio;
+    if (!ma || !ma.devices) return;
+    ma.devices.forEach(function (d) {
+      if (d && d.webaudio && d.webaudio.state !== 'running') {
+        d.webaudio.resume().catch(function () {});
+      }
+    });
+  }
+  ['touchend', 'click', 'keydown', 'pointerup'].forEach(function (t) {
+    document.addEventListener(t, resumeAudio, true);
+  });
   window.addEventListener('keydown', activate, true);
   window.addEventListener('keydown', function (e) {
     /* keep the arrow keys and space from scrolling the page */
@@ -107,6 +185,74 @@
       e.preventDefault();
     }
   });
+
+  /* Touch controls: each button sends keydown/keyup for a player 1 key.
+     Emscripten's GLFW reads event.keyCode from window key events, so the
+     fake events need that property set by hand. Keys are counted, so two
+     fingers on things that share a key do not release it too early. */
+  (function () {
+    var held = {};
+    function sendKey(code, down) {
+      var n = held[code] || 0;
+      held[code] = n = n + (down ? 1 : -1);
+      if ((down && n !== 1) || (!down && n !== 0)) return;
+      var ev = new KeyboardEvent(down ? 'keydown' : 'keyup', { bubbles: true, cancelable: true });
+      Object.defineProperty(ev, 'keyCode', { get: function () { return code; } });
+      Object.defineProperty(ev, 'which', { get: function () { return code; } });
+      window.dispatchEvent(ev);
+    }
+    function noDefault(el) {
+      ['touchstart', 'touchmove', 'touchend', 'contextmenu'].forEach(function (t) {
+        el.addEventListener(t, function (e) { e.preventDefault(); }, { passive: false });
+      });
+    }
+
+    Array.prototype.forEach.call(document.querySelectorAll('#touch .btn'), function (btn) {
+      var code = +btn.dataset.key, pointers = 0;
+      noDefault(btn);
+      btn.addEventListener('pointerdown', function (e) {
+        btn.setPointerCapture(e.pointerId);
+        if (pointers++ === 0) { btn.classList.add('down'); sendKey(code, true); }
+      });
+      function up() {
+        if (pointers > 0 && --pointers === 0) { btn.classList.remove('down'); sendKey(code, false); }
+      }
+      btn.addEventListener('pointerup', up);
+      btn.addEventListener('pointercancel', up);
+    });
+
+    /* D-pad: the direction comes from where the finger is relative to the
+       centre, so sliding the thumb changes direction; diagonals work too. */
+    var pad = document.querySelector('#touch .pad');
+    var KEYS = { up: 87, down: 83, left: 65, right: 68 };
+    var padPointer = null, padDirs = {};
+    noDefault(pad);
+    function setDirs(next) {
+      Object.keys(KEYS).forEach(function (d) {
+        if (!!next[d] !== !!padDirs[d]) sendKey(KEYS[d], !!next[d]);
+      });
+      padDirs = next;
+      pad.classList.toggle('down', Object.keys(next).some(function (d) { return next[d]; }));
+    }
+    function track(e) {
+      var r = pad.getBoundingClientRect();
+      var dx = e.clientX - (r.left + r.width / 2), dy = e.clientY - (r.top + r.height / 2);
+      var dist = Math.sqrt(dx * dx + dy * dy), dead = r.width * 0.12;
+      if (dist < dead) { setDirs({}); return; }
+      /* a direction counts when it is at least 40% of the push */
+      setDirs({ left: dx < -0.4 * dist, right: dx > 0.4 * dist, up: dy < -0.4 * dist, down: dy > 0.4 * dist });
+    }
+    pad.addEventListener('pointerdown', function (e) {
+      if (padPointer !== null) return;
+      padPointer = e.pointerId;
+      pad.setPointerCapture(e.pointerId);
+      track(e);
+    });
+    pad.addEventListener('pointermove', function (e) { if (e.pointerId === padPointer) track(e); });
+    function padUp(e) { if (e.pointerId === padPointer) { padPointer = null; setDirs({}); } }
+    pad.addEventListener('pointerup', padUp);
+    pad.addEventListener('pointercancel', padUp);
+  })();
 </script>
 {{{ SCRIPT }}}
 </body>
