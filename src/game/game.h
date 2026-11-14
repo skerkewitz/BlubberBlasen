@@ -10,6 +10,9 @@
 
 #include <stdint.h>
 
+/* --- Version: major.minor.revision, shown on the title screen -------------- */
+#define GAME_VERSION "1.0.0"
+
 /* --- Screen --------------------------------------------------------------- */
 #define SCREEN_W 256
 #define SCREEN_H 224

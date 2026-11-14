@@ -272,7 +272,7 @@ static void enter_title(void)
     text_put(8, 25, "HI", PAL_RED);
     text_digits(11, 25, hiscore_best(), 8, PAL_NONE);
     text_put(9, 26, "SELECT: OPTIONS", PAL_GREY);
-    text_put(7, 27, "STAGE 1 PROTOTYPE", PAL_GREY);
+    text_put(10, 27, "VERSION " GAME_VERSION, PAL_GREY);
     set_state(GS_TITLE);
 }
 

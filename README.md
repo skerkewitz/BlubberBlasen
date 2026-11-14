@@ -16,6 +16,10 @@ The project is built in three stages:
 
 The game code is written from day one so that it survives all three stages with minimal rewriting. See the architecture decisions below.
 
+### Version
+
+The game has a version number `major.minor.revision`, currently **1.0.0**. It is set in one place, `GAME_VERSION` in `src/game/game.h`, and shown on the title screen. The roadmap stages above are separate from it.
+
 ## Architecture in short
 
 - **Language:** C99.
