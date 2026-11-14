@@ -55,7 +55,8 @@ enum {
     SPR_SMALL_ENEMY4 = 170,                               /* small flutter, hopper, spitter, dropper */
     SPR_BOSS0 = 176, SPR_BOSS1 = 180,                     /* 32x32: four cells each, TL TR BL BR */
     SPR_GIANT_BUBBLE = 184, SPR_SOOT = 188, SPR_DOOR = 189,
-    SPR_ITEM_STAR = 190                                   /* star, wave, whistle, glove, ring */
+    SPR_ITEM_STAR = 190,                                  /* star, wave, whistle, glove, ring */
+    SPR_AURA0 = 196                                       /* glow outline of player frames 0..4 */
 };
 
 /* Enemy shots (Item.tier of an IT_ROCK). */
@@ -88,6 +89,7 @@ enum {
 typedef enum {
     GS_TITLE,
     GS_STORY,            /* intro pages after the title (docs/story.md) */
+    GS_OPTIONS,          /* options screen (Select on the title) */
     GS_TRANSITION,       /* the next round scrolls in */
     GS_ROUND_INTRO,
     GS_PLAY,
@@ -100,7 +102,18 @@ typedef enum {
 } GameState;
 
 /* --- Objects --------------------------------------------------------------- */
-typedef enum { PS_OFF, PS_ALIVE, PS_DYING, PS_ENTERING } PlayerState;
+typedef enum { PS_OFF, PS_ALIVE, PS_DYING, PS_ENTERING, PS_RESCUE } PlayerState;
+
+/* Options (saved in SRAM). Plus mode = dash, energy, special shot. */
+typedef struct {
+    uint8_t plus;          /* 0 Arcade, 1 Plus */
+    uint8_t rescue;        /* co-op rescue on/off (both modes) */
+    uint8_t p2_cpu;        /* player 2 is a CPU partner */
+} Options;
+extern Options g_opt;
+
+/* What touched a player (enemies_touch). */
+enum { TOUCH_NONE, TOUCH_ENEMY, TOUCH_DEADLY };
 
 typedef struct {
     uint8_t  id;           /* 0 = player 1, 1 = player 2 */
@@ -112,6 +125,21 @@ typedef struct {
     uint16_t powers;       /* power-ups held (POWER_BIT mask) */
     uint8_t  stun;         /* frames left stunned by fire */
     uint8_t  carried;      /* swept along by a water stream */
+    uint16_t rescue;       /* frames left in the rescue bubble */
+    uint8_t  rescue_dir;   /* AIR_* the rescue bubble drifts in */
+    uint8_t  cpu;          /* controlled by the CPU partner (cpu.c) */
+    uint8_t  energy;       /* Plus mode: 0..ENERGY_MAX */
+    uint8_t  energy_hold;  /* frames before the energy starts to drain */
+    uint8_t  dash;         /* Plus mode: frames left in a dash */
+    int8_t   dash_dir;
+    uint8_t  dash_used;    /* one dash per jump */
+    uint8_t  dash_buffer;  /* frames a too-early dash press is kept */
+    int8_t   dash_buffer_dir;
+    uint16_t last_free_x;  /* dash: last position not inside a wall */
+    uint8_t  energy_state; /* 0 low, 1 dash available, 2 full (for the chimes) */
+    uint8_t  trail_x[8], trail_y[8];   /* recent positions, for the dash afterimages */
+    uint8_t  trail_pos;
+    uint8_t  charge;       /* frames Y has been held for the special shot */
     uint8_t  facing_left;
     uint8_t  on_ground;
     uint8_t  shoot_cooldown;
@@ -156,6 +184,9 @@ typedef struct {
     uint8_t  kind;         /* BubbleKind */
     uint8_t  letter;       /* BK_LETTER: 0..5 = E X T E N D */
     uint8_t  shot_frames;  /* how long it flies (range power-up) */
+    uint8_t  big;          /* Plus mode special shot: holds up to two enemies */
+    uint8_t  etype2;       /* second trapped enemy of a big bubble, 0 = none */
+    uint8_t  owner;        /* player who blew it */
     fx8_8    shot_speed;   /* how fast it flies (speed power-up) */
     uint8_t  pop_timer;    /* frames until a popping bubble bursts */
     uint16_t age;          /* frames */
@@ -172,6 +203,18 @@ typedef struct {
     uint16_t x, y;         /* 8.8 */
     fx8_8    vx, vy;       /* thrown enemy */
 } Item;
+
+/* --- Debug switches: always 0 in builds without BB_DEBUG --------------------- */
+#ifdef BB_DEBUG
+extern uint8_t g_dbg[DBG_COUNT];
+#define DBG(sw) (g_dbg[sw])
+extern uint16_t g_dbg_deaths[DEBUG_DEATH_CAUSES];
+extern uint8_t  g_dbg_touch;   /* what enemies_touch found last */
+#define DBG_TOUCH(cause) (g_dbg_touch = (uint8_t)(cause))
+#else
+#define DBG(sw) 0
+#define DBG_TOUCH(cause) ((void)0)
+#endif
 
 /* --- Shared state (defined in game.c) -------------------------------------- */
 extern GameState g_state;
@@ -226,6 +269,7 @@ void     player_killed(Player *p);
 void     level_load(uint8_t index, uint8_t page);   /* collision + draw into a page */
 uint8_t  level_solid_tile(int16_t tx, int16_t ty);
 uint8_t  level_air_at(uint8_t sx, uint8_t sy);       /* screen pixel */
+uint8_t  level_cell(uint8_t tx, uint8_t ty);         /* raw CELL_* byte, 0 outside */
 uint8_t  level_solid_px(int16_t sx, int16_t sy);     /* screen pixel */
 uint8_t  level_on_ground(uint16_t x, uint16_t y);    /* object top-left, 8.8 */
 uint8_t  level_fall(uint16_t *x, uint16_t *y, fx8_8 dy);  /* returns 1 when it landed */
@@ -254,6 +298,16 @@ uint8_t  players_in_game(void);
 const Player *player_nearest(uint16_t x, uint16_t y);
 void     player_update(Player *p, uint16_t pad, uint16_t pressed);
 void     player_draw(const Player *p);
+uint8_t  player_dash_invulnerable(const Player *p);
+
+/* Plus mode energy (design guide "Plus mode"; tuning values there). */
+#define ENERGY_MAX        96
+#define ENERGY_PER_ENEMY  16
+#define ENERGY_COMBO      8      /* extra per further enemy in the same chain */
+#define ENERGY_HOLD       180    /* frames before the bar drains after a gain */
+#define DASH_COST         16
+void     energy_gain(uint8_t player, uint8_t amount);
+void     energy_tick(void);      /* drain; call only while a round is being played */
 
 /* --- enemy.c ---------------------------------------------------------------- */
 void     enemies_clear(void);
@@ -263,14 +317,15 @@ uint8_t  enemies_entering(void);
 uint8_t  enemies_count(void);
 void     enemies_make_angry(void);
 void     enemies_calm_down(void);
-uint8_t  enemies_touch(uint16_t x, uint16_t y);   /* 1 if an enemy, shot, chaser or the boss touches */
+uint8_t  enemies_touch(uint16_t x, uint16_t y);   /* TOUCH_*: an enemy body, or something always deadly */
 void     enemies_to_gems(void);                   /* items: every enemy becomes a gem */
-void     enemies_defeat_at(uint16_t x, uint16_t y); /* Steam Whistle: touching frozen enemies */
+void     enemies_defeat_at(uint16_t x, uint16_t y, uint8_t player); /* Steam Whistle: touching frozen enemies */
 
 /* Hurry Up chaser: invincible, flies through walls towards the player. */
 void     chaser_reset(void);
 void     chaser_spawn(void);
 uint8_t  chaser_active(void);
+uint8_t  chaser_get(uint8_t i, uint16_t *x, uint16_t *y);   /* 1 if chaser i is out */
 void     chaser_update(void);
 void     chaser_draw(void);
 void     enemies_update(void);
@@ -281,6 +336,7 @@ void     bubbles_clear(void);
 void     bubble_shoot(uint16_t x, uint16_t y, uint8_t facing_left, uint16_t powers);
 void     bubbles_trapped_to_gems(void);   /* items: trapped enemies become gems */
 void     bubble_spawn_special(uint8_t kind, uint8_t letter, uint16_t x, uint16_t y);
+void     bubble_shoot_special(uint16_t x, uint16_t y, uint8_t facing_left);   /* Plus mode */
 void     bubble_pop(Bubble *b, int8_t dir, uint8_t player);   /* starts a chain reaction */
 uint8_t  bubbles_trapped_count(void);
 void     bubbles_update(void);
@@ -299,6 +355,10 @@ void     items_clear_rocks(void);
 void     bonus_round_tick(void);    /* places the round's bonus food */
 void     items_update(void);
 void     items_draw(void);
+
+/* --- cpu.c ------------------------------------------------------------------ */
+void     cpu_reset(void);
+uint16_t cpu_pad(Player *p);   /* the CPU partner's joypad word for this frame */
 
 /* --- effect.c --------------------------------------------------------------- */
 void     effects_clear(void);                     /* new round */
@@ -324,8 +384,10 @@ uint8_t  boss_hit_by_bolt(uint16_t x, uint16_t y);
 void     boss_update(void);
 void     boss_draw(void);
 
-/* --- hiscore.c -------------------------------------------------------------- */
+/* --- hiscore.c (save RAM: high scores and options) ---------------------------- */
 #define HISCORE_COUNT 5
+void     options_load(void);
+void     options_save(void);
 void     hiscore_init(void);
 const uint8_t *hiscore_best(void);
 uint8_t  hiscore_rank(const uint8_t *score);    /* 0..4, or HISCORE_COUNT if not good enough */

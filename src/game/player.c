@@ -17,6 +17,15 @@
 
 #define WALK_ACCEL_SHOES FX(0, 80)
 #define WALK_MAX_SHOES   FX(1, 74)  /* 1.3 px/frame */
+#define RESCUE_FRAMES 420         /* 7 s in the rescue bubble */
+#define RESCUE_SPEED  FX(0, 90)
+#define DASH_FRAMES   12          /* 12 x 4.5 px = 54 px, about 7 tiles */
+#define DASH_SPEED    FX(4, 128)
+#define DASH_SAFE_EDGE 2          /* not invulnerable in the first and last 2 frames */
+#define DASH_BUFFER   6           /* a dash pressed up to 6 frames too early still happens */
+#define DASH_EXTEND   48          /* how far a dash may run on to get out of a wall */
+#define CHARGE_FRAMES 30          /* hold Y this long with a full bar */
+#define ENERGY_DRAIN_MASK 3       /* drain 1 every 4 frames */
 #define SHOOT_DELAY   15
 #define SHOOT_DELAY_RATE 7         /* with the rate candy */
 #define SHOOT_POSE    10
@@ -44,6 +53,221 @@ void player_start(Player *p)
     p->vy = 0;
     p->stun = 0;
     p->carried = 0;
+    p->rescue = 0;
+    p->dash = 0;
+    p->dash_used = 0;
+    p->dash_buffer = 0;
+    p->charge = 0;
+}
+
+/* --- Plus mode energy -------------------------------------------------------- */
+void energy_gain(uint8_t player, uint8_t amount)
+{
+    Player *p = &g_players[player];
+    if (!g_opt.plus || player >= NUM_PLAYERS || p->state == PS_OFF) {
+        return;
+    }
+    p->energy = (uint8_t)(p->energy + amount > ENERGY_MAX ? ENERGY_MAX : p->energy + amount);
+    p->energy_hold = ENERGY_HOLD;
+}
+
+void energy_tick(void)
+{
+    uint8_t i;
+    for (i = 0; i < NUM_PLAYERS; i++) {
+        Player *p = &g_players[i];
+        if (!g_opt.plus || p->state == PS_OFF) {
+            continue;
+        }
+        if (DBG(DBG_FULL_ENERGY)) {
+            p->energy = ENERGY_MAX;
+        } else if (p->energy_hold) {
+            p->energy_hold--;
+        } else if (p->energy && (g_frame & ENERGY_DRAIN_MASK) == 0) {
+            p->energy--;   /* waiting costs energy */
+        }
+    }
+}
+
+/* Dash (design guide "Dash"): a fast burst of about 7 tiles; the player
+ * keeps facing the same way. Invulnerable except in the first and last
+ * 2 frames. Passes through inner walls and platforms; the outer walls stop
+ * it. One per jump. A press up to 6 frames too early is kept. */
+uint8_t player_dash_invulnerable(const Player *p)
+{
+    return (uint8_t)(p->dash > DASH_SAFE_EDGE && p->dash <= DASH_FRAMES - DASH_SAFE_EDGE);
+}
+
+/* The body (12 x 16 px) overlaps a solid tile. */
+static uint8_t inside_wall(uint16_t x, uint16_t y)
+{
+    int16_t l = (int16_t)(PX(x) + 2), r = (int16_t)(PX(x) + 13);
+    int16_t t = (int16_t)(PX(y) + 2), b = (int16_t)(PX(y) + 15);
+    return (uint8_t)(level_solid_px(l, t) || level_solid_px(r, t) || level_solid_px(l, b) || level_solid_px(r, b));
+}
+
+/* L or R; both together (the keyboard's single dash key) mean: the held
+ * direction, or the facing direction if none is held. */
+static int8_t dash_direction(const Player *p, uint16_t pad, uint16_t pressed)
+{
+    if ((pressed & (PAD_L | PAD_R)) == (PAD_L | PAD_R)) {
+        if (pad & PAD_LEFT) {
+            return -1;
+        }
+        if (pad & PAD_RIGHT) {
+            return 1;
+        }
+        return (int8_t)(p->facing_left ? -1 : 1);
+    }
+    return (int8_t)((pressed & PAD_L) ? -1 : 1);
+}
+
+static uint8_t try_dash(Player *p, uint16_t pad, uint16_t pressed)
+{
+    if (!g_opt.plus || p->carried) {
+        return 0;
+    }
+    if (pressed & (PAD_L | PAD_R)) {
+        p->dash_buffer = DASH_BUFFER;
+        p->dash_buffer_dir = dash_direction(p, pad, pressed);
+    }
+    if (!p->dash_buffer) {
+        return 0;
+    }
+    p->dash_buffer--;
+    if (p->dash || p->dash_used || p->energy < DASH_COST) {
+        return 0;   /* kept for a few frames, e.g. until landing */
+    }
+    p->dash = DASH_FRAMES;
+    p->dash_dir = p->dash_buffer_dir;
+    p->dash_buffer = 0;
+    p->dash_used = 1;
+    p->last_free_x = p->x;
+    if (!DBG(DBG_FULL_ENERGY)) {
+        p->energy = (uint8_t)(p->energy - DASH_COST);
+    }
+    p->vy = 0;
+    sfx(SFX_DASH);
+    return 1;
+}
+
+static void dash_move(Player *p)
+{
+    p->x = (uint16_t)(p->dash_dir < 0 ? p->x - (uint16_t)DASH_SPEED : p->x + (uint16_t)DASH_SPEED);
+    level_clamp_x(&p->x);     /* the outer walls always stop it */
+    p->vx = 0;
+    if (!inside_wall(p->x, p->y)) {
+        p->last_free_x = p->x;
+    }
+    if (--p->dash == 0 && inside_wall(p->x, p->y)) {
+        /* ending inside a wall: run on to the next free spot, else back to the last one */
+        uint16_t x = p->x;
+        uint8_t k;
+        for (k = 0; k < DASH_EXTEND; k++) {
+            uint16_t before = x;
+            x = (uint16_t)(p->dash_dir < 0 ? x - TO_POS(1) : x + TO_POS(1));
+            level_clamp_x(&x);
+            if (x == before) {
+                break;
+            }
+            if (!inside_wall(x, p->y)) {
+                p->x = x;
+                return;
+            }
+        }
+        p->x = p->last_free_x;
+    }
+}
+
+/* Plus mode: chimes when a dash becomes available and when the bar is full. */
+static void energy_feedback(Player *p)
+{
+    uint8_t now = (uint8_t)(!g_opt.plus ? 0 : p->energy >= ENERGY_MAX ? 2 : p->energy >= DASH_COST ? 1 : 0);
+    if (now > p->energy_state) {
+        sfx(now == 2 ? SFX_FULL : SFX_READY);
+    }
+    p->energy_state = now;
+}
+
+/* --- Rescue bubble (co-op rescue) ------------------------------------------- */
+static Player *partner(const Player *p)
+{
+    return &g_players[p->id ^ 1];
+}
+
+static void trap_in_rescue_bubble(Player *p)
+{
+    p->state = PS_RESCUE;
+    p->rescue = RESCUE_FRAMES;
+    p->rescue_dir = AIR_UP;
+    p->vx = 0;
+    p->vy = 0;
+    p->dash = 0;
+    p->charge = 0;
+    sfx(SFX_TRAP);
+}
+
+static void update_rescue(Player *p)
+{
+    Player *o = partner(p);
+    /* drift like a floating bubble */
+    if ((p->rescue & 15) == 0) {
+        p->rescue_dir = level_air_at((uint8_t)(PX(p->x) + 8), (uint8_t)(PX(p->y) + 8));
+        if (p->rescue_dir == AIR_NONE) {
+            p->rescue_dir = (uint8_t)(1 + (rng_next() & 3));
+        }
+    }
+    switch (p->rescue_dir) {
+    case AIR_UP:    p->y = (uint16_t)(p->y - (uint16_t)RESCUE_SPEED); break;
+    case AIR_DOWN:  p->y = (uint16_t)(p->y + (uint16_t)RESCUE_SPEED); break;
+    case AIR_LEFT:  p->x = (uint16_t)(p->x - (uint16_t)RESCUE_SPEED); break;
+    case AIR_RIGHT: p->x = (uint16_t)(p->x + (uint16_t)RESCUE_SPEED); break;
+    default: break;
+    }
+    level_clamp_x(&p->x);
+    if (PX(p->y) < FIELD_Y + 6 || PX(p->y) >= WRAP_Y) {
+        p->y = TO_POS(FIELD_Y + 6);
+    } else if (PX(p->y) > FIELD_BOTTOM - 8 - 16) {
+        p->y = TO_POS(FIELD_BOTTOM - 8 - 16);
+    }
+    /* the partner pops it: back in the game, no life lost */
+    if (o->state == PS_ALIVE && overlap(p->x, p->y, o->x, o->y, 12, 12)) {
+        p->state = PS_ALIVE;
+        p->invulnerable = INVULN_FRAMES;
+        p->rescue = 0;
+        item_spawn(IT_BURST, p->x, p->y, 0);
+        sfx(SFX_POP);
+        return;
+    }
+    if (--p->rescue == 0) {
+#ifdef BB_DEBUG
+        g_dbg_deaths[11]++;
+#endif
+        p->state = PS_DYING;   /* it popped on its own: a life is lost */
+        p->timer = 0;
+        sfx(SFX_DEATH);
+    }
+}
+
+/* Contact with an enemy: rescue bubble or death. */
+static void hurt(Player *p, uint8_t touch)
+{
+    if (touch == TOUCH_ENEMY && g_opt.rescue && partner(p)->state != PS_OFF) {
+        trap_in_rescue_bubble(p);
+    } else {
+#ifdef BB_DEBUG
+        g_dbg_deaths[g_dbg_touch]++;
+#endif
+        p->state = PS_DYING;
+        p->timer = 0;
+        p->carried = 0;
+        sfx(SFX_DEATH);
+    }
+}
+
+static uint8_t safe(const Player *p)
+{
+    return (uint8_t)(p->invulnerable || DBG(DBG_INVINCIBLE) || player_dash_invulnerable(p));
 }
 
 /* A new round: drift from the current position to the spawn point. */
@@ -198,15 +422,44 @@ static void jump_and_fall(Player *p, uint16_t pad)
     }
 }
 
-static void shoot(Player *p, uint16_t pressed)
+static void shoot(Player *p, uint16_t pad, uint16_t pressed)
 {
+    uint8_t fire = 0;
+
     if (p->shoot_cooldown) {
         p->shoot_cooldown--;
     }
     if (p->shoot_pose) {
         p->shoot_pose--;
     }
-    if ((pressed & PAD_Y) && p->shoot_cooldown == 0) {
+
+    /* Plus mode, full bar: holding Y charges the special shot; a short
+     * press still blows a normal bubble when Y is let go. */
+    if (g_opt.plus && p->energy >= ENERGY_MAX && !(p->powers & POWER_BIT(POWER_GLOVE))) {
+        if (pad & PAD_Y) {
+            if (p->charge < 255) {
+                p->charge++;
+            }
+            if (p->charge == CHARGE_FRAMES) {
+                uint16_t bx = (uint16_t)(p->facing_left ? p->x - TO_POS(8) : p->x + TO_POS(8));
+                bubble_shoot_special(bx, p->y, p->facing_left);
+                if (!DBG(DBG_FULL_ENERGY)) {
+                    p->energy = 0;
+                }
+                p->shoot_pose = SHOOT_POSE;
+                p->shoot_cooldown = SHOOT_DELAY;
+                sfx(SFX_EXTRA);
+            }
+            return;
+        }
+        fire = (uint8_t)(p->charge > 0 && p->charge < CHARGE_FRAMES);
+        p->charge = 0;
+    } else {
+        p->charge = 0;
+        fire = (uint8_t)((pressed & PAD_Y) != 0);
+    }
+
+    if (fire && p->shoot_cooldown == 0) {
         uint16_t bx = (uint16_t)(p->facing_left ? p->x - TO_POS(8) : p->x + TO_POS(8));
         if (p->powers & POWER_BIT(POWER_GLOVE)) {
             effect_start_glove(bx, p->y, (int8_t)(p->facing_left ? -1 : 1), p->id);
@@ -260,6 +513,10 @@ void player_update(Player *p, uint16_t pad, uint16_t pressed)
         }
         break;
 
+    case PS_RESCUE:
+        update_rescue(p);
+        break;
+
     case PS_ALIVE:
         if (p->invulnerable) {
             p->invulnerable--;
@@ -271,25 +528,35 @@ void player_update(Player *p, uint16_t pad, uint16_t pressed)
         }
         if (p->carried) {
             /* Riding a water stream: the stream moves the player. */
-            if (!p->invulnerable && enemies_touch(p->x, p->y)) {
-                p->state = PS_DYING;
-                p->timer = 0;
-                p->carried = 0;
-                sfx(SFX_DEATH);
+            uint8_t touch = safe(p) ? TOUCH_NONE : enemies_touch(p->x, p->y);
+            if (touch) {
+                hurt(p, touch);
             }
             break;
         }
-        walk(p, pad);
-        jump_and_fall(p, pad);
-        shoot(p, pressed);
+        if (p->on_ground) {
+            p->dash_used = 0;
+        }
+        energy_feedback(p);
+        p->trail_pos = (uint8_t)((p->trail_pos + 1) & 7);
+        p->trail_x[p->trail_pos] = PX(p->x);
+        p->trail_y[p->trail_pos] = PX(p->y);
+        if (p->dash || try_dash(p, pad, pressed)) {
+            dash_move(p);
+        } else {
+            walk(p, pad);
+            jump_and_fall(p, pad);
+        }
+        shoot(p, pad, pressed);
         touch_bubbles(p, pad);
         if (g_freeze) {
-            enemies_defeat_at(p->x, p->y);
+            enemies_defeat_at(p->x, p->y, p->id);
         }
-        if (!p->invulnerable && enemies_touch(p->x, p->y)) {
-            p->state = PS_DYING;
-            p->timer = 0;
-            sfx(SFX_DEATH);
+        if (!safe(p)) {
+            uint8_t touch = enemies_touch(p->x, p->y);
+            if (touch) {
+                hurt(p, touch);
+            }
         }
         break;
 
@@ -315,9 +582,26 @@ void player_draw(const Player *p)
     case PS_DYING:
         tile = (uint8_t)(SPR_P_DEATH0 + ((p->timer >> 3) & 3));
         break;
+    case PS_RESCUE: {
+        /* a bubble ring around the trapped player; it flashes red before it pops */
+        uint8_t ring = (uint8_t)(p->rescue < 90 ? SPR_RING_RED0 : p->rescue < 210 ? SPR_RING_ORANGE0 : SPR_RING0);
+        if (p->rescue < 90 && (p->rescue & 4)) {
+            break;
+        }
+        static const uint8_t phase[4] = { 0, 1, 2, 1 };
+        oam_add(PX(p->x), PX(p->y), (uint8_t)(ring + phase[(g_frame >> 3) & 3]), 0);
+        tile = SPR_P_FALL;
+        break;
+    }
     case PS_ALIVE:
         if (p->invulnerable && (p->invulnerable & 4)) {
             return;   /* blink */
+        }
+        if (p->dash) {
+            /* dashing: bright flash */
+            attr = (uint8_t)((attr & (0xFFu ^ SPR_ATTR_PAL_MASK)) | (((g_frame >> 1) & 1 ? PAL_YELLOW : PAL_NONE) << SPR_ATTR_PAL_SHIFT));
+        } else if (p->charge >= CHARGE_FRAMES / 2) {
+            attr = (uint8_t)((attr & (0xFFu ^ SPR_ATTR_PAL_MASK)) | (PAL_YELLOW << SPR_ATTR_PAL_SHIFT));
         }
         if (p->stun) {
             attr = (uint8_t)((attr & (0xFFu ^ SPR_ATTR_PAL_MASK)) | (PAL_ORANGE << SPR_ATTR_PAL_SHIFT));
@@ -334,4 +618,22 @@ void player_draw(const Player *p)
         return;
     }
     oam_add(PX(p->x), PX(p->y), tile, attr);
+
+    if (p->state != PS_ALIVE || !g_opt.plus) {
+        return;
+    }
+    if (p->dash) {
+        /* two fading afterimages behind the dash */
+        uint8_t ghost = (uint8_t)((attr & (0xFFu ^ SPR_ATTR_PAL_MASK)) | (PAL_GREY << SPR_ATTR_PAL_SHIFT));
+        oam_add(p->trail_x[(p->trail_pos - 2) & 7], p->trail_y[(p->trail_pos - 2) & 7], tile, ghost);
+        if (g_frame & 1) {
+            oam_add(p->trail_x[(p->trail_pos - 4) & 7], p->trail_y[(p->trail_pos - 4) & 7], tile, ghost);
+        }
+    } else if (p->energy_state && tile < 5) {
+        /* glow outline: yellow = dash available, cycling colours = bar full */
+        static const uint8_t pulse[4] = { PAL_YELLOW, PAL_ORANGE, PAL_PINK, PAL_CYAN };
+        uint8_t pal = p->energy_state == 2 ? pulse[(g_frame >> 2) & 3] : PAL_YELLOW;
+        oam_add(PX(p->x), PX(p->y), (uint8_t)(SPR_AURA0 + tile),
+                (uint8_t)((attr & SPR_ATTR_FLIP_X) | (pal << SPR_ATTR_PAL_SHIFT)));
+    }
 }

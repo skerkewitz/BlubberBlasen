@@ -161,7 +161,7 @@ void enemies_to_gems(void)
 }
 
 /* Steam Whistle: a frozen enemy touched by a player is defeated. */
-void enemies_defeat_at(uint16_t x, uint16_t y)
+void enemies_defeat_at(uint16_t x, uint16_t y, uint8_t player)
 {
     uint8_t i;
     for (i = 0; i < MAX_ENEMIES; i++) {
@@ -169,6 +169,7 @@ void enemies_defeat_at(uint16_t x, uint16_t y)
         if (e->active && !e->entering && overlap(x, y, e->x, e->y, 12, 12)) {
             item_spawn_thrown(e->x, e->y, (int8_t)(PX(e->x) < PX(x) ? -1 : 1), GEM_TIER - 1);
             e->active = 0;
+            energy_gain(player, ENERGY_PER_ENEMY);
             sfx(SFX_KILL);
         }
     }
@@ -182,30 +183,36 @@ void enemies_calm_down(void)
     }
 }
 
+/* Shots, the chaser and the boss always kill (TOUCH_DEADLY); a regular
+ * enemy's body (TOUCH_ENEMY) traps instead when co-op rescue is on. */
 uint8_t enemies_touch(uint16_t x, uint16_t y)
 {
     uint8_t i;
-    for (i = 0; i < MAX_ENEMIES && !g_freeze; i++) {   /* frozen enemies are harmless */
-        const Enemy *e = &g_enemies[i];
-        if (e->active && !e->entering && overlap(x, y, e->x, e->y, 10, 12)) {
-            return 1;
-        }
-    }
     if (boss_touch(x, y)) {
-        return 1;
+        DBG_TOUCH(10);
+        return TOUCH_DEADLY;
     }
     for (i = 0; i < MAX_ITEMS; i++) {
         const Item *it = &g_items[i];
         if (it->kind == IT_ROCK && overlap(x, y, it->x, it->y, 8, 8)) {
-            return 1;
+            DBG_TOUCH(8);
+            return TOUCH_DEADLY;
         }
     }
     for (i = 0; i < NUM_PLAYERS; i++) {
         if (chasers[i].active && overlap(x, y, chasers[i].x, chasers[i].y, 10, 10)) {
-            return 1;
+            DBG_TOUCH(9);
+            return TOUCH_DEADLY;
         }
     }
-    return 0;
+    for (i = 0; i < MAX_ENEMIES && !g_freeze; i++) {   /* frozen enemies are harmless */
+        const Enemy *e = &g_enemies[i];
+        if (e->active && !e->entering && overlap(x, y, e->x, e->y, 10, 12)) {
+            DBG_TOUCH(e->type & 7);
+            return TOUCH_ENEMY;
+        }
+    }
+    return TOUCH_NONE;
 }
 
 static void step_towards(uint16_t *v, uint8_t target)
@@ -581,6 +588,16 @@ void chaser_reset(void)
     for (i = 0; i < NUM_PLAYERS; i++) {
         chasers[i].active = 0;
     }
+}
+
+uint8_t chaser_get(uint8_t i, uint16_t *x, uint16_t *y)
+{
+    if (i >= NUM_PLAYERS || !chasers[i].active) {
+        return 0;
+    }
+    *x = chasers[i].x;
+    *y = chasers[i].y;
+    return 1;
 }
 
 uint8_t chaser_active(void)

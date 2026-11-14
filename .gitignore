@@ -20,3 +20,5 @@ shot_*.png
 
 # Local MAME install + ROMs (reference only, never distributed)
 original/
+build-release/
+build-web/

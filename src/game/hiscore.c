@@ -11,6 +11,9 @@
 
 #define ENTRY_SIZE 12
 #define TABLE_OFS  4
+#define OPTIONS_OFS 64   /* 4 bytes magic "OPT1", then plus, rescue, p2_cpu */
+
+Options g_opt;
 
 static uint8_t sram[SRAM_SIZE];
 static uint8_t sram_dirty;
@@ -64,6 +67,36 @@ void hiscore_init(void)
         }
         e[4 + 3] = (uint8_t)(HISCORE_COUNT - i);   /* 50000, 40000, ... */
     }
+}
+
+static const uint8_t opt_magic[4] = { 'O', 'P', 'T', '1' };
+
+void options_load(void)
+{
+    uint8_t i;
+    for (i = 0; i < 4; i++) {
+        if (sram[OPTIONS_OFS + i] != opt_magic[i]) {
+            g_opt.plus = 0;
+            g_opt.rescue = 0;
+            g_opt.p2_cpu = 0;
+            return;
+        }
+    }
+    g_opt.plus = (uint8_t)(sram[OPTIONS_OFS + 4] != 0);
+    g_opt.rescue = (uint8_t)(sram[OPTIONS_OFS + 5] != 0);
+    g_opt.p2_cpu = (uint8_t)(sram[OPTIONS_OFS + 6] != 0);
+}
+
+void options_save(void)
+{
+    uint8_t i;
+    for (i = 0; i < 4; i++) {
+        sram[OPTIONS_OFS + i] = opt_magic[i];
+    }
+    sram[OPTIONS_OFS + 4] = g_opt.plus;
+    sram[OPTIONS_OFS + 5] = g_opt.rescue;
+    sram[OPTIONS_OFS + 6] = g_opt.p2_cpu;
+    sram_dirty = 1;
 }
 
 const uint8_t *hiscore_best(void)

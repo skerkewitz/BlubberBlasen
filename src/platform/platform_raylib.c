@@ -15,6 +15,10 @@
 #include "raylib.h"
 #include "game/game.h"
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten/emscripten.h>
+#endif
+
 #define WINDOW_SCALE   3
 #define TICK_HZ        60
 #define MAX_CATCHUP    4      /* max game ticks per rendered frame */
@@ -32,10 +36,22 @@ static Texture2D chr_bg;       /* 8x8 background tiles */
 static Texture2D chr_sprites;  /* 16x16 sprite cells   */
 static Sound     sounds[SFX_COUNT];
 static int       sound_loaded[SFX_COUNT];
+static Music     music[MUSIC_COUNT];
+static int       music_loaded[MUSIC_COUNT];
+static int       music_playing = MUSIC_NONE;
+
+/* Temporary tracks (royalty free, see assets/README.md); swap the files here. */
+static const char *const music_files[MUSIC_COUNT] = {
+    NULL,
+    "music/zephiramusic-lofi-gaming-606302.mp3",                         /* MUSIC_TITLE */
+    "music/bouncyrunner-retro-games-flower-hill-stage-two-400495.mp3"     /* MUSIC_GAME */
+};
+#define MUSIC_VOLUME 0.5f
 
 static const char *const sfx_files[SFX_COUNT] = {
     "jump", "shoot", "pop", "trap", "kill", "gem", "death",
-    "start", "clear", "hurry", "gameover", "menu", "pause", "extra"
+    "start", "clear", "hurry", "gameover", "menu", "pause", "extra",
+    "ready", "full", "dash"
 };
 
 /* Tints for the 8 "palettes" of stage 1. */
@@ -135,7 +151,26 @@ static void load_assets(void)
     img = load_keyed_image("gfx/sprites.png", 256, 256);
     chr_sprites = LoadTextureFromImage(img);
     UnloadImage(img);
+    for (i = 0; i < SFX_COUNT; i++) {
+        sound_loaded[i] = 0;
+    }
+    for (i = 0; i < MUSIC_COUNT; i++) {
+        music_loaded[i] = 0;
+    }
+}
 
+/* Opens the audio device and loads sounds and music. On the PC at start;
+ * in the browser only after the first click or key press, because browsers
+ * keep an audio device created earlier silent (autoplay rule). */
+static int audio_started;
+
+static void start_audio(void)
+{
+    int i;
+
+    audio_started = 1;
+    music_playing = MUSIC_NONE;   /* so the track the game wants starts now */
+    InitAudioDevice();
     for (i = 0; i < SFX_COUNT; i++) {
         const char *path = asset_path(TextFormat("sfx/%s.wav", sfx_files[i]));
         sound_loaded[i] = 0;
@@ -144,11 +179,48 @@ static void load_assets(void)
             sound_loaded[i] = 1;
         }
     }
+
+    for (i = 0; i < MUSIC_COUNT; i++) {
+        music_loaded[i] = 0;
+        if (music_files[i] && IsAudioDeviceReady()) {
+            const char *path = asset_path(music_files[i]);
+            if (FileExists(path)) {
+                music[i] = LoadMusicStream(path);
+                music[i].looping = true;
+                SetMusicVolume(music[i], MUSIC_VOLUME);
+                music_loaded[i] = 1;
+            } else {
+                TraceLog(LOG_WARNING, "ASSETS: missing %s", path);
+            }
+        }
+    }
+}
+
+/* Switch tracks when the game asks for another one, and keep the stream fed. */
+static void update_music(int wanted)
+{
+    if (wanted != music_playing) {
+        if (music_playing != MUSIC_NONE && music_loaded[music_playing]) {
+            StopMusicStream(music[music_playing]);
+        }
+        music_playing = wanted;
+        if (wanted != MUSIC_NONE && music_loaded[wanted]) {
+            PlayMusicStream(music[wanted]);
+        }
+    }
+    if (music_playing != MUSIC_NONE && music_loaded[music_playing]) {
+        UpdateMusicStream(music[music_playing]);
+    }
 }
 
 static void unload_assets(void)
 {
     int i;
+    for (i = 0; i < MUSIC_COUNT; i++) {
+        if (music_loaded[i]) {
+            UnloadMusicStream(music[i]);
+        }
+    }
     for (i = 0; i < SFX_COUNT; i++) {
         if (sound_loaded[i]) {
             UnloadSound(sounds[i]);
@@ -158,11 +230,51 @@ static void unload_assets(void)
     UnloadTexture(chr_bg);
 }
 
-/* --- Save RAM ----------------------------------------------------------------- */
+/* --- Save RAM -----------------------------------------------------------------
+ * PC: a file next to the executable. Browser: the same file in an IndexedDB
+ * backed folder (/save), loaded once before the game starts and written
+ * back after every change. */
+#ifdef __EMSCRIPTEN__
+static int save_ready;
+
+EMSCRIPTEN_KEEPALIVE void bb_save_ready(void)
+{
+    save_ready = 1;
+}
+
+static void save_mount(void)
+{
+    EM_ASM({
+        try {
+            FS.mkdir('/save');
+            FS.mount(IDBFS, {}, '/save');
+            console.log('SAVE: loading from IndexedDB');
+            FS.syncfs(true, function (err) {
+                console.log(err ? 'SAVE: loaded with error ' + err : 'SAVE: loaded');
+                _bb_save_ready();
+            });
+        } catch (e) {
+            console.log('SAVE: not available (' + e + '), playing without saving');
+            _bb_save_ready();
+        }
+    });
+}
+
+static void save_flush(void)
+{
+    EM_ASM({ FS.syncfs(false, function (err) {}); });
+}
+
+static const char *save_path(void)
+{
+    return "/save/" SAVE_FILE;
+}
+#else
 static const char *save_path(void)
 {
     return TextFormat("%s%s", GetApplicationDirectory(), SAVE_FILE);
 }
+#endif
 
 static void sram_load(void)
 {
@@ -173,8 +285,9 @@ static void sram_load(void)
     }
     data = LoadFileData(save_path(), &size);
     if (data) {
-        if (size == SRAM_SIZE) {
-            memcpy(game_sram(), data, SRAM_SIZE);
+        /* older, shorter save files keep their high scores */
+        if (size > 0 && size <= SRAM_SIZE) {
+            memcpy(game_sram(), data, (size_t)size);
         }
         UnloadFileData(data);
     }
@@ -185,6 +298,9 @@ static void sram_save(void)
     if (!SaveFileData(save_path(), game_sram(), SRAM_SIZE)) {
         TraceLog(LOG_WARNING, "SRAM: could not write %s", save_path());
     }
+#ifdef __EMSCRIPTEN__
+    save_flush();
+#endif
 }
 
 /* --- Input ---------------------------------------------------------------- */
@@ -203,6 +319,7 @@ static uint16_t read_keyboard(int player)
         if (IsKeyDown(KEY_V))            pad |= PAD_X;
         if (IsKeyDown(KEY_Q))            pad |= PAD_L;
         if (IsKeyDown(KEY_E))            pad |= PAD_R;
+        if (IsKeyDown(KEY_L))            pad |= PAD_L | PAD_R;   /* dash: held direction or facing */
         if (IsKeyDown(KEY_ENTER))        pad |= PAD_START;
         if (IsKeyDown(KEY_RIGHT_SHIFT))  pad |= PAD_SELECT;
     } else {
@@ -212,6 +329,7 @@ static uint16_t read_keyboard(int player)
         if (IsKeyDown(KEY_RIGHT))        pad |= PAD_RIGHT;
         if (IsKeyDown(KEY_PERIOD))       pad |= PAD_B;   /* jump   */
         if (IsKeyDown(KEY_COMMA))        pad |= PAD_Y;   /* bubble */
+        if (IsKeyDown(KEY_SLASH))        pad |= PAD_L | PAD_R;   /* dash: held direction or facing */
         if (IsKeyDown(KEY_RIGHT_CONTROL)) pad |= PAD_START;
     }
     return pad;
@@ -311,10 +429,11 @@ static void play_sounds(uint16_t mask)
     }
 }
 
-/* --- Developer options ------------------------------------------------------
+/* --- Command line -----------------------------------------------------------
+ *   --mute            no sound (all builds)
+ * Developer options, only in builds with BB_DEBUG (see README):
  *   --autoplay        a simple built-in bot plays instead of the keyboard (implies --mute)
  *   --autoplay2       like --autoplay, and a second bot plays player 2
- *   --mute            no sound
  *   --shot <tick>     save the framebuffer as shot_<tick>.png (repeatable)
  *   --quit <tick>     exit after that many game ticks
  *   --seed <n>        fixed random seed (same seed + same input = same game)
@@ -323,10 +442,14 @@ static void play_sounds(uint16_t mask)
  *   --skip-intro      no story pages after the title (also implied by --autoplay and --round)
  *   --intro           show the story pages anyway (for screenshots with --autoplay)
  *   --ending <happy|sad>  start with that ending (to look at it)
+ *   --invincible, --infinite-lives, --hitboxes, --air, --cpu-view, --full-energy   switch those debug switches on
+ *   --plus, --rescue, --cpu2   set those options for this run (not saved)
+ *   --options         start on the options screen
  */
 #define MAX_SHOTS 16
-static int      opt_autoplay;
 static int      opt_mute;
+#ifdef BB_DEBUG
+static int      opt_autoplay;
 static int      opt_autoplay2;
 static long     opt_shots[MAX_SHOTS];
 static int      opt_shot_count;
@@ -337,19 +460,23 @@ static long     opt_clear = -1;
 static int      opt_skip_intro;
 static int      opt_intro;
 static int      opt_ending = -1;
+static int      opt_switch[DBG_COUNT];
+static int      opt_plus, opt_rescue, opt_cpu2, opt_options, opt_set_options;
+#endif
 
 static void parse_args(int argc, char **argv)
 {
     int i;
     for (i = 1; i < argc; i++) {
-        if (strcmp(argv[i], "--autoplay") == 0) {
+        if (strcmp(argv[i], "--mute") == 0) {
+            opt_mute = 1;
+#ifdef BB_DEBUG
+        } else if (strcmp(argv[i], "--autoplay") == 0) {
             opt_autoplay = 1;
             opt_mute = 1;
         } else if (strcmp(argv[i], "--autoplay2") == 0) {
             opt_autoplay = 1;
             opt_autoplay2 = 1;
-            opt_mute = 1;
-        } else if (strcmp(argv[i], "--mute") == 0) {
             opt_mute = 1;
         } else if (strcmp(argv[i], "--shot") == 0 && i + 1 < argc && opt_shot_count < MAX_SHOTS) {
             opt_shots[opt_shot_count++] = strtol(argv[++i], NULL, 10);
@@ -367,10 +494,32 @@ static void parse_args(int argc, char **argv)
             opt_round = strtol(argv[++i], NULL, 10);
         } else if (strcmp(argv[i], "--seed") == 0 && i + 1 < argc) {
             opt_seed = strtol(argv[++i], NULL, 10);
+        } else if (strcmp(argv[i], "--invincible") == 0) {
+            opt_switch[DBG_INVINCIBLE] = 1;
+        } else if (strcmp(argv[i], "--infinite-lives") == 0) {
+            opt_switch[DBG_INFINITE_LIVES] = 1;
+        } else if (strcmp(argv[i], "--hitboxes") == 0) {
+            opt_switch[DBG_HITBOXES] = 1;
+        } else if (strcmp(argv[i], "--air") == 0) {
+            opt_switch[DBG_AIR] = 1;
+        } else if (strcmp(argv[i], "--cpu-view") == 0) {
+            opt_switch[DBG_CPU_VIEW] = 1;
+        } else if (strcmp(argv[i], "--full-energy") == 0) {
+            opt_switch[DBG_FULL_ENERGY] = 1;
+        } else if (strcmp(argv[i], "--plus") == 0) {
+            opt_plus = opt_set_options = 1;
+        } else if (strcmp(argv[i], "--rescue") == 0) {
+            opt_rescue = opt_set_options = 1;
+        } else if (strcmp(argv[i], "--cpu2") == 0) {
+            opt_cpu2 = opt_set_options = 1;
+        } else if (strcmp(argv[i], "--options") == 0) {
+            opt_options = 1;
+#endif
         }
     }
 }
 
+#ifdef BB_DEBUG
 static uint16_t autoplay_pad(long t, int player)
 {
     static uint16_t dirs[NUM_PLAYERS] = { PAD_RIGHT, PAD_LEFT };
@@ -398,30 +547,128 @@ static void take_shots(RenderTexture2D fb, long t)
     }
 }
 
-/* --- Main ----------------------------------------------------------------- */
-int main(int argc, char **argv)
+/* --- Debug keys and overlays ------------------------------------------------
+ *   F2 invincible   F3 infinite lives   F4 hitboxes   F5 air currents
+ *   F6 full energy  F7 pause / frame step (F8 = one frame)   F9 slow motion
+ *   F10 spawn the next item or special bubble next to player 1
+ *   F1 CPU partner view: predicted danger positions and the chosen action */
+static int dbg_paused;
+static int dbg_step;
+static int dbg_slow;
+static int dbg_spawn;
+static double dbg_message_until;
+static char dbg_message[64];
+static char cpu_action[48];
+
+static void dbg_toggle(int sw, const char *name)
 {
-    RenderTexture2D fb;
-    double accumulator = 0.0;
-    const double tick = 1.0 / TICK_HZ;
-    long ticks_total = 0;
+    game_debug_set((uint8_t)sw, (uint8_t)!game_debug_get((uint8_t)sw));
+    snprintf(dbg_message, sizeof dbg_message, "%s %s", name, game_debug_get((uint8_t)sw) ? "ON" : "OFF");
+    dbg_message_until = GetTime() + 2.0;
+}
 
-    parse_args(argc, argv);
-
-    SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_VSYNC_HINT);
-    InitWindow(SCREEN_W * WINDOW_SCALE, SCREEN_H * WINDOW_SCALE, "Blubber Blasen");
-    SetWindowMinSize(SCREEN_W, SCREEN_H);
-    SetTargetFPS(TICK_HZ);
-    SetExitKey(KEY_ESCAPE);
-    if (!opt_mute) {
-        InitAudioDevice();
+static void debug_keys(void)
+{
+    if (IsKeyPressed(KEY_F1)) dbg_toggle(DBG_CPU_VIEW, "CPU VIEW");
+    if (IsKeyPressed(KEY_F2)) dbg_toggle(DBG_INVINCIBLE, "INVINCIBLE");
+    if (IsKeyPressed(KEY_F3)) dbg_toggle(DBG_INFINITE_LIVES, "INFINITE LIVES");
+    if (IsKeyPressed(KEY_F4)) dbg_toggle(DBG_HITBOXES, "HITBOXES");
+    if (IsKeyPressed(KEY_F5)) dbg_toggle(DBG_AIR, "AIR CURRENTS");
+    if (IsKeyPressed(KEY_F6)) dbg_toggle(DBG_FULL_ENERGY, "FULL ENERGY");
+    if (IsKeyPressed(KEY_F7)) {
+        dbg_paused = !dbg_paused;
+        snprintf(dbg_message, sizeof dbg_message, "FRAME STEP %s (F8 = next frame)", dbg_paused ? "ON" : "OFF");
+        dbg_message_until = GetTime() + 2.0;
     }
+    if (IsKeyPressed(KEY_F8) && dbg_paused) {
+        dbg_step = 1;
+    }
+    if (IsKeyPressed(KEY_F9)) {
+        dbg_slow = !dbg_slow;
+        snprintf(dbg_message, sizeof dbg_message, "SLOW MOTION %s", dbg_slow ? "ON" : "OFF");
+        dbg_message_until = GetTime() + 2.0;
+    }
+    if (IsKeyPressed(KEY_F10)) {
+        game_debug_spawn((uint8_t)dbg_spawn);
+        snprintf(dbg_message, sizeof dbg_message, "SPAWN %s", game_debug_spawn_name((uint8_t)dbg_spawn));
+        dbg_message_until = GetTime() + 2.0;
+        dbg_spawn = (dbg_spawn + 1) % DEBUG_SPAWN_COUNT;
+    }
+}
 
-    fb = LoadRenderTexture(SCREEN_W, SCREEN_H);
-    SetTextureFilter(fb.texture, TEXTURE_FILTER_POINT);
-    load_assets();
+/* Drawn into the framebuffer, on top of the game picture. */
+static void debug_overlays(void)
+{
+    static const Color box_colors[5] = {
+        { 80, 255, 80, 255 }, { 255, 70, 70, 255 }, { 90, 200, 255, 255 }, { 255, 230, 60, 255 }, { 255, 120, 255, 255 }
+    };
+    DebugBox boxes[64];
+    int i, n, tx, ty;
 
+    if (game_debug_get(DBG_AIR) && game_debug_room_shown()) {
+        for (ty = 0; ty < 26; ty++) {
+            for (tx = 0; tx < 32; tx++) {
+                uint8_t c = game_debug_cell((uint8_t)tx, (uint8_t)ty);
+                int cx = tx * 8 + 4, cy = 16 + ty * 8 + 4;
+                Color col = { 120, 200, 255, 160 };
+                switch (c & 0x07) {
+                case 1: DrawLine(cx, cy + 3, cx, cy - 3, col); DrawLine(cx - 2, cy - 1, cx, cy - 3, col); DrawLine(cx + 2, cy - 1, cx, cy - 3, col); break;
+                case 2: DrawLine(cx, cy - 3, cx, cy + 3, col); DrawLine(cx - 2, cy + 1, cx, cy + 3, col); DrawLine(cx + 2, cy + 1, cx, cy + 3, col); break;
+                case 3: DrawLine(cx + 3, cy, cx - 3, cy, col); DrawLine(cx - 1, cy - 2, cx - 3, cy, col); DrawLine(cx - 1, cy + 2, cx - 3, cy, col); break;
+                case 4: DrawLine(cx - 3, cy, cx + 3, cy, col); DrawLine(cx + 1, cy - 2, cx + 3, cy, col); DrawLine(cx + 1, cy + 2, cx + 3, cy, col); break;
+                default: break;
+                }
+            }
+        }
+    }
+    if (game_debug_get(DBG_HITBOXES)) {
+        n = game_debug_boxes(boxes, 64);
+        for (i = 0; i < n; i++) {
+            DrawRectangleLines(boxes[i].x, boxes[i].y, boxes[i].w, boxes[i].h, box_colors[boxes[i].kind % 5]);
+        }
+    }
+    if (game_debug_get(DBG_CPU_VIEW)) {
+        const char *action = "";
+        n = game_debug_cpu_view(boxes, 64, &action);
+        for (i = 0; i < n; i++) {
+            /* brighter = sooner (kind = look-ahead step 0..4) */
+            unsigned char a = (unsigned char)(255 - boxes[i].kind * 40);
+            DrawRectangle(boxes[i].x, boxes[i].y, boxes[i].w, boxes[i].h, (Color){ 255, 60, 60, a });
+        }
+        snprintf(cpu_action, sizeof cpu_action, "CPU: %s", action);
+    }
+}
+
+/* Drawn in the window: active switches and the last message. */
+static void debug_status(void)
+{
+    char line[96];
+    snprintf(line, sizeof line, "DEBUG %s%s%s%s%s%s%s%s",
+             game_debug_get(DBG_CPU_VIEW) ? "CPU " : "", game_debug_get(DBG_INVINCIBLE) ? "INV " : "", game_debug_get(DBG_INFINITE_LIVES) ? "LIVES " : "",
+             game_debug_get(DBG_HITBOXES) ? "BOXES " : "", game_debug_get(DBG_AIR) ? "AIR " : "",
+             game_debug_get(DBG_FULL_ENERGY) ? "ENERGY " : "", dbg_paused ? "PAUSED " : "", dbg_slow ? "SLOW" : "");
+    if (strcmp(line, "DEBUG ") != 0) {
+        DrawText(line, 8, 8, 20, YELLOW);
+    }
+    if (GetTime() < dbg_message_until) {
+        DrawText(dbg_message, 8, 32, 20, WHITE);
+    }
+    if (game_debug_get(DBG_CPU_VIEW)) {
+        DrawText(cpu_action, 8, 56, 20, (Color){ 255, 120, 120, 255 });
+    }
+}
+#endif /* BB_DEBUG */
+
+/* --- Main ----------------------------------------------------------------- */
+static RenderTexture2D fb;
+static double accumulator;
+static long   ticks_total;
+static int    game_started;
+
+static void start_game(void)
+{
     sram_load();
+#ifdef BB_DEBUG
     if (opt_seed >= 0) {
         SetRandomSeed((unsigned int)opt_seed);
     }
@@ -429,78 +676,182 @@ int main(int argc, char **argv)
     game_debug_start_round((uint8_t)(opt_round > 0 && opt_round < 256 ? opt_round : 1));
     /* bot runs and direct round starts go straight into the game */
     game_debug_skip_story((uint8_t)(!opt_intro && (opt_autoplay || opt_round != 1 || opt_skip_intro)));
+    {
+        int k;
+        for (k = 0; k < DBG_COUNT; k++) {
+            game_debug_set((uint8_t)k, (uint8_t)opt_switch[k]);
+        }
+    }
+    if (opt_set_options) {
+        game_debug_options((uint8_t)opt_plus, (uint8_t)opt_rescue, (uint8_t)opt_cpu2);
+    }
+    if (opt_options) {
+        game_debug_open_options();
+    }
     if (opt_ending >= 0) {
         game_debug_show_ending((uint8_t)opt_ending);
     }
+#else
+    game_init((uint16_t)GetRandomValue(1, 0xFFFF));
+#endif
+    game_started = 1;
+    TraceLog(LOG_INFO, "GAME: started");
+}
 
-    while (!WindowShouldClose()) {
-        int ticks = 0;
+/* One rendered frame: 0..MAX_CATCHUP game ticks, then the picture.
+ * Returns 0 when the program should end. */
+static int frame(void)
+{
+    const double tick = 1.0 / TICK_HZ;
+    int ticks = 0;
 
-        if (IsKeyPressed(KEY_F11)) {
-            ToggleBorderlessWindowed();
+#ifdef __EMSCRIPTEN__
+    if (!audio_started && !opt_mute && EM_ASM_INT({ return Module.bbActivated ? 1 : 0; })) {
+        start_audio();   /* the page saw a click or a key press */
+    }
+    if (!game_started) {
+        /* wait for the saved high scores to come out of IndexedDB */
+        if (!save_ready) {
+            BeginDrawing();
+            ClearBackground(BLACK);
+            EndDrawing();
+            return 1;
         }
+        start_game();
+    }
+#else
+    if (IsKeyPressed(KEY_F11)) {
+        ToggleBorderlessWindowed();
+    }
+#endif
 
-        /* Fixed 60 Hz game tick, independent of monitor refresh rate. */
-        accumulator += GetFrameTime();
-        while (accumulator >= tick && ticks < MAX_CATCHUP) {
-            uint16_t pad[NUM_PLAYERS];
-            pad[0] = (uint16_t)(read_keyboard(0) | read_gamepad(0));
-            if (opt_autoplay) {
-                pad[0] = (uint16_t)(pad[0] | autoplay_pad(ticks_total, 0));
-            }
-            pad[1] = (uint16_t)(read_keyboard(1) | read_gamepad(1));
-            if (opt_autoplay2) {
-                pad[1] = (uint16_t)(pad[1] | autoplay_pad(ticks_total + 60, 1));
-            }
-            if (ticks_total == opt_clear) {
-                game_debug_clear_round();
-            }
-            game_tick(pad);
-            play_sounds(game_sfx());
-            if (game_sram_dirty()) {
-                sram_save();
-            }
-            accumulator -= tick;
-            ticks++;
-            ticks_total++;
+    /* Fixed 60 Hz game tick, independent of monitor refresh rate. */
+    accumulator += GetFrameTime();
+#ifdef BB_DEBUG
+    debug_keys();
+    if (dbg_slow) {
+        accumulator -= GetFrameTime() * 0.75;   /* a quarter of the speed */
+    }
+    if (dbg_paused) {
+        accumulator = dbg_step ? tick : 0.0;   /* frame step: one tick per F8 */
+        dbg_step = 0;
+    }
+#endif
+    while (accumulator >= tick && ticks < MAX_CATCHUP) {
+        uint16_t pad[NUM_PLAYERS];
+        pad[0] = (uint16_t)(read_keyboard(0) | read_gamepad(0));
+        pad[1] = (uint16_t)(read_keyboard(1) | read_gamepad(1));
+#ifdef BB_DEBUG
+        if (opt_autoplay) {
+            pad[0] = (uint16_t)(pad[0] | autoplay_pad(ticks_total, 0));
         }
-        if (ticks == MAX_CATCHUP) {
-            accumulator = 0.0;   /* drop time after a long stall */
+        if (opt_autoplay2) {
+            pad[1] = (uint16_t)(pad[1] | autoplay_pad(ticks_total + 60, 1));
         }
+        if (ticks_total == opt_clear) {
+            game_debug_clear_round();
+        }
+#endif
+        game_tick(pad);
+        play_sounds(game_sfx());
+        if (game_sram_dirty()) {
+            sram_save();
+        }
+        accumulator -= tick;
+        ticks++;
+        ticks_total++;
+    }
+    if (ticks == MAX_CATCHUP) {
+        accumulator = 0.0;   /* drop time after a long stall */
+    }
+    update_music(game_music());
 
-        /* Render into the 256x224 "SNES" framebuffer. */
-        BeginTextureMode(fb);
-        ClearBackground(BLACK);
-        draw_bg(game_bg(0), BG0_ROWS, game_bg_scroll_y(), game_bg_window_top());
-        draw_sprites(game_oam());
-        draw_bg(game_bg(1), BG_H, 0, 0);
-        EndTextureMode();
-        if (opt_shot_count) {
-            take_shots(fb, ticks_total);
-        }
-        if (opt_quit >= 0 && ticks_total >= opt_quit) {
-            break;
-        }
+    /* Render into the 256x224 "SNES" framebuffer. */
+    BeginTextureMode(fb);
+    ClearBackground(BLACK);
+    draw_bg(game_bg(0), BG0_ROWS, game_bg_scroll_y(), game_bg_window_top());
+    draw_sprites(game_oam());
+    draw_bg(game_bg(1), BG_H, 0, 0);
+#ifdef BB_DEBUG
+    debug_overlays();
+#endif
+    EndTextureMode();
+#ifdef BB_DEBUG
+    if (opt_shot_count) {
+        take_shots(fb, ticks_total);
+    }
+    if (opt_quit >= 0 && ticks_total >= opt_quit) {
+        return 0;
+    }
+#endif
 
-        /* Integer-scale and center in the window. */
-        BeginDrawing();
-        ClearBackground(BLACK);
-        {
-            int sw = GetScreenWidth() / SCREEN_W;
-            int sh = GetScreenHeight() / SCREEN_H;
-            int scale = sw < sh ? sw : sh;
-            Rectangle src, dst;
-            if (scale < 1) scale = 1;
-            src.x = 0; src.y = 0;
-            src.width = (float)SCREEN_W;
-            src.height = (float)-SCREEN_H;   /* render textures are flipped */
-            dst.width  = (float)(SCREEN_W * scale);
-            dst.height = (float)(SCREEN_H * scale);
-            dst.x = (float)((GetScreenWidth()  - (int)dst.width)  / 2);
-            dst.y = (float)((GetScreenHeight() - (int)dst.height) / 2);
-            DrawTexturePro(fb.texture, src, dst, (Vector2){ 0.0f, 0.0f }, 0.0f, WHITE);
-        }
-        EndDrawing();
+    /* Integer-scale and center in the window. */
+    BeginDrawing();
+    ClearBackground(BLACK);
+    {
+        int sw = GetScreenWidth() / SCREEN_W;
+        int sh = GetScreenHeight() / SCREEN_H;
+        int scale = sw < sh ? sw : sh;
+        Rectangle src, dst;
+        if (scale < 1) scale = 1;
+        src.x = 0; src.y = 0;
+        src.width = (float)SCREEN_W;
+        src.height = (float)-SCREEN_H;   /* render textures are flipped */
+        dst.width  = (float)(SCREEN_W * scale);
+        dst.height = (float)(SCREEN_H * scale);
+        dst.x = (float)((GetScreenWidth()  - (int)dst.width)  / 2);
+        dst.y = (float)((GetScreenHeight() - (int)dst.height) / 2);
+        DrawTexturePro(fb.texture, src, dst, (Vector2){ 0.0f, 0.0f }, 0.0f, WHITE);
+    }
+#ifdef BB_DEBUG
+    debug_status();
+#endif
+    EndDrawing();
+    return 1;
+}
+
+#ifdef __EMSCRIPTEN__
+static void web_frame(void)
+{
+    (void)frame();
+}
+#endif
+
+int main(int argc, char **argv)
+{
+    parse_args(argc, argv);
+
+#ifdef __EMSCRIPTEN__
+    InitWindow(SCREEN_W * WINDOW_SCALE, SCREEN_H * WINDOW_SCALE, "Blubber Blasen");
+    SetExitKey(KEY_NULL);           /* the browser owns Esc */
+#else
+    SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_VSYNC_HINT);
+    InitWindow(SCREEN_W * WINDOW_SCALE, SCREEN_H * WINDOW_SCALE, "Blubber Blasen");
+    SetWindowMinSize(SCREEN_W, SCREEN_H);
+    SetTargetFPS(TICK_HZ);
+    SetExitKey(KEY_ESCAPE);
+#endif
+    fb = LoadRenderTexture(SCREEN_W, SCREEN_H);
+    SetTextureFilter(fb.texture, TEXTURE_FILTER_POINT);
+    load_assets();
+#ifndef __EMSCRIPTEN__
+    if (!opt_mute) {
+        start_audio();
+    }
+#endif
+
+#ifdef __EMSCRIPTEN__
+    save_mount();
+    {
+        /* Normally the browser's frame timer drives the loop. For automated
+         * checks (#nostart in the address) a plain 60 Hz timer does, since
+         * headless browsers hardly run the frame timer. */
+        int timer = EM_ASM_INT({ return location.hash === "#nostart" ? 1 : 0; });
+        emscripten_set_main_loop(web_frame, timer ? TICK_HZ : 0, 1);   /* never returns */
+    }
+#else
+    start_game();
+    while (!WindowShouldClose() && frame()) {
     }
 
     TraceLog(LOG_INFO, "GAME: %ld ticks, %.1f s", ticks_total, GetTime());
@@ -510,5 +861,6 @@ int main(int argc, char **argv)
         CloseAudioDevice();
     }
     CloseWindow();
+#endif
     return 0;
 }

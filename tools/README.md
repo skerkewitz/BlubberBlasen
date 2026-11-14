@@ -5,7 +5,7 @@ from `assets/` into data the game uses.
 
 ## Conventions
 
-- Plain C99, one folder per tool (`tools/<name>/<name>.c`), no third-party libraries. Code used by several tools lives in `tools/common/` (for example `mapfile.c`, which reads `.map` files).
+- Plain C99, one folder per tool (`tools/<name>/<name>.c`), no third-party libraries. Code used by several tools lives in `tools/common/`: `mapfile.c` reads `.map` files, `reach.c` is the simplified movement model (used for the playability check and the navigation data).
 - They are built by CMake as host executables and run automatically during the build when their input changes.
 - The game-code rules (no `malloc`, no `float`) do not apply here.
 - Shared formats come from the game headers (`src/game/*.h`), so the tool and the game cannot disagree on a constant.
@@ -46,6 +46,10 @@ secret  1           # the secret room; not part of the normal round order (secre
 ```
 
 Unknown keys, values out of range and a `delay` list whose length doesn't match the enemy count are errors, reported with file and line. The CTest tests `map2c_bad_*` check this.
+
+### Navigation data for the CPU partner
+
+map2c also stores, per round, where one can stand and how to get from there to elsewhere: the standing positions are grouped into **segments** (one row, a run of columns), and every segment lists the segments reachable from it in one move (walk and fall, wrap through a bottom gap, or jump up to 5 rows and 4 columns). The CPU partner searches this small graph at runtime. The movement model is the same one `mapview --check` uses (`tools/common/reach.c`).
 
 ### Output
 

@@ -89,11 +89,15 @@ typedef struct {
 enum {
     SFX_JUMP, SFX_SHOOT, SFX_POP, SFX_TRAP, SFX_KILL, SFX_GEM, SFX_DEATH,
     SFX_START, SFX_CLEAR, SFX_HURRY, SFX_GAMEOVER, SFX_MENU, SFX_PAUSE, SFX_EXTRA,
+    SFX_READY, SFX_FULL, SFX_DASH,   /* Plus mode: dash available, bar full, dash */
     SFX_COUNT
 };
 
+/* --- Music (a track ID; the platform streams the file) --------------------- */
+enum { MUSIC_NONE, MUSIC_TITLE, MUSIC_GAME, MUSIC_COUNT };
+
 /* --- Battery-backed save RAM (high score table) --------------------------- */
-#define SRAM_SIZE 64
+#define SRAM_SIZE 128   /* high scores (64 bytes) + options (from byte 64) */
 
 /* --- API called by the platform layer ------------------------------------ */
 void            game_init(uint16_t seed);                    /* after SRAM was filled */
@@ -103,11 +107,48 @@ const uint16_t *game_bg(uint8_t layer);   /* layer 0: BG_W * BG0_ROWS, layer 1: 
 uint16_t        game_bg_scroll_y(void);   /* layer 0 vertical scroll in pixels, 0..BG0_ROWS*8-1 */
 uint8_t         game_bg_window_top(void); /* layer 0 is only shown from this screen y down */
 uint16_t        game_sfx(void);    /* bit mask of SFX_* requested by the last tick */
+uint8_t         game_music(void);  /* MUSIC_* that should be playing now */
 uint8_t        *game_sram(void);   /* SRAM_SIZE bytes; platform loads/saves them */
 uint8_t         game_sram_dirty(void); /* 1 once after the game changed SRAM */
-void            game_debug_start_round(uint8_t round); /* developer option: new games start here (1-based) */
-void            game_debug_clear_round(void);          /* developer option: remove all enemies now */
-void            game_debug_skip_story(uint8_t skip);   /* developer option: no intro after the title */
-void            game_debug_show_ending(uint8_t happy); /* developer option: jump to an ending */
+/* --- Debug switches (development builds only, BB_DEBUG) ------------------- */
+#ifdef BB_DEBUG
+enum {
+    DBG_INFINITE_LIVES,   /* lives never decrease */
+    DBG_INVINCIBLE,       /* nothing hurts the players */
+    DBG_HITBOXES,         /* platform draws collision boxes (game_debug_boxes) */
+    DBG_AIR,              /* platform draws the air currents (game_debug_cell) */
+    DBG_FULL_ENERGY,      /* Plus mode: energy bars stay full */
+    DBG_CPU_VIEW,         /* platform draws the CPU partner's danger check (game_debug_cpu_view) */
+    DBG_COUNT
+};
+
+typedef struct {
+    uint8_t x, y, w, h;   /* screen pixels */
+    uint8_t kind;         /* 0 player, 1 enemy, 2 bubble, 3 item, 4 boss */
+} DebugBox;
+
+#define DEBUG_SPAWN_COUNT 14   /* 10 items, water, fire, lightning, a letter */
+
+void            game_debug_set(uint8_t sw, uint8_t on);
+uint8_t         game_debug_get(uint8_t sw);
+uint8_t         game_debug_boxes(DebugBox *out, uint8_t max);     /* returns the count */
+uint8_t         game_debug_cell(uint8_t tx, uint8_t ty);          /* CELL_* byte of the room, 0 outside */
+uint8_t         game_debug_room_shown(void);                      /* 1 while a room is on screen, not scrolling */
+void            game_debug_spawn(uint8_t what);                   /* 0..DEBUG_SPAWN_COUNT-1, next to player 1 */
+const char     *game_debug_spawn_name(uint8_t what);
+void            game_debug_start_round(uint8_t round); /* new games start here (1-based) */
+void            game_debug_clear_round(void);          /* remove all enemies now */
+void            game_debug_skip_story(uint8_t skip);   /* no intro after the title */
+void            game_debug_show_ending(uint8_t happy); /* jump to an ending */
+void            game_debug_cpu(uint8_t mask);          /* bit i: CPU plays player i+1 (soak tests) */
+void            game_debug_options(uint8_t plus, uint8_t rescue, uint8_t p2_cpu);  /* not saved */
+void            game_debug_open_options(void);         /* show the options screen */
+/* The CPU partner's last danger check: predicted danger positions (boxes)
+ * and the name of the action it chose. Returns the number of boxes. */
+uint8_t         game_debug_cpu_view(DebugBox *out, uint8_t max, const char **action);
+/* Why players lost lives: 0..7 enemy body by type, 8 shot, 9 chaser, 10 boss, 11 rescue bubble ran out. */
+#define DEBUG_DEATH_CAUSES 12
+const uint16_t *game_debug_death_causes(void);
+#endif
 
 #endif /* BB_GAME_H */

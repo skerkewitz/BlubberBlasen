@@ -26,7 +26,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "common/mapfile.h"
+#include "common/reach.h"
 
 #define MAX_LEVELS 120
 #define DEFAULT_HURRY_SECONDS 30
@@ -38,6 +38,10 @@ typedef struct {
     int         special;
     long        special_frames;
     int         kind;
+    NavSeg      nav[255];
+    uint8_t     nav_edges[255 * 32];
+    int         nav_count;
+    int         nav_edge_count;
     char        settings_path[1024];
     int         has_settings;
 } Level;
@@ -179,6 +183,65 @@ static int load_settings(Level *lv, int index)
     return 1;
 }
 
+/* Navigation data for the CPU partner: segments and their edges. */
+static int build_nav(Level *lv)
+{
+    static int seg_of[LEVEL_W][LEVEL_H];
+    int moves[REACH_MAX_MOVES][2];
+    int c, r, s, i, n;
+
+    lv->nav_count = 0;
+    lv->nav_edge_count = 0;
+    for (c = 0; c < LEVEL_W; c++) {
+        for (r = 0; r < LEVEL_H; r++) {
+            seg_of[c][r] = -1;
+        }
+    }
+    for (r = 0; r < LEVEL_H - 1; r++) {
+        for (c = 2; c <= LEVEL_W - 4; c++) {
+            if (!reach_stands(&lv->m, c, r)) {
+                continue;
+            }
+            if (c > 2 && seg_of[c - 1][r] >= 0) {
+                seg_of[c][r] = seg_of[c - 1][r];
+                lv->nav[seg_of[c][r]].x1 = (uint8_t)c;
+                continue;
+            }
+            if (lv->nav_count == 255) {
+                fprintf(stderr, "map2c: %s: too many platform segments for the navigation data\n", lv->m.path);
+                return 0;
+            }
+            seg_of[c][r] = lv->nav_count;
+            lv->nav[lv->nav_count].row = (uint8_t)r;
+            lv->nav[lv->nav_count].x0 = (uint8_t)c;
+            lv->nav[lv->nav_count].x1 = (uint8_t)c;
+            lv->nav_count++;
+        }
+    }
+    for (s = 0; s < lv->nav_count; s++) {
+        NavSeg *seg = &lv->nav[s];
+        seg->edge_first = (uint16_t)lv->nav_edge_count;
+        seg->edge_count = 0;
+        for (c = seg->x0; c <= seg->x1; c++) {
+            n = reach_moves(&lv->m, c, seg->row, moves);
+            for (i = 0; i < n; i++) {
+                int t = seg_of[moves[i][0]][moves[i][1]], k, known = 0;
+                if (t < 0 || t == s) {
+                    continue;
+                }
+                for (k = 0; k < seg->edge_count; k++) {
+                    known |= lv->nav_edges[seg->edge_first + k] == t;
+                }
+                if (!known && seg->edge_count < 32) {
+                    lv->nav_edges[lv->nav_edge_count++] = (uint8_t)t;
+                    seg->edge_count++;
+                }
+            }
+        }
+    }
+    return 1;
+}
+
 static const char *base_name(const char *path)
 {
     const char *b = path, *p;
@@ -217,6 +280,19 @@ static int write_output(const char *out_path, int n)
             fprintf(f, (i % LEVEL_W == LEVEL_W - 1) ? "\n" : "");
         }
         fprintf(f, "};\n");
+        fprintf(f, "static const NavSeg level%02d_nav[%d] = {\n", l + 1, lv->nav_count > 0 ? lv->nav_count : 1);
+        for (i = 0; i < lv->nav_count; i++) {
+            fprintf(f, "    { %2u, %2u, %2u, %2u, %4u },\n", lv->nav[i].row, lv->nav[i].x0, lv->nav[i].x1,
+                    lv->nav[i].edge_count, lv->nav[i].edge_first);
+        }
+        if (lv->nav_count == 0) {
+            fprintf(f, "    { 0, 0, 0, 0, 0 },\n");
+        }
+        fprintf(f, "};\nstatic const uint8_t level%02d_nav_edges[%d] = {", l + 1, lv->nav_edge_count > 0 ? lv->nav_edge_count : 1);
+        for (i = 0; i < lv->nav_edge_count; i++) {
+            fprintf(f, "%s%u,", (i % 24) == 0 ? "\n    " : " ", lv->nav_edges[i]);
+        }
+        fprintf(f, "%s\n};\n", lv->nav_edge_count == 0 ? "\n    0," : "");
         if (lv->m.enemy_count > 0) {
             fprintf(f, "static const LevelEnemy level%02d_enemies[%d] = {\n", l + 1, lv->m.enemy_count);
             for (i = 0; i < lv->m.enemy_count; i++) {
@@ -231,12 +307,13 @@ static int write_output(const char *out_path, int n)
     fprintf(f, "const LevelDef level_defs[%d] = {\n", n);
     for (l = 0; l < n; l++) {
         if (levels[l].m.enemy_count > 0) {
-            fprintf(f, "    { level%02d_cells, level%02d_enemies, %d, %d, %ld, %d, %ld, %d },\n", l + 1, l + 1,
-                    levels[l].m.enemy_count, levels[l].tileset, levels[l].hurry_frames,
-                    levels[l].special, levels[l].special_frames, levels[l].kind);
+            fprintf(f, "    { level%02d_cells, level%02d_enemies, %d, %d, %ld, %d, %ld, %d, level%02d_nav, level%02d_nav_edges, %d },\n",
+                    l + 1, l + 1, levels[l].m.enemy_count, levels[l].tileset, levels[l].hurry_frames,
+                    levels[l].special, levels[l].special_frames, levels[l].kind, l + 1, l + 1, levels[l].nav_count);
         } else {
-            fprintf(f, "    { level%02d_cells, 0, 0, %d, %ld, %d, %ld, %d },\n", l + 1, levels[l].tileset,
-                    levels[l].hurry_frames, levels[l].special, levels[l].special_frames, levels[l].kind);
+            fprintf(f, "    { level%02d_cells, 0, 0, %d, %ld, %d, %ld, %d, level%02d_nav, level%02d_nav_edges, %d },\n",
+                    l + 1, levels[l].tileset, levels[l].hurry_frames, levels[l].special, levels[l].special_frames,
+                    levels[l].kind, l + 1, l + 1, levels[l].nav_count);
         }
     }
     fprintf(f, "};\n\nconst uint8_t level_count = %d;\n", n);
@@ -269,7 +346,7 @@ int main(int argc, char **argv)
                 fprintf(stderr, "map2c: too many levels (max %d)\n", MAX_LEVELS);
                 return 1;
             }
-            if (!mapfile_load("map2c", argv[i], &levels[n].m) || !load_settings(&levels[n], n)) {
+            if (!mapfile_load("map2c", argv[i], &levels[n].m) || !load_settings(&levels[n], n) || !build_nav(&levels[n])) {
                 return 1;
             }
             n++;

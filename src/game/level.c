@@ -46,6 +46,14 @@ static uint8_t ground_px(int16_t sx, int16_t sy)
     return level_solid_px(sx, sy);
 }
 
+uint8_t level_cell(uint8_t tx, uint8_t ty)
+{
+    if (tx >= LEVEL_W || ty >= LEVEL_H) {
+        return 0;
+    }
+    return cells[((uint16_t)ty << 5) + tx];
+}
+
 uint8_t level_air_at(uint8_t sx, uint8_t sy)
 {
     uint8_t ty;

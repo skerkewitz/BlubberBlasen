@@ -51,6 +51,8 @@ static uint16_t prev_pad[NUM_PLAYERS];
 static uint16_t clear_timer;
 static uint8_t  hurry_text;
 static uint8_t  first_level;     /* developer option, see game_debug_start_round() */
+static uint8_t  option_row;      /* cursor on the options screen */
+static uint8_t  debug_cpu_mask;  /* developer option: CPU plays these players */
 static uint8_t  played[NUM_PLAYERS];  /* took part in this game (for the high scores) */
 static uint8_t  page;            /* layer 0 page showing the current round */
 static uint8_t  boss_level;      /* index of the boss round in level_defs */
@@ -179,6 +181,7 @@ static void clear_objects(void)
     for (i = 0; i < NUM_PLAYERS; i++) {
         g_players[i].id = i;
         g_players[i].state = PS_OFF;
+        g_players[i].cpu = 0;
     }
 }
 
@@ -193,6 +196,8 @@ static uint8_t any_alive(void)
     return 0;
 }
 
+static void draw_energy(void);
+
 /* --- HUD ------------------------------------------------------------------------
  * Row 0: 1UP, HIGH SCORE, 2UP. Row 1: the three scores. The round number
  * sits on the left wall, the EXTEND letters on the side walls and the spare
@@ -201,7 +206,7 @@ static void draw_hud_labels(void)
 {
     text_put(2, 0, "1UP", PAL_GREEN);
     text_put(11, 0, "HIGH SCORE", PAL_RED);
-    text_put(25, 0, "2UP", PAL_CYAN);
+    text_put(25, 0, g_players[1].cpu ? "CPU" : "2UP", PAL_CYAN);
 }
 
 static const uint8_t *best_score(void)
@@ -231,6 +236,7 @@ static void draw_hud_values(void)
     }
     text_digits(11, 1, best_score(), 8, PAL_NONE);
     text_number(0, HUD_ROWS, g_round, PAL_YELLOW);
+    draw_energy();
 
     /* EXTEND letters on the side walls: player 1 left, player 2 right. */
     for (i = 0; i < NUM_PLAYERS; i++) {
@@ -265,6 +271,7 @@ static void enter_title(void)
     }
     text_put(8, 25, "HI", PAL_RED);
     text_digits(11, 25, hiscore_best(), 8, PAL_NONE);
+    text_put(9, 26, "SELECT: OPTIONS", PAL_GREY);
     text_put(7, 27, "STAGE 1 PROTOTYPE", PAL_GREY);
     set_state(GS_TITLE);
 }
@@ -448,6 +455,8 @@ static void new_game(uint8_t starter)
         g_players[i].extends_given = 0;
         g_players[i].letters = 0;
         g_players[i].powers = 0;
+        g_players[i].energy = 0;
+        g_players[i].energy_hold = 0;
         played[i] = 0;
     }
     g_count.blown = 0;
@@ -465,7 +474,21 @@ static void new_game(uint8_t starter)
     ending_delay = 0;
     g_level = first_level;
     g_round = (uint8_t)(first_level + 1);
+    cpu_reset();
+    g_players[0].cpu = (uint8_t)(debug_cpu_mask & 1);
+    g_players[1].cpu = (uint8_t)(g_opt.p2_cpu || (debug_cpu_mask & 2));
+    if (g_players[1].cpu && starter == 1) {
+        starter = 0;
+    }
     join(&g_players[starter]);
+    for (i = 0; i < NUM_PLAYERS; i++) {
+        if (g_players[i].cpu && g_players[i].state == PS_OFF) {
+            join(&g_players[i]);   /* the CPU partner starts together with player 1 */
+        }
+        if (g_players[i].cpu) {
+            played[i] = 0;         /* no high score entry for the CPU */
+        }
+    }
     start_round();
 }
 
@@ -512,10 +535,11 @@ static void check_door(const uint16_t pressed[NUM_PLAYERS])
  * Losing a life calms the enemies down and restarts the round timer. */
 void player_killed(Player *p)
 {
-    if (p->lives) {
+    if (p->lives && !DBG(DBG_INFINITE_LIVES)) {
         p->lives--;
     }
     p->powers = 0;   /* power-ups are lost with a life */
+    p->energy = 0;   /* and so is the energy (Plus mode) */
     no_death = 0;    /* no more doors this game */
     enemies_calm_down();
     chaser_reset();
@@ -610,6 +634,9 @@ static void update_play(const uint16_t pad[NUM_PLAYERS], const uint16_t pressed[
     g_level_frames++;
     if (g_freeze) {
         g_freeze--;
+    }
+    if (!clear_timer) {
+        energy_tick();
     }
     for (i = 0; i < NUM_PLAYERS; i++) {
         player_update(&g_players[i], pad[i], pressed[i]);
@@ -815,6 +842,9 @@ static void update_name_entry(uint16_t pressed)
     draw_name_entry();
 }
 
+/* Bubble animation phase for the six rising bubbles of the intro and the ending. */
+static const uint8_t bubble_phase[6] = { 0, 1, 2, 0, 1, 2 };
+
 /* --- Ending ---------------------------------------------------------------------------- */
 static uint8_t ending_pages(void)
 {
@@ -892,12 +922,99 @@ static void draw_ending(void)
     if (ending_happy) {
         for (i = 0; i < 6; i++) {
             uint8_t y = (uint8_t)(200 - ((g_frame + i * 61) & 191));
-            oam_add((uint8_t)((i & 1) ? SCREEN_W - 24 : 8), y, (uint8_t)(SPR_BUBBLE0 + (i % 3)), 0);
+            oam_add((uint8_t)((i & 1) ? SCREEN_W - 24 : 8), y, (uint8_t)(SPR_BUBBLE0 + bubble_phase[i]), 0);
         }
         oam_add(104, 150, (uint8_t)(SPR_P_WALK0 + bob), 0);
         oam_add(136, 150, (uint8_t)(SPR_P_WALK0 + bob), (uint8_t)(SPR_ATTR_FLIP_X | (PAL_CYAN << SPR_ATTR_PAL_SHIFT)));
     } else {
         oam_add(120, 150, SPR_P_WALK0, 0);
+    }
+}
+
+/* --- Options ------------------------------------------------------------------------- */
+#define OPTION_ROWS 4
+
+static void draw_options(void)
+{
+    static const char *const labels[OPTION_ROWS] = { "MODE", "CO-OP RESCUE", "PLAYER 2", "BACK" };
+    const char *values[OPTION_ROWS];
+    uint8_t i;
+
+    values[0] = g_opt.plus ? "PLUS  " : "ARCADE";
+    values[1] = g_opt.rescue ? "ON " : "OFF";
+    values[2] = g_opt.p2_cpu ? "CPU  " : "HUMAN";
+    values[3] = "";
+    for (i = 0; i < OPTION_ROWS; i++) {
+        uint8_t row = (uint8_t)(8 + i * 3);
+        uint8_t pal = (uint8_t)(i == option_row ? PAL_YELLOW : PAL_NONE);
+        text_put(4, row, i == option_row ? ">" : " ", PAL_YELLOW);
+        text_put(6, row, labels[i], pal);
+        text_put(21, row, values[i], pal);
+    }
+    text_put(3, 21, g_opt.plus ? "PLUS: DASH WITH L/R, ENERGY," : "ARCADE: THE CLASSIC RULES.  ", PAL_GREY);
+    text_put(3, 22, g_opt.plus ? "SPECIAL SHOT: HOLD Y.       " : "                            ", PAL_GREY);
+    text_put(4, 25, "UP/DOWN, LEFT/RIGHT, START", PAL_GREY);
+}
+
+static void enter_options(void)
+{
+    clear_objects();
+    bg_clear(0);
+    bg_clear(1);
+    g_scroll_y = 0;
+    g_window_top = 0;
+    page = 0;
+    option_row = 0;
+    text_put(11, 4, "OPTIONS", PAL_CYAN);
+    draw_options();
+    set_state(GS_OPTIONS);
+}
+
+static void enter_title(void);
+
+static void update_options(uint16_t pressed)
+{
+    if (pressed & PAD_UP) {
+        option_row = (uint8_t)(option_row == 0 ? OPTION_ROWS - 1 : option_row - 1);
+        sfx(SFX_MENU);
+    } else if (pressed & PAD_DOWN) {
+        option_row = (uint8_t)(option_row + 1 >= OPTION_ROWS ? 0 : option_row + 1);
+        sfx(SFX_MENU);
+    } else if (pressed & (PAD_LEFT | PAD_RIGHT | PAD_B | PAD_Y)) {
+        switch (option_row) {
+        case 0: g_opt.plus = (uint8_t)!g_opt.plus; break;
+        case 1: g_opt.rescue = (uint8_t)!g_opt.rescue; break;
+        case 2: g_opt.p2_cpu = (uint8_t)!g_opt.p2_cpu; break;
+        default:
+            options_save();
+            enter_title();
+            return;
+        }
+        sfx(SFX_MENU);
+    } else if (pressed & (PAD_START | PAD_SELECT)) {
+        options_save();
+        enter_title();
+        return;
+    }
+    draw_options();
+}
+
+/* Plus mode: energy bars on the bottom wall, between the lives. */
+static void draw_energy(void)
+{
+    uint8_t i, k;
+    for (i = 0; i < NUM_PLAYERS; i++) {
+        const Player *p = &g_players[i];
+        uint8_t col = (uint8_t)(i == 0 ? 7 : 19);
+        if (!g_opt.plus || p->state == PS_OFF) {
+            text_put(col, BG_H - 1, "      ", PAL_NONE);
+            continue;
+        }
+        for (k = 0; k < 6; k++) {
+            uint8_t full = (uint8_t)(p->energy > (k << 4));
+            text_put((uint8_t)(col + k), BG_H - 1, full ? "#" : "-",
+                     (uint8_t)(p->energy >= ENERGY_MAX ? PAL_YELLOW : full ? PAL_CYAN : PAL_GREY));
+        }
     }
 }
 
@@ -952,7 +1069,7 @@ static void draw_story(void)
     case 0:   /* bubbles rising along both sides of the text */
         for (i = 0; i < 6; i++) {
             uint8_t y = (uint8_t)(200 - ((g_frame + i * 61) & 191));
-            oam_add((uint8_t)((i & 1) ? SCREEN_W - 24 : 8), y, (uint8_t)(SPR_BUBBLE0 + (i % 3)), 0);
+            oam_add((uint8_t)((i & 1) ? SCREEN_W - 24 : 8), y, (uint8_t)(SPR_BUBBLE0 + bubble_phase[i]), 0);
         }
         break;
     case 1: { /* the bewitched workers */
@@ -1043,6 +1160,7 @@ void game_init(uint16_t seed)
 
     rng = seed ? seed : 0xACE1u;
     g_frame = 0;
+    g_freeze = 0;
     for (i = 0; i < NUM_PLAYERS; i++) {
         prev_pad[i] = 0;
     }
@@ -1056,6 +1174,7 @@ void game_init(uint16_t seed)
         }
     }
     hiscore_init();
+    options_load();
     clear_objects();
     boss_reset();
     door_open = 0;
@@ -1063,13 +1182,25 @@ void game_init(uint16_t seed)
     build_oam();
 }
 
-void game_tick(const uint16_t pad[NUM_PLAYERS])
+void game_tick(const uint16_t real_pad[NUM_PLAYERS])
 {
+    uint16_t pad[NUM_PLAYERS];
     uint16_t pressed[NUM_PLAYERS];
     uint16_t any_pressed;
     uint8_t i;
 
     for (i = 0; i < NUM_PLAYERS; i++) {
+        uint16_t real_pressed = (uint16_t)(real_pad[i] & (uint16_t)~prev_pad[i]);
+        pad[i] = real_pad[i];
+        if (g_players[i].cpu && g_players[i].state != PS_OFF) {
+            if (i == 1 && (real_pressed & PAD_START) && !(debug_cpu_mask & 2)) {
+                g_players[i].cpu = 0;          /* a human takes over player 2 */
+                played[i] = 1;
+                pad[i] = 0;
+            } else {
+                pad[i] = cpu_pad(&g_players[i]);
+            }
+        }
         pressed[i]  = (uint16_t)(pad[i] & (uint16_t)~prev_pad[i]);
         prev_pad[i] = pad[i];
     }
@@ -1086,7 +1217,9 @@ void game_tick(const uint16_t pad[NUM_PLAYERS])
         } else {
             text_clear_row(23);
         }
-        if (any_pressed & PAD_START) {
+        if (any_pressed & PAD_SELECT) {
+            enter_options();
+        } else if (any_pressed & PAD_START) {
             uint8_t starter = (uint8_t)((pressed[0] & PAD_START) ? 0 : 1);
             if (skip_story) {
                 new_game(starter);
@@ -1100,6 +1233,10 @@ void game_tick(const uint16_t pad[NUM_PLAYERS])
 
     case GS_STORY:
         update_story(any_pressed);
+        break;
+
+    case GS_OPTIONS:
+        update_options(any_pressed);
         break;
 
     case GS_ENDING:
@@ -1161,10 +1298,22 @@ void game_tick(const uint16_t pad[NUM_PLAYERS])
         break;
     }
 
+    /* The CPU partner earns no score of its own. */
+    for (i = 0; i < NUM_PLAYERS; i++) {
+        if (g_players[i].cpu) {
+            uint8_t k;
+            for (k = 0; k < 8; k++) {
+                g_players[i].score[k] = 0;
+            }
+        }
+    }
+
     state_timer++;
     build_oam();
 }
 
+
+#ifdef BB_DEBUG
 void game_debug_start_round(uint8_t round)
 {
     first_level = (uint8_t)(round >= 1 && round - 1 <= boss_level ? round - 1 : 0);
@@ -1179,6 +1328,23 @@ void game_debug_show_ending(uint8_t happy)
     enter_ending();
 }
 
+void game_debug_cpu(uint8_t mask)
+{
+    debug_cpu_mask = mask;
+}
+
+void game_debug_options(uint8_t plus, uint8_t rescue, uint8_t p2_cpu)
+{
+    g_opt.plus = plus;
+    g_opt.rescue = rescue;
+    g_opt.p2_cpu = p2_cpu;
+}
+
+void game_debug_open_options(void)
+{
+    enter_options();
+}
+
 void game_debug_skip_story(uint8_t skip)
 {
     skip_story = skip;
@@ -1189,6 +1355,7 @@ void game_debug_clear_round(void)
     enemies_clear();
     bubbles_clear();
 }
+#endif /* BB_DEBUG */
 
 const Sprite *game_oam(void)
 {
@@ -1213,4 +1380,22 @@ uint8_t game_bg_window_top(void)
 uint16_t game_sfx(void)
 {
     return g_sfx;
+}
+
+/* Title music around the title screen, game music in the rounds,
+ * silence for the game over jingle. */
+uint8_t game_music(void)
+{
+    switch (g_state) {
+    case GS_TITLE:
+    case GS_STORY:
+    case GS_HISCORES:
+    case GS_NAME_ENTRY:
+    case GS_ENDING:
+        return MUSIC_TITLE;
+    case GS_GAME_OVER:
+        return MUSIC_NONE;
+    default:
+        return MUSIC_GAME;
+    }
 }

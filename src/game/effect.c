@@ -131,6 +131,7 @@ static void sweep_enemies(Effect *ef, uint16_t x, uint16_t y, uint8_t w, uint8_t
                 g_count.fire_kills++;
             }
             e->active = 0;
+            energy_gain(ef->owner, ENERGY_PER_ENEMY);
             item_spawn_thrown(e->x, e->y, ef->dir, tier);
             if (ef->combo < 255) {
                 ef->combo++;

@@ -219,6 +219,7 @@ static void test_determinism_and_play(void)
 static Bubble make_trapped(uint8_t x, uint8_t y)
 {
     Bubble b;
+    memset(&b, 0, sizeof b);   /* new fields default to 0 */
     b.state = BS_TRAPPED;
     b.trapped = 1;
     b.angry = 0;
@@ -230,6 +231,9 @@ static Bubble make_trapped(uint8_t x, uint8_t y)
     b.etype = ENEMY_TYPE_WALKER;
     b.shot_frames = 8;
     b.shot_speed = FX(4, 0);
+    b.big = 0;
+    b.etype2 = 0;
+    b.owner = 0;
     b.age = 1;
     b.x = TO_POS(x);
     b.y = TO_POS(y);
@@ -319,10 +323,9 @@ static void setup_room(uint8_t level)
     bubbles_clear();
     items_clear();
     g_state = GS_PLAY;
-    g_players[0].state = PS_ALIVE;
+    player_start(&g_players[0]);   /* resets dash, rescue, charge ... */
     g_players[0].invulnerable = 0;
-    g_players[0].x = TO_POS(PLAYER_SPAWN_X);
-    g_players[0].y = TO_POS(PLAYER_SPAWN_Y);
+    g_players[0].energy = 0;
 }
 
 /* The bouncer stays inside the room and bounces off floor and ceiling. */
@@ -992,7 +995,7 @@ static void test_special_items(void)
     items_update();
     CHECK(g_freeze > 0, "Steam Whistle should freeze");
     CHECK(!enemies_touch(g_enemies[0].x, g_enemies[0].y), "frozen enemies are harmless");
-    enemies_defeat_at(g_enemies[0].x, g_enemies[0].y);
+    enemies_defeat_at(g_enemies[0].x, g_enemies[0].y, 0);
     CHECK(enemies_count() == 0, "touching a frozen enemy defeats it");
     g_freeze = 0;
 
@@ -1007,6 +1010,369 @@ static void test_special_items(void)
     }
     CHECK(enemies_count() == 0 && count_thrown(&tiers) == 1 && tiers == (1u << GEM_TIER), "the glove fireball should defeat the enemy");
     CHECK(g_players[0].score[5] == 1, "Bubble Ring: +100 per shot");
+}
+
+/* Title music around the title, game music in the rounds. */
+static void test_music(void)
+{
+    uint16_t pad[NUM_PLAYERS] = { PAD_START, 0 };
+    game_init(1);
+    CHECK(game_music() == MUSIC_TITLE, "title screen should ask for the title music");
+    game_tick(pad);
+    CHECK(game_music() == MUSIC_GAME, "the round should ask for the game music");
+    g_state = GS_GAME_OVER;
+    CHECK(game_music() == MUSIC_NONE, "game over is silent");
+}
+
+/* Soak test (design guide "CPU partner"): the CPU plays both players.
+ * Catches crashes, broken invariants and rounds where nobody gets on. */
+static int soak_deaths;
+
+static void soak(uint8_t plus, uint8_t rescue, uint16_t minutes, int *best_round, int *rounds_cleared)
+{
+    uint16_t pad[NUM_PLAYERS] = { 0, 0 };
+    uint32_t f, frames = (uint32_t)minutes * 3600u;
+    uint8_t last_round = 0;
+    int i;
+
+    for (i = 0; i < SRAM_SIZE; i++) {
+        game_sram()[i] = 0;
+    }
+    game_init(321);
+    g_opt.plus = plus;
+    g_opt.rescue = rescue;
+    g_opt.p2_cpu = 0;
+    game_debug_cpu(3);
+    *best_round = 0;
+    *rounds_cleared = 0;
+    soak_deaths = 0;
+    {
+        uint16_t *c = (uint16_t *)game_debug_death_causes();
+        for (i = 0; i < DEBUG_DEATH_CAUSES; i++) {
+            c[i] = 0;
+        }
+    }
+    for (f = 0; f < frames; f++) {
+        pad[0] = (uint16_t)((g_state != GS_PLAY && g_state != GS_ROUND_INTRO && g_state != GS_TRANSITION &&
+                             (f % 120) < 2) ? PAD_START : 0);
+        game_tick(pad);
+        soak_deaths += (game_sfx() >> SFX_DEATH) & 1;
+        if (getenv("BB_DEATHS") && ((game_sfx() >> SFX_DEATH) & 1) && soak_deaths <= 25 && plus == 0) {
+            int k, j;
+            DebugBox bx[1];
+            const char *act = "";
+            (void)game_debug_cpu_view(bx, 0, &act);
+            for (k = 0; k < NUM_PLAYERS; k++) {
+                if (g_players[k].state == PS_DYING && g_players[k].timer == 0) {
+                    printf("death P%d at (%u,%u) ground=%u vx=%d vy=%d act=%s round=%u:", k + 1, PX(g_players[k].x),
+                           PX(g_players[k].y), g_players[k].on_ground, g_players[k].vx, g_players[k].vy, act, g_round);
+                    for (j = 0; j < MAX_ENEMIES; j++) {
+                        const Enemy *e = &g_enemies[j];
+                        if (e->active && !e->entering && overlap(g_players[k].x, g_players[k].y, e->x, e->y, 14, 16)) {
+                            printf(" E%u(%u,%u) left=%u jump=%u angry=%u", e->type, PX(e->x), PX(e->y), e->facing_left,
+                                   e->jump_left, e->angry);
+                        }
+                    }
+                    printf("\n");
+                }
+            }
+        }
+        if (g_state == GS_ROUND_INTRO && g_round != last_round) {
+            if (last_round && g_round > last_round) {
+                (*rounds_cleared)++;
+            }
+            last_round = g_round;
+        }
+        if (g_round > *best_round) {
+            *best_round = g_round;
+        }
+        for (i = 0; i < NUM_PLAYERS; i++) {
+            if (g_players[i].state == PS_ALIVE) {
+                uint8_t cx = (uint8_t)(PX(g_players[i].x) + 8);
+                CHECK(cx >= BODY_MIN_CX && cx <= BODY_MAX_CX, "soak: player outside the walls");
+            }
+        }
+        if (failures > 10) {
+            break;
+        }
+    }
+    game_debug_cpu(0);
+    g_opt.plus = 0;
+    g_opt.rescue = 0;
+    {
+        static const char *const names[DEBUG_DEATH_CAUSES] = {
+            "?", "walker", "bouncer", "thrower", "flutter", "hopper", "spitter", "dropper",
+            "shot", "chaser", "boss", "rescue ran out"
+        };
+        const uint16_t *c = game_debug_death_causes();
+        printf("  deaths by cause:");
+        for (i = 0; i < DEBUG_DEATH_CAUSES; i++) {
+            if (c[i]) {
+                printf(" %s %u,", names[i], c[i]);
+            }
+        }
+        printf("\n");
+    }
+    if (getenv("BB_TRACE")) {
+        printf("soak end: state %d round %u P1 %d/%u P2 %d/%u\n", (int)g_state, g_round, g_players[0].state,
+               g_players[0].lives, g_players[1].state, g_players[1].lives);
+    }
+}
+
+static void test_cpu_soak(void)
+{
+    int best, cleared;
+    soak(0, 0, 30, &best, &cleared);
+    printf("cpu soak (arcade): best round %d, %d rounds cleared, %d deaths\n", best, cleared, soak_deaths);
+    CHECK(cleared >= 12, "two CPU players should clear at least 12 rounds in 30 minutes (%d)", cleared);
+    CHECK(soak_deaths <= 100, "the CPU players die too often (%d deaths in 30 minutes)", soak_deaths);
+    soak(1, 1, 30, &best, &cleared);
+    printf("cpu soak (plus + rescue): best round %d, %d rounds cleared, %d deaths\n", best, cleared, soak_deaths);
+    CHECK(cleared >= 12, "two CPU players should clear at least 12 rounds in 30 minutes in Plus mode (%d)", cleared);
+    CHECK(soak_deaths <= 100, "the CPU players die too often in Plus mode (%d deaths in 30 minutes)", soak_deaths);
+}
+
+static void setup_two_players(uint8_t level)
+{
+    uint8_t rescue = g_opt.rescue;
+    setup_room(level);
+    g_opt.rescue = rescue;   /* game_init reloads the options */
+    g_players[1].id = 1;
+    g_players[1].lives = 3;
+    player_start(&g_players[1]);
+    g_players[1].invulnerable = 0;
+    g_players[0].lives = 3;
+    g_players[0].energy = 0;
+    g_players[1].energy = 0;
+}
+
+/* Co-op rescue: trapped instead of killed, freed by the partner;
+ * an expired bubble costs a life; shots still kill. */
+static void test_rescue(void)
+{
+    int f;
+
+    g_opt.rescue = 1;
+    setup_two_players(0);
+    enemy_spawn(g_players[0].x, g_players[0].y, ENEMY_TYPE_WALKER, 0, 0);
+    player_update(&g_players[0], 0, 0);
+    CHECK(g_players[0].state == PS_RESCUE, "enemy contact should trap player 1 in a rescue bubble");
+    enemies_clear();
+    for (f = 0; f < 30; f++) {
+        player_update(&g_players[0], 0, 0);
+    }
+    g_players[1].x = g_players[0].x;
+    g_players[1].y = g_players[0].y;
+    player_update(&g_players[0], 0, 0);
+    CHECK(g_players[0].state == PS_ALIVE && g_players[0].lives == 3, "the partner should free player 1 without a life lost");
+
+    setup_two_players(0);
+    enemy_spawn(g_players[0].x, g_players[0].y, ENEMY_TYPE_WALKER, 0, 0);
+    player_update(&g_players[0], 0, 0);
+    enemies_clear();
+    for (f = 0; f < 600 && g_players[0].state == PS_RESCUE; f++) {
+        player_update(&g_players[0], 0, 0);
+    }
+    CHECK(g_players[0].state == PS_DYING, "an expired rescue bubble costs a life");
+
+    setup_two_players(0);
+    item_spawn_shot(SHOT_ROCK, g_players[0].x, g_players[0].y, 1);
+    player_update(&g_players[0], 0, 0);
+    CHECK(g_players[0].state == PS_DYING, "shots still kill with rescue on");
+
+    setup_room(0);   /* one player alone: no rescue */
+    g_opt.rescue = 1;
+    g_players[1].state = PS_OFF;
+    enemy_spawn(g_players[0].x, g_players[0].y, ENEMY_TYPE_WALKER, 0, 0);
+    player_update(&g_players[0], 0, 0);
+    CHECK(g_players[0].state == PS_DYING, "rescue needs a partner");
+    g_opt.rescue = 0;
+}
+
+/* Plus mode: energy from defeats, drain after the hold time, dash, special shot. */
+static void test_plus_mode(void)
+{
+    int f;
+    uint16_t x0;
+    uint8_t e;
+
+    setup_room(0);
+    g_opt.plus = 1;
+    g_players[0].energy = 0;
+    energy_gain(0, ENERGY_PER_ENEMY);
+    CHECK(g_players[0].energy == ENERGY_PER_ENEMY, "defeating an enemy gives energy");
+    for (f = 0; f < ENERGY_HOLD; f++) {
+        energy_tick();
+    }
+    e = g_players[0].energy;
+    CHECK(e == ENERGY_PER_ENEMY, "energy holds for a while after a gain");
+    for (f = 0; f < 40; f++) {
+        g_frame++;
+        energy_tick();
+    }
+    CHECK(g_players[0].energy < e, "then it drains");
+
+    /* dash: about 30 px, invulnerable in the middle, costs energy */
+    setup_room(0);
+    g_opt.plus = 1;
+    g_players[0].energy = ENERGY_MAX;
+    g_players[0].x = TO_POS(60);
+    x0 = g_players[0].x;
+    player_update(&g_players[0], PAD_R, PAD_R);
+    for (f = 0; f < 4; f++) {
+        player_update(&g_players[0], 0, 0);
+    }
+    enemy_spawn(g_players[0].x, g_players[0].y, ENEMY_TYPE_WALKER, 0, 0);
+    player_update(&g_players[0], 0, 0);
+    CHECK(g_players[0].state == PS_ALIVE, "invulnerable in the middle of a dash");
+    enemies_clear();
+    for (f = 0; f < 20; f++) {
+        player_update(&g_players[0], 0, 0);
+    }
+    CHECK(PX(g_players[0].x) - PX(x0) >= 48 && PX(g_players[0].x) - PX(x0) <= 64, "a dash covers 6-8 tiles (%d px)",
+          PX(g_players[0].x) - PX(x0));
+    CHECK(g_players[0].energy == ENERGY_MAX - DASH_COST, "a dash costs energy");
+    CHECK(g_players[0].facing_left == 0, "dash keeps the facing");
+
+    /* special shot: hold Y with a full bar; one bubble catches two enemies */
+    setup_room(0);
+    g_opt.plus = 1;
+    g_players[0].energy = ENERGY_MAX;
+    g_players[0].x = TO_POS(40);
+    enemy_spawn(TO_POS(70), g_players[0].y, ENEMY_TYPE_WALKER, 0, 0);
+    enemy_spawn(TO_POS(100), g_players[0].y, ENEMY_TYPE_WALKER, 0, 0);
+    g_freeze = 200;   /* keep the enemies in place */
+    for (f = 0; f < 31; f++) {
+        player_update(&g_players[0], PAD_Y, f == 0 ? PAD_Y : 0);
+    }
+    CHECK(g_players[0].energy == 0, "the special shot uses the whole bar");
+    for (f = 0; f < 70; f++) {
+        bubbles_update();
+    }
+    g_freeze = 0;
+    CHECK(enemies_count() == 0 && bubbles_trapped_count() == 1, "one special bubble should hold both enemies");
+    for (f = 0; f < MAX_BUBBLES; f++) {
+        if (g_bubbles[f].state == BS_TRAPPED) {
+            bubble_pop(&g_bubbles[f], 1, 0);
+        }
+    }
+    for (f = 0; f < 10; f++) {
+        bubbles_update();
+    }
+    {
+        uint8_t tiers;
+        CHECK(count_thrown(&tiers) == 2 && tiers == 0x03, "popping it defeats both as a combo");
+    }
+    g_opt.plus = 0;
+}
+
+/* Options live in SRAM. */
+static void test_options(void)
+{
+    game_init(1);
+    g_opt.plus = 1;
+    g_opt.rescue = 1;
+    g_opt.p2_cpu = 1;
+    options_save();
+    g_opt.plus = 0;
+    g_opt.rescue = 0;
+    g_opt.p2_cpu = 0;
+    game_init(1);
+    CHECK(g_opt.plus && g_opt.rescue && g_opt.p2_cpu, "options should survive in SRAM");
+    CHECK(game_sram_dirty(), "saving options marks SRAM dirty");
+    g_opt.plus = 0;
+    g_opt.rescue = 0;
+    g_opt.p2_cpu = 0;
+    options_save();
+}
+
+/* Player 2 as CPU: joins with player 1, a human takes over with Start. */
+static void test_cpu_partner(void)
+{
+    uint16_t pad[NUM_PLAYERS] = { PAD_START, 0 };
+    int f;
+
+    game_init(1);
+    g_opt.p2_cpu = 1;
+    game_tick(pad);
+    CHECK(g_players[1].state != PS_OFF && g_players[1].cpu, "the CPU partner should join with player 1");
+    pad[0] = 0;
+    for (f = 0; f < 300; f++) {
+        game_tick(pad);
+    }
+    pad[1] = PAD_START;
+    game_tick(pad);
+    CHECK(!g_players[1].cpu && g_state == GS_PLAY, "Start on controller 2 hands player 2 to a human (no pause)");
+    g_opt.p2_cpu = 0;
+}
+
+/* Debug switches. */
+static void test_debug_switches(void)
+{
+    setup_room(0);
+    game_debug_set(DBG_INVINCIBLE, 1);
+    enemy_spawn(g_players[0].x, g_players[0].y, ENEMY_TYPE_WALKER, 0, 0);
+    player_update(&g_players[0], 0, 0);
+    CHECK(g_players[0].state == PS_ALIVE, "invincible: enemies do no harm");
+    game_debug_set(DBG_INVINCIBLE, 0);
+    game_debug_set(DBG_INFINITE_LIVES, 1);
+    g_players[0].lives = 2;
+    player_killed(&g_players[0]);
+    CHECK(g_players[0].lives == 2, "infinite lives");
+    game_debug_set(DBG_INFINITE_LIVES, 0);
+    {
+        DebugBox boxes[32];
+        CHECK(game_debug_boxes(boxes, 32) >= 2, "hitboxes of the player and the enemy");
+    }
+}
+
+/* Dash details: through inner walls (never ending inside one), the input
+ * buffer and the single dash key. */
+static void test_dash_rules(void)
+{
+    int f;
+    uint8_t c, r;
+
+    /* round 13 has a tower (columns 15-16) rising from the floor */
+    setup_room(12);
+    g_opt.plus = 1;
+    g_players[0].energy = ENERGY_MAX;
+    g_players[0].x = TO_POS(76);
+    player_update(&g_players[0], PAD_R, PAD_R);
+    for (f = 0; f < 14; f++) {
+        player_update(&g_players[0], 0, 0);
+    }
+    CHECK(PX(g_players[0].x) + 2 >= 136, "the dash should pass through the tower (x=%u)", PX(g_players[0].x));
+    for (c = 0; c < 2; c++) {
+        for (r = 0; r < 2; r++) {
+            CHECK(!level_solid_px((int16_t)(PX(g_players[0].x) + 2 + c * 11), (int16_t)(PX(g_players[0].y) + 2 + r * 13)),
+                  "a dash must not end inside a wall");
+        }
+    }
+
+    /* input buffer: pressed while not possible, done when it becomes possible */
+    setup_room(0);
+    g_opt.plus = 1;
+    g_players[0].energy = 0;
+    g_players[0].x = TO_POS(60);
+    player_update(&g_players[0], PAD_R, PAD_R);
+    CHECK(g_players[0].dash == 0, "no dash without energy");
+    g_players[0].energy = ENERGY_MAX;
+    for (f = 0; f < 3; f++) {
+        player_update(&g_players[0], 0, 0);
+    }
+    CHECK(g_players[0].dash > 0, "a dash pressed a few frames early should still happen");
+
+    /* single dash key: L and R together = facing direction when no direction is held */
+    setup_room(0);
+    g_opt.plus = 1;
+    g_players[0].energy = ENERGY_MAX;
+    g_players[0].x = TO_POS(120);
+    g_players[0].facing_left = 1;
+    player_update(&g_players[0], PAD_L | PAD_R, PAD_L | PAD_R);
+    CHECK(g_players[0].dash > 0 && g_players[0].dash_dir < 0, "the dash key dashes the way the player faces");
+    CHECK(g_players[0].facing_left == 1, "and keeps the facing");
+    g_opt.plus = 0;
 }
 
 int main(void)
@@ -1038,10 +1404,18 @@ int main(void)
     test_spitter();
     test_dropper();
     test_story();
+    test_music();
     test_special_items();
     test_round_limit();
     test_secret_room();
     test_boss_and_endings();
+    test_rescue();
+    test_plus_mode();
+    test_dash_rules();
+    test_options();
+    test_cpu_partner();
+    test_debug_switches();
+    test_cpu_soak();
     test_determinism_and_play();
 
     if (failures) {

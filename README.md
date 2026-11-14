@@ -24,7 +24,7 @@ The game code is written from day one so that it survives all three stages with 
   - Input: one 16-bit button word per player per frame (SNES joypad bit layout).
   - Output: a shadow sprite table (OAM-like, 16 × 16 sprites) and two 8 × 8 tilemaps, rendered into a 256 × 224 framebuffer and scaled to the window. Layer 0 (level, below the sprites) is 32 × 64 tiles, scrolls vertically and has a window line so it never shows behind the HUD; layer 1 (text, above the sprites) is fixed.
   - Graphics (stage 1): 24-bit PNGs, magenta = transparent. A "palette" is a tint for now. See [assets/README.md](assets/README.md).
-  - Audio: sound effects requested by ID (one bit per effect per tick).
+  - Audio: sound effects requested by ID (one bit per effect per tick) and one music track ID; the platform streams the track.
   - Save RAM: 64 bytes (high score table) that the platform keeps in a file, like a battery-backed cartridge.
   - Time: the game is ticked exactly once per frame at 60 Hz.
 - **Old-school game loop** ([ADR-0002](docs/adr/0002-oldschool-game-loop-no-ecs.md)):
@@ -117,13 +117,25 @@ With Visual Studio you can also simply open the folder (*File → Open → Folde
 
 The game finds its `assets/` folder next to the executable or, failing that, in the source tree it was built from. High scores are saved to `blubberblasen.sav` next to the executable. `F11` toggles full screen.
 
+### Web build (WebAssembly)
+
+Needs Emscripten (Arch: `sudo pacman -Syu emscripten`, then a new shell or `source /etc/profile.d/emscripten.sh`):
+
+```bash
+emcmake cmake -S . -B build-web -DCMAKE_BUILD_TYPE=Release -DBB_DEBUG_SWITCHES=OFF
+cmake --build build-web -j8
+cd build-web && python3 -m http.server 8000      # then open http://localhost:8000/blubberblasen.html
+```
+
+The result is `blubberblasen.html`, `.js`, `.wasm` and `.data` (the assets, about 13 MB, mostly music). The page needs a web server (opening the file directly does not work), shows a "click to start" layer (browsers only allow sound and keyboard focus after a click) and keeps high scores and options in the browser (IndexedDB). The page is `web/shell.html`. `#nostart` at the end of the address skips the click layer and runs the game on a plain timer, for automated checks in headless browsers. The tools (`map2c`, `mapview`) are compiled to JavaScript in this build and run under Node.js during the build.
+
 ### Tests
 
 ```bash
 ctest --test-dir build -C Debug --output-on-failure
 ```
 
-`tests/test_game.c` runs the game library without a window: score arithmetic, level data checks, a determinism check (same seed and input must give the same frames) and a bot that plays 30 minutes of game time and must trap, defeat, die, clear rounds and reach game over. `BB_TRACE=600` prints the game state every 600 frames.
+`tests/test_game.c` runs the game library without a window: score arithmetic, level data checks, a determinism check (same seed and input must give the same frames), a random bot that plays 30 minutes of game time, unit tests for the mechanics, and a soak test in which the CPU partner plays both players for 30 minutes in each mode (it must clear at least 12 rounds with at most 100 lost lives; the output lists the causes of death). `BB_TRACE=600` prints the game state every 600 frames; `BB_DEATHS=1` prints the circumstances of the first CPU deaths in the soak test.
 
 ### Developer options
 
@@ -142,6 +154,25 @@ blubberblasen --autoplay --seed 7 --shot 300 --shot 900 --quit 1000
 | `--skip-intro` | No story pages after the title (`--autoplay` and `--round` imply it) |
 | `--intro` | Show the story pages even with `--autoplay` or `--round` |
 | `--ending <happy\|sad>` | Start with that ending, to look at it |
+| `--invincible`, `--infinite-lives`, `--hitboxes`, `--air`, `--cpu-view`, `--full-energy` | Switch on those debug switches |
+| `--plus`, `--rescue`, `--cpu2` | Set those options for this run (not saved) |
+| `--options` | Start on the options screen |
+
+All developer options and debug switches exist only in builds with the CMake option `BB_DEBUG_SWITCHES` (on by default). Public builds configure with `-DBB_DEBUG_SWITCHES=OFF` and contain none of it; the tests need it on.
+
+### Debug keys (development builds)
+
+| Key | Effect |
+|---|---|
+| `F1` | CPU partner view: predicted danger positions (red dots, brighter = sooner) and the action it chose |
+| `F2` | Invincibility |
+| `F3` | Infinite lives |
+| `F4` | Show hitboxes |
+| `F5` | Show air currents |
+| `F6` | Full energy (Plus mode) |
+| `F7` / `F8` | Pause and step one frame at a time / next frame |
+| `F9` | Slow motion (quarter speed) |
+| `F10` | Spawn the next item or special bubble in front of player 1 |
 | `--shot <tick>` | Save the framebuffer as `shot_<tick>.png` in the working directory (repeatable) |
 | `--quit <tick>` | Exit after that many game ticks |
 
@@ -194,9 +225,12 @@ Keeping `game` as a separate library without a raylib link dependency makes acci
 | Y (bubble) | `J` | `,` | West button |
 | A | `C` | | East button |
 | X | `V` | | North button |
-| L / R | `Q` / `E` | | LB / RB |
+| L / R (dash left / right, Plus mode) | `Q` / `E` | | LB / RB |
+| Dash (held direction, else facing) | `L` | `/` | |
 | Start | `Enter` | `Right Ctrl` | Start |
 | Select | `Right Shift` | | Back / Select |
+
+On the title screen, Select opens the options: **mode** (Arcade, or Plus with dash, energy bar and special shot), **co-op rescue** (on/off) and **player 2** (human or CPU partner). They are saved with the high scores.
 
 The first gamepad belongs to player 1, the second to player 2. The game starts on the title screen: press Start to begin. The other player can join at any time with their Start button. A player with no lives left can continue the same way (the score is kept). During play, Start pauses.
 
@@ -205,6 +239,12 @@ Mappings live in `src/platform/platform_raylib.c` and may change. `Esc` quits, `
 ## How to play
 
 Shoot bubbles (Y) at the enemies to trap them, then touch the trapped enemy to defeat it: it flies through the room and lands as food. Touching an enemy that is not in a bubble costs a life. A trapped enemy breaks free after a few seconds, angry and faster. Floating bubbles pop when you touch them, but if you fall onto one while holding jump (B), you bounce off it. Two players play at the same time and share the room. Every bubble a popped bubble touches pops too: defeat several enemies in one chain and each one's food is worth double the one before (1,000, 2,000, 4,000 ... 64,000). There are seven enemy types, introduced over the rounds: walkers, throwers that stop and throw rocks, bouncers that fly diagonally through the platforms, flutters that fly around and change direction often, hoppers on springs, spitters that run fast and spit fireballs, and droppers that patrol and shoot straight down. The last enemy in a round gets angry, and when the round's time runs out all of them do ("HURRY UP!"); ten seconds later an invincible storm cloud comes for you. Losing a life calms everything down again. Some rounds send in special bubbles: water washes enemies away (all of them one combo), fire drops onto a platform and burns (it stuns players too), lightning flies across the room. A chain of three or more enemies earns EXTEND letter bubbles; collect E-X-T-E-N-D (shown on the side walls) for an extra life and an instant round skip. Hidden counters (bubbles blown, bubbles popped, jumps, distance walked, water bubbles popped) unlock power-ups that appear on a platform in a later round: three candies (bubbles fly farther, faster, more often), shoes (run faster) and an umbrella (skip 3 rounds). Candies and shoes are lost with a life. Every round also puts out one bonus food (500 to 2,000 points) after ten seconds. Clear all enemies to get to the next round, which scrolls in from below. There are 100 rounds on ten factory floors (see [the story](docs/story.md)); round 100 is the Grumble Boiler: bubbles bounce off it, but in that round every bubble you blow turns into a lightning bubble, and only lightning hurts it. Beat it, pop the giant bubble it ends up in, and the ending depends on whether two players made it. Reach round 20, 40, 50 or 60 without anybody losing a life and a door appears on the floor (press Up in front of it): it leads to a secret room full of gems with a clue, and in round 50 to round 70. More items are unlocked by hidden counters: the Soap Star and the Rinse Wave turn every enemy into a gem, the Steam Whistle freezes them (touch a frozen enemy to defeat it), the Fire Glove shoots fireballs for one round and the Bubble Ring gives 100 points per bubble. You have 3 lives (the spare ones are shown in the bottom corners), plus one at 30,000 and one at 100,000 points; when the last player is out, a countdown gives you a few seconds to continue with Start. A good score gets you into the high score table.
+
+**Plus mode** adds an energy bar per player (on the bottom wall). It only fills by defeating enemies (more in combos) and drains when you stop attacking; losing a life empties it. L / R dash about seven tiles left or right without turning around (on the keyboard, one dash key dashes the way you hold or, if you hold nothing, the way you face). A dash passes through inner walls and platforms, never ends inside a wall, is invulnerable except in its first and last two frames, works once per jump, costs a bit of energy, and a press up to six frames too early (for example just before landing) still counts. The player sprite shows the energy: a yellow glow with small spikes when a dash is available, cycling colours when the bar is full (each with a chime), a flash and two afterimages while dashing. With a full bar, hold Y to charge a special shot: a large, slow bubble that can catch two enemies at once.
+
+**Co-op rescue** (two players): an enemy that touches you traps you in a rescue bubble instead of killing you. It drifts with the air; your partner frees you by touching it, with no life lost. If it runs out, you lose a life. Shots, the storm cloud and the boss still kill.
+
+**CPU partner:** with player 2 set to CPU, a computer partner plays player 2. It frees you from rescue bubbles, avoids danger, pops trapped enemies (preferably several at once), hunts enemies and stays near you. To avoid danger it looks ahead every frame: it predicts where enemies, shots, storm clouds and the boss will be over the next half second, tries out its own moves (stay, walk, jump, dash, turn and shoot) and only follows its goal if that stays safe; it leaves the food to you and earns no score. Press Start on controller 2 to take over from it. A game finished with the CPU partner counts as a two-player game.
 
 ## Coding rules for `src/game/`
 

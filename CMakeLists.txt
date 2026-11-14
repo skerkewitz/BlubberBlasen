@@ -3,9 +3,14 @@ project(BlubberBlasen C)
 
 set(CMAKE_C_STANDARD 99)
 set(CMAKE_C_STANDARD_REQUIRED ON)
-set(CMAKE_C_EXTENSIONS OFF)
+# Strict C99 (no compiler extensions) for the game code only, see below;
+# raylib's web platform and our platform layer need the GNU extensions (EM_ASM).
 
 # --- raylib (platform layer only) -------------------------------------------
+# Web build: configure with emcmake (see README); raylib then uses its web platform.
+if(EMSCRIPTEN)
+    set(PLATFORM Web CACHE STRING "raylib platform" FORCE)
+endif()
 include(FetchContent)
 FetchContent_Declare(
     raylib
@@ -38,6 +43,15 @@ add_custom_command(
 file(GLOB_RECURSE GAME_SOURCES CONFIGURE_DEPENDS src/game/*.c)
 add_library(game STATIC ${GAME_SOURCES} ${LEVEL_DATA_C})
 target_include_directories(game PUBLIC src)
+set_target_properties(game PROPERTIES C_EXTENSIONS OFF)
+
+# Debug switches (src/game/debug.c, dev command-line options). On for
+# development; public builds (web, release, SNES) configure with
+# -DBB_DEBUG_SWITCHES=OFF and contain none of it.
+option(BB_DEBUG_SWITCHES "Compile the debug switches and developer options" ON)
+if(BB_DEBUG_SWITCHES)
+    target_compile_definitions(game PUBLIC BB_DEBUG=1)
+endif()
 
 if(MSVC)
     target_compile_options(game PRIVATE /W4)
@@ -48,8 +62,30 @@ endif()
 # --- Platform layer + executable --------------------------------------------
 add_executable(blubberblasen src/platform/platform_raylib.c)
 target_link_libraries(blubberblasen PRIVATE game raylib)
-# Fallback when there is no assets folder next to the executable.
-target_compile_definitions(blubberblasen PRIVATE BB_ASSET_DIR="${PROJECT_SOURCE_DIR}/assets")
+if(EMSCRIPTEN)
+    # Web: a page with the game, the assets packed into blubberblasen.data at /assets.
+    # Level sources are compiled in, so they stay out; so does the unused ambient track.
+    set_target_properties(blubberblasen PROPERTIES SUFFIX ".html")
+    target_compile_definitions(blubberblasen PRIVATE BB_ASSET_DIR="/assets")
+    target_link_options(blubberblasen PRIVATE
+        -sUSE_GLFW=3
+        -sALLOW_MEMORY_GROWTH=1
+        -sINITIAL_MEMORY=67108864
+        -lidbfs.js
+        # raylib's audio library (miniaudio) reads Module.HEAPF32 in its audio
+        # callback; newer Emscripten versions no longer export it by default.
+        -sEXPORTED_RUNTIME_METHODS=HEAPF32
+        "SHELL:--preload-file ${PROJECT_SOURCE_DIR}/assets@/assets"
+        "SHELL:--exclude-file *.map"
+        "SHELL:--exclude-file *.txt"
+        "SHELL:--exclude-file *.md"
+        "SHELL:--exclude-file *guarded-stillness*"
+        "SHELL:--shell-file ${PROJECT_SOURCE_DIR}/web/shell.html")
+    set_property(TARGET blubberblasen APPEND PROPERTY LINK_DEPENDS ${PROJECT_SOURCE_DIR}/web/shell.html)
+else()
+    # Fallback when there is no assets folder next to the executable.
+    target_compile_definitions(blubberblasen PRIVATE BB_ASSET_DIR="${PROJECT_SOURCE_DIR}/assets")
+endif()
 
 if(WIN32)
     # No console window in release builds
@@ -59,11 +95,13 @@ if(WIN32)
     endif()
 endif()
 
-# --- Tests (game library only, headless) ----------------------------------------
+# --- Tests (game library only, headless; they use the debug switches) -------------
 enable_testing()
-add_executable(test_game tests/test_game.c)
-target_link_libraries(test_game PRIVATE game)
-add_test(NAME game COMMAND test_game)
+if(BB_DEBUG_SWITCHES)
+    add_executable(test_game tests/test_game.c)
+    target_link_libraries(test_game PRIVATE game)
+    add_test(NAME game COMMAND test_game)
+endif()
 
 # map2c must reject broken settings files
 foreach(bad bad_delay bad_key)

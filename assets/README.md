@@ -110,7 +110,17 @@ Things to keep in mind when designing rooms:
 
 ## Sound effects (`sfx/`)
 
-Mono WAV files, loaded by name: `jump`, `shoot`, `pop`, `trap`, `kill`, `gem`, `death`, `start`, `clear`, `hurry`, `gameover`, `menu`, `pause`, `extra`. A missing file is skipped silently. There is no music yet.
+Mono WAV files, loaded by name: `jump`, `shoot`, `pop`, `trap`, `kill`, `gem`, `death`, `start`, `clear`, `hurry`, `gameover`, `menu`, `pause`, `extra`. A missing file is skipped silently.
+
+## Music (`music/`)
+
+Two temporary tracks, streamed by the platform layer (`music_files` in `src/platform/platform_raylib.c` names the files). The game only says which track should play (`game_music()`): the title track on the title screen, the intro, the high scores and the ending; the game track in the rounds; nothing during game over. They are placeholders and will be replaced.
+
+| File | Plays | Note |
+|---|---|---|
+| `zephiramusic-lofi-gaming-606302.mp3` | Title | Royalty free, added as a temporary track |
+| `bouncyrunner-retro-games-flower-hill-stage-two-400495.mp3` | In game | Royalty free, added as a temporary track |
+| `senormusica81-cinematic-dark-ambient-guarded-stillness-475740.mp3` | Not used any more | Former in-game track |
 
 ## Where the files come from
 

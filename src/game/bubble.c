@@ -23,6 +23,8 @@
 #define CHAIN_REACH   15           /* bubbles closer than this pop each other */
 #define PUSH_REACH    13           /* floating bubbles closer than this push apart */
 #define SPECIAL_LIFE  1200         /* special and letter bubbles: 20 s */
+#define BIG_SPEED     FX(1, 128)   /* Plus mode special shot: large and slow */
+#define BIG_FRAMES    60
 #define SHOT_RANGE_POWER 14        /* SHOOT_FRAMES with the range candy */
 #define SHOOT_SPEED_POWER FX(6, 0)
 #define TOP_LIMIT     (FIELD_Y + 6)
@@ -73,6 +75,8 @@ void bubble_spawn_special(uint8_t kind, uint8_t letter, uint16_t x, uint16_t y)
     b->state = BS_FLOAT;
     b->kind = kind;
     b->letter = letter;
+    b->big = 0;
+    b->etype2 = 0;
     b->dir = AIR_UP;
     b->angry = 0;
     b->trapped = 0;
@@ -91,6 +95,8 @@ void bubble_shoot(uint16_t x, uint16_t y, uint8_t facing_left, uint16_t powers)
     }
     b->state = BS_SHOOT;
     b->kind = BK_NORMAL;
+    b->big = 0;
+    b->etype2 = 0;
     b->shot_frames = (uint8_t)((powers & (1u << POWER_RANGE)) ? SHOT_RANGE_POWER : SHOOT_FRAMES);
     b->shot_speed = (powers & (1u << POWER_SPEED)) ? SHOOT_SPEED_POWER : SHOOT_SPEED;
     if (g_count.blown < 255) {
@@ -131,12 +137,28 @@ void bubbles_trapped_to_gems(void)
     }
 }
 
+/* Plus mode: a large, slow bubble that keeps flying after its first
+ * catch and can hold two enemies. */
+void bubble_shoot_special(uint16_t x, uint16_t y, uint8_t facing_left)
+{
+    Bubble *b;
+    bubble_shoot(x, y, facing_left, 0);
+    for (b = &g_bubbles[0]; b < &g_bubbles[MAX_BUBBLES]; b++) {
+        if (b->state == BS_SHOOT && b->age == 0 && b->x == x) {
+            b->big = 1;
+            b->shot_frames = BIG_FRAMES;
+            b->shot_speed = BIG_SPEED;
+            return;
+        }
+    }
+}
+
 uint8_t bubbles_trapped_count(void)
 {
     uint8_t i, n = 0;
     for (i = 0; i < MAX_BUBBLES; i++) {
         const Bubble *b = &g_bubbles[i];
-        n = (uint8_t)(n + (b->state == BS_TRAPPED || (b->state == BS_POPPING && b->trapped)));
+        n = (uint8_t)(n + (b->state == BS_TRAPPED || ((b->state == BS_POPPING || b->state == BS_SHOOT) && b->trapped)));
     }
     return n;
 }
@@ -169,12 +191,17 @@ static void burst(Bubble *b)
     uint8_t i;
 
     if (b->trapped) {
-        uint8_t tier = (uint8_t)(chain_kills < FOOD_TIERS - 1 ? chain_kills : FOOD_TIERS - 1);
-        int8_t dir = chain_kills == 0 ? chain_dir : (int8_t)((rng_next() & 1) ? 1 : -1);
-        if (chain_kills < 255) {
-            chain_kills++;
+        uint8_t n, k;
+        for (k = 0, n = (uint8_t)(b->etype2 ? 2 : 1); k < n; k++) {
+            uint8_t tier = (uint8_t)(chain_kills < FOOD_TIERS - 1 ? chain_kills : FOOD_TIERS - 1);
+            int8_t dir = chain_kills == 0 ? chain_dir : (int8_t)((rng_next() & 1) ? 1 : -1);
+            energy_gain(chain_owner, (uint8_t)(ENERGY_PER_ENEMY + (chain_kills ? ENERGY_COMBO : 0)));
+            if (chain_kills < 255) {
+                chain_kills++;
+            }
+            item_spawn_thrown(b->x, b->y, dir, tier);
         }
-        item_spawn_thrown(b->x, b->y, dir, tier);
+        b->etype2 = 0;
         sfx(SFX_KILL);
     } else if (b->kind == BK_LETTER) {
         extend_collect(chain_owner, b->letter);
@@ -223,20 +250,34 @@ static void update_shot(Bubble *b)
         Enemy *e = &g_enemies[i];
         if (e->active && !e->entering && overlap(b->x, b->y, e->x, e->y, 12, 12)) {
             e->active = 0;
+            sfx(SFX_TRAP);
+            if (b->big && !b->trapped) {
+                b->trapped = 1;          /* first catch: keeps flying */
+                b->etype = e->type;
+                b->angry = e->angry;
+                continue;
+            }
+            if (b->big) {
+                b->etype2 = e->type;     /* second catch */
+            } else {
+                b->etype = e->type;
+                b->angry = e->angry;
+            }
             b->state = BS_TRAPPED;
             b->trapped = 1;
-            b->etype = e->type;
-            b->angry = e->angry;
             b->age = 0;
             b->dir = AIR_UP;
-            sfx(SFX_TRAP);
             return;
         }
     }
 
     if (b->age > b->shot_frames || b->x == before || boss_touch(b->x, b->y)) {
-        b->state = BS_FLOAT;
+        b->state = b->trapped ? BS_TRAPPED : BS_FLOAT;
         b->dir = AIR_UP;
+        if (b->trapped) {
+            b->age = 0;
+            return;
+        }
         /* In the boss round every bubble becomes a lightning bubble. */
         if (level_defs[g_level].kind == LEVEL_BOSS) {
             b->kind = BK_LIGHTNING;
@@ -344,6 +385,10 @@ void bubbles_update(void)
             b->state = BS_OFF;
         } else if (b->state == BS_TRAPPED && b->age >= TRAP_LIFE) {
             enemy_spawn(b->x, b->y, b->etype, 1, (uint8_t)(rng_next() & 1));
+            if (b->etype2) {
+                enemy_spawn(b->x, b->y, b->etype2, 1, (uint8_t)!(rng_next() & 1));
+                b->etype2 = 0;
+            }
             item_spawn(IT_BURST, b->x, b->y, 0);
             b->state = BS_OFF;
         }
@@ -392,7 +437,7 @@ void bubbles_draw(void)
             continue;
         }
 
-        if (b->state == BS_TRAPPED || (b->state == BS_POPPING && b->trapped)) {
+        if (b->trapped && b->state != BS_OFF && b->state != BS_FLOAT) {
             /* A ring drawn over a small picture of the trapped enemy. */
             uint8_t inner = small_enemy_tile(b->etype);
             uint8_t inner_attr = (uint8_t)(b->angry ? (PAL_RED << SPR_ATTR_PAL_SHIFT) : 0u);
@@ -406,7 +451,7 @@ void bubbles_draw(void)
             } else {
                 tile = (uint8_t)(SPR_RING0 + ph);
             }
-            oam_add(PX(b->x), PX(b->y), tile, 0);
+            oam_add(PX(b->x), PX(b->y), tile, (uint8_t)(b->big ? (PAL_YELLOW << SPR_ATTR_PAL_SHIFT) : 0u));
             oam_add(PX(b->x), PX(b->y), inner, inner_attr);
             continue;
         } else if (b->state != BS_SHOOT && b->age >= BUBBLE_RED) {
@@ -419,6 +464,6 @@ void bubbles_draw(void)
         } else {
             tile = (uint8_t)(SPR_BUBBLE0 + ph);
         }
-        oam_add(PX(b->x), PX(b->y), tile, 0);
+        oam_add(PX(b->x), PX(b->y), tile, (uint8_t)(b->big ? (PAL_YELLOW << SPR_ATTR_PAL_SHIFT) : 0u));
     }
 }
