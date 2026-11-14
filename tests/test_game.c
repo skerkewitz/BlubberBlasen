@@ -231,8 +231,8 @@ static Bubble make_trapped(uint8_t x, uint8_t y)
     b.etype = ENEMY_TYPE_WALKER;
     b.shot_frames = 8;
     b.shot_speed = FX(4, 0);
-    b.big = 0;
-    b.etype2 = 0;
+    b.vx = 0;
+    b.vy = 0;
     b.owner = 0;
     b.age = 1;
     b.x = TO_POS(x);
@@ -323,7 +323,7 @@ static void setup_room(uint8_t level)
     bubbles_clear();
     items_clear();
     g_state = GS_PLAY;
-    player_start(&g_players[0]);   /* resets dash, rescue, charge ... */
+    player_start(&g_players[0]);   /* resets dash, rescue ... */
     g_players[0].invulnerable = 0;
     g_players[0].energy = 0;
 }
@@ -1218,7 +1218,7 @@ static void test_rescue(void)
     g_opt.rescue = 0;
 }
 
-/* Plus mode: energy from defeats, drain after the hold time, dash, special shot. */
+/* Plus mode: energy from defeats, drain after the hold time, dash, a full bar. */
 static void test_plus_mode(void)
 {
     int f;
@@ -1296,35 +1296,14 @@ static void test_plus_mode(void)
     }
     CHECK(g_bubbles[0].state == BS_POPPING, "a dash under a bubble should pop it");
 
-    /* special shot: hold Y with a full bar; one bubble catches two enemies */
+    /* a full bar changes nothing about shooting: Y fires on the press
+     * (the special shot that fired on release is gone) */
     setup_room(0);
     g_opt.plus = 1;
     g_players[0].energy = ENERGY_MAX;
-    g_players[0].x = TO_POS(40);
-    enemy_spawn(TO_POS(70), g_players[0].y, ENEMY_TYPE_WALKER, 0, 0);
-    enemy_spawn(TO_POS(100), g_players[0].y, ENEMY_TYPE_WALKER, 0, 0);
-    g_freeze = 200;   /* keep the enemies in place */
-    for (f = 0; f < 31; f++) {
-        player_update(&g_players[0], PAD_Y, f == 0 ? PAD_Y : 0);
-    }
-    CHECK(g_players[0].energy == 0, "the special shot uses the whole bar");
-    for (f = 0; f < 70; f++) {
-        bubbles_update();
-    }
-    g_freeze = 0;
-    CHECK(enemies_count() == 0 && bubbles_trapped_count() == 1, "one special bubble should hold both enemies");
-    for (f = 0; f < MAX_BUBBLES; f++) {
-        if (g_bubbles[f].state == BS_TRAPPED) {
-            bubble_pop(&g_bubbles[f], 1, 0);
-        }
-    }
-    for (f = 0; f < 10; f++) {
-        bubbles_update();
-    }
-    {
-        uint8_t tiers;
-        CHECK(count_thrown(&tiers) == 2 && tiers == 0x03, "popping it defeats both as a combo");
-    }
+    player_update(&g_players[0], PAD_Y, PAD_Y);
+    CHECK(g_bubbles[0].state == BS_SHOOT && g_players[0].energy == ENERGY_MAX,
+          "with a full bar, Y blows a normal bubble at once and keeps the energy");
     g_opt.plus = 0;
 }
 
@@ -1365,7 +1344,231 @@ static void test_cpu_partner(void)
     pad[1] = PAD_START;
     game_tick(pad);
     CHECK(!g_players[1].cpu && g_state == GS_PLAY, "Start on controller 2 hands player 2 to a human (no pause)");
+    for (f = 0; f < 10; f++) {
+        game_tick(pad);          /* a real press holds Start for several frames */
+    }
+    CHECK(g_state == GS_PLAY, "holding Start after the takeover must not pause (state %d)", g_state);
+
+    /* The CPU partner is out of lives: Start on controller 2 is a human joining. */
+    pad[1] = 0;
+    game_tick(pad);
+    g_players[1].cpu = 1;
+    g_players[1].state = PS_OFF;
+    g_players[1].lives = 0;
+    pad[1] = PAD_START;
+    game_tick(pad);
+    CHECK(g_players[1].state != PS_OFF && !g_players[1].cpu,
+          "Start on controller 2 after the CPU is out lets a human join (state %d, cpu %d)",
+          g_players[1].state, g_players[1].cpu);
     g_opt.p2_cpu = 0;
+}
+
+/* A round change carries nothing over: a death in progress costs the life,
+ * a dash in progress ends, the rescue bubble opens. */
+static void test_round_change_resets(void)
+{
+    setup_two_players(0);
+    g_players[0].state = PS_DYING;
+    g_players[0].timer = 10;
+    g_players[0].powers = 1;
+    g_players[1].dash = 5;
+    g_players[1].stun = 7;
+    player_enter_round(&g_players[0]);
+    player_enter_round(&g_players[1]);
+    CHECK(g_players[0].lives == 2 && g_players[0].state == PS_ENTERING && g_players[0].powers == 0,
+          "a dying player loses the life at a round change (lives %u, state %d)", g_players[0].lives, g_players[0].state);
+    CHECK(g_players[1].dash == 0 && g_players[1].stun == 0, "dash and stun end at a round change");
+
+    setup_two_players(0);
+    g_players[0].state = PS_DYING;
+    g_players[0].lives = 1;
+    player_enter_round(&g_players[0]);
+    CHECK(g_players[0].state == PS_OFF, "a dying player on the last life is out after a round change");
+
+    setup_two_players(0);
+    g_players[0].state = PS_RESCUE;
+    g_players[0].rescue = 50;
+    player_enter_round(&g_players[0]);
+    CHECK(g_players[0].lives == 3 && g_players[0].state == PS_ENTERING,
+          "the rescue bubble opens at a round change, no life lost");
+}
+
+/* Plus mode push bubble (docs/brainstorm/special-shot_2026-11-14.md). */
+static Bubble *push_setup(int bubble_dy, uint8_t kind)
+{
+    setup_room(0);
+    g_opt.plus = 1;
+    g_players[0].x = TO_POS(60);
+    g_players[0].y = TO_POS(FIELD_Y + 80);
+    g_players[0].facing_left = 0;
+    bubble_spawn_special(kind, 0, TO_POS(100), (uint16_t)TO_POS(FIELD_Y + 80 + bubble_dy));
+    return &g_bubbles[0];
+}
+
+static void fly_push(void)
+{
+    int f;
+    player_update(&g_players[0], PAD_X, PAD_X);
+    for (f = 0; f < 30 && push_active(0); f++) {
+        bubbles_update();
+    }
+}
+
+static void test_push_bubble(void)
+{
+    Bubble *b;
+    int f, i, food = 0;
+
+    /* where it hits decides the shove */
+    b = push_setup(0, BK_NORMAL);
+    fly_push();
+    CHECK(b->state == BS_FLOAT && b->vx > 0 && b->vy == 0, "a hit in the middle pushes along the shot (vx %d vy %d)",
+          b->vx, b->vy);
+    for (f = 0; f < 90; f++) {
+        bubbles_update();
+    }
+    CHECK(PX(b->x) >= 130 && b->vx == 0, "the shoved bubble slides about 30+ px and stops (x %u, vx %d)", PX(b->x), b->vx);
+
+    b = push_setup(7, BK_NORMAL);   /* the push bubble meets its upper third */
+    fly_push();
+    CHECK(b->vy > 0 && b->vx == 0, "a hit in the upper third pushes down (vx %d vy %d)", b->vx, b->vy);
+    b = push_setup(-7, BK_NORMAL);  /* lower third */
+    fly_push();
+    CHECK(b->vy < 0 && b->vx == 0, "a hit in the lower third pushes up (vx %d vy %d)", b->vx, b->vy);
+
+    /* a trapped enemy can be shoved too, and stays trapped */
+    b = push_setup(0, BK_NORMAL);
+    b->state = BS_TRAPPED;
+    b->trapped = 1;
+    fly_push();
+    CHECK(b->state == BS_TRAPPED && b->vx > 0, "a bubble with an enemy inside is shoved and keeps it");
+
+    /* a shoved empty bubble traps the first enemy it slides into */
+    b = push_setup(0, BK_NORMAL);
+    enemy_spawn(TO_POS(120), TO_POS(FIELD_Y + 80), ENEMY_TYPE_WALKER, 0, 0);
+    fly_push();
+    for (f = 0; f < 30 && b->state == BS_FLOAT; f++) {
+        bubbles_update();
+    }
+    CHECK(b->state == BS_TRAPPED && !g_enemies[0].active && b->vx == 0,
+          "a shoved empty bubble traps the enemy it hits and stops (state %d)", b->state);
+
+    /* a shoved bubble that already holds an enemy does not take a second */
+    b = push_setup(0, BK_NORMAL);
+    b->state = BS_TRAPPED;
+    b->trapped = 1;
+    enemy_spawn(TO_POS(120), TO_POS(FIELD_Y + 80), ENEMY_TYPE_WALKER, 0, 0);
+    fly_push();
+    for (f = 0; f < 30; f++) {
+        bubbles_update();
+    }
+    CHECK(g_enemies[0].active, "a full bubble slides past an enemy");
+
+    /* The combo shot (found in play): Y, then X shortly after. The faster
+     * push bubble reaches the normal one just as it stops flying and shoves
+     * it on, so the bubble goes much further. Too quick (X 1-2 frames after
+     * Y) fails: the push bubble overtakes the bubble while it still flies and
+     * cannot be pushed. Measured window: X 3+ frames after Y. It depends on
+     * SHOOT_SPEED/SHOOT_FRAMES against PUSH_SPEED/PUSH_FRAMES in bubble.c;
+     * a tuning change must not lose it. Bit k = X pressed k+1 frames after Y. */
+    {
+        int k, window = 0;
+        for (k = 0; k <= 12; k++) {
+            uint16_t x_float = 0;
+            setup_room(0);
+            g_opt.plus = 1;
+            g_players[0].x = TO_POS(40);
+            g_players[0].facing_left = 0;
+            for (f = 0; f < 60; f++) {
+                uint16_t pad = (uint16_t)(f == 0 ? PAD_Y : f == k + 1 ? PAD_X : 0);
+                player_update(&g_players[0], pad, pad);
+                bubbles_update();
+                if (!x_float && g_bubbles[0].state == BS_FLOAT) {
+                    x_float = PX(g_bubbles[0].x);
+                }
+            }
+            if (x_float && PX(g_bubbles[0].x) >= x_float + 20) {
+                window |= 1 << k;
+            }
+        }
+        CHECK((window & 0x01FC) == 0x01FC, "the combo shot works with X 3-9 frames after Y (mask 0x%04X)", window);
+        CHECK((window & 0x0003) == 0, "X 1-2 frames after Y overtakes the flying bubble (mask 0x%04X)", window);
+    }
+
+    /* a wall stops a sliding bubble */
+    b = push_setup(0, BK_NORMAL);
+    b->x = TO_POS(220);
+    b->vx = FX(3, 0);
+    for (f = 0; f < 20; f++) {
+        bubbles_update();
+    }
+    CHECK(b->vx == 0, "a wall stops the slide (vx %d)", b->vx);
+
+    /* special bubbles are set off as if touched */
+    b = push_setup(0, BK_WATER);
+    fly_push();
+    CHECK(b->state != BS_FLOAT, "a special bubble is set off by the push bubble");
+
+    /* enemy shots are destroyed, the bubble behind is not reached */
+    b = push_setup(0, BK_NORMAL);
+    item_spawn_shot(SHOT_ROCK, TO_POS(84), TO_POS(FIELD_Y + 80), -1);
+    fly_push();
+    for (i = 0; i < MAX_ITEMS; i++) {
+        CHECK(g_items[i].kind != IT_ROCK, "the push bubble destroys an enemy shot");
+    }
+    CHECK(b->vx == 0, "the push bubble bursts on the shot");
+
+    /* an enemy: the push bubble bursts, nothing happens */
+    b = push_setup(0, BK_NORMAL);
+    enemy_spawn(TO_POS(84), TO_POS(FIELD_Y + 80), ENEMY_TYPE_WALKER, 0, 0);
+    fly_push();
+    CHECK(g_enemies[0].active && b->vx == 0 && !push_active(0), "an enemy stops the push bubble, unharmed");
+
+    /* food is not collected, it flies on to the bubble */
+    b = push_setup(0, BK_NORMAL);
+    item_spawn(IT_FOOD, TO_POS(84), TO_POS(FIELD_Y + 80), 0);
+    fly_push();
+    for (i = 0; i < MAX_ITEMS; i++) {
+        food += g_items[i].kind == IT_FOOD;
+    }
+    CHECK(food == 1 && b->vx > 0, "the push bubble collects nothing (food %d, vx %d)", food, b->vx);
+
+    /* one at a time; nothing in Arcade mode */
+    push_setup(0, BK_NORMAL);
+    player_update(&g_players[0], PAD_X, PAD_X);
+    CHECK(push_active(0) && !push_shoot(0, g_players[0].x, g_players[0].y, 0), "only one push bubble at a time");
+    push_setup(0, BK_NORMAL);
+    g_opt.plus = 0;
+    player_update(&g_players[0], PAD_X, PAD_X);
+    CHECK(!push_active(0), "no push bubble in Arcade mode");
+
+    /* through the whole game: X during play shows the push bubble */
+    {
+        uint16_t pad[NUM_PLAYERS] = { PAD_START, 0 };
+        const Sprite *oam;
+        int drawn = 0;
+        for (i = 0; i < SRAM_SIZE; i++) {
+            game_sram()[i] = 0;
+        }
+        game_init(5);
+        game_debug_options(1, 0, 0);
+        game_tick(pad);
+        pad[0] = 0;
+        for (f = 0; f < 600 && g_state != GS_PLAY; f++) {
+            game_tick(pad);
+        }
+        g_players[0].invulnerable = 200;
+        pad[0] = PAD_X;
+        game_tick(pad);
+        oam = game_oam();
+        for (i = 0; i < MAX_SPRITES; i++) {
+            drawn |= oam[i].y < SCREEN_H && oam[i].tile == SPR_PUSH;
+        }
+        CHECK(g_state == GS_PLAY && push_active(0) && drawn, "X in a Plus game blows a visible push bubble (state %d)",
+              g_state);
+        game_debug_options(0, 0, 0);
+    }
+    g_opt.plus = 0;
 }
 
 /* The CPU partner climbs to a platform five rows up (a full jump): it
@@ -1502,6 +1705,8 @@ int main(void)
     test_dash_rules();
     test_options();
     test_cpu_partner();
+    test_round_change_resets();
+    test_push_bubble();
     test_cpu_climbs();
     test_debug_switches();
     test_cpu_soak();

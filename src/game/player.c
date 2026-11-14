@@ -25,7 +25,6 @@
 #define DASH_POP_Y    20          /* ... and in y: a band taller than the body */
 #define DASH_BUFFER   6           /* a dash pressed up to 6 frames too early still happens */
 #define DASH_EXTEND   48          /* how far a dash may run on to get out of a wall */
-#define CHARGE_FRAMES 30          /* hold Y this long with a full bar */
 #define ENERGY_DRAIN_MASK 3       /* drain 1 every 4 frames */
 #define SHOOT_DELAY   15
 #define SHOOT_DELAY_RATE 7         /* with the rate candy */
@@ -58,7 +57,6 @@ void player_start(Player *p)
     p->dash = 0;
     p->dash_used = 0;
     p->dash_buffer = 0;
-    p->charge = 0;
 }
 
 /* --- Plus mode energy -------------------------------------------------------- */
@@ -211,7 +209,6 @@ static void trap_in_rescue_bubble(Player *p)
     p->vx = 0;
     p->vy = 0;
     p->dash = 0;
-    p->charge = 0;
     sfx(SFX_HELP);
 }
 
@@ -287,9 +284,19 @@ void player_enter_round(Player *p)
     if (p->state == PS_OFF) {
         return;
     }
-    if (p->state != PS_ALIVE) {
-        player_start(p);
+    if (p->state == PS_DYING) {
+        player_killed(p);      /* a death in progress still costs the life */
+        if (p->state == PS_OFF) {
+            return;            /* that was the last one */
+        }
+    } else if (p->state != PS_ALIVE) {
+        player_start(p);       /* rescue bubble: the round is over, freed */
     }
+    /* Nothing from the old round carries over: no dash or stun. */
+    p->dash = 0;
+    p->dash_buffer = 0;
+    p->stun = 0;
+    p->carried = 0;
     p->state = PS_ENTERING;
     p->vx = 0;
     p->vy = 0;
@@ -433,7 +440,7 @@ static void jump_and_fall(Player *p, uint16_t pad)
     }
 }
 
-static void shoot(Player *p, uint16_t pad, uint16_t pressed)
+static void shoot(Player *p, uint16_t pressed)
 {
     uint8_t fire = 0;
 
@@ -444,32 +451,17 @@ static void shoot(Player *p, uint16_t pad, uint16_t pressed)
         p->shoot_pose--;
     }
 
-    /* Plus mode, full bar: holding Y charges the special shot; a short
-     * press still blows a normal bubble when Y is let go. */
-    if (g_opt.plus && p->energy >= ENERGY_MAX && !(p->powers & POWER_BIT(POWER_GLOVE))) {
-        if (pad & PAD_Y) {
-            if (p->charge < 255) {
-                p->charge++;
-            }
-            if (p->charge == CHARGE_FRAMES) {
-                uint16_t bx = (uint16_t)(p->facing_left ? p->x - TO_POS(8) : p->x + TO_POS(8));
-                bubble_shoot_special(bx, p->y, p->facing_left);
-                if (!DBG(DBG_FULL_ENERGY)) {
-                    p->energy = 0;
-                }
-                p->shoot_pose = SHOOT_POSE;
-                p->shoot_cooldown = SHOOT_DELAY;
-                sfx(SFX_EXTRA);
-            }
-            return;
+    /* Plus mode: X (the top face button) blows a push bubble (one at a
+     * time, no energy). */
+    if (g_opt.plus && (pressed & PAD_X)) {
+        uint16_t bx = (uint16_t)(p->facing_left ? p->x - TO_POS(8) : p->x + TO_POS(8));
+        if (push_shoot(p->id, bx, p->y, p->facing_left)) {
+            p->shoot_pose = SHOOT_POSE;
+            sfx(SFX_SHOOT);
         }
-        fire = (uint8_t)(p->charge > 0 && p->charge < CHARGE_FRAMES);
-        p->charge = 0;
-    } else {
-        p->charge = 0;
-        fire = (uint8_t)((pressed & PAD_Y) != 0);
     }
 
+    fire = (uint8_t)((pressed & PAD_Y) != 0);
     if (fire && p->shoot_cooldown == 0) {
         uint16_t bx = (uint16_t)(p->facing_left ? p->x - TO_POS(8) : p->x + TO_POS(8));
         if (p->powers & POWER_BIT(POWER_GLOVE)) {
@@ -540,8 +532,11 @@ void player_update(Player *p, uint16_t pad, uint16_t pressed)
             pressed = 0;
         }
         if (p->carried) {
-            /* Riding a water stream: the stream moves the player. */
-            uint8_t touch = safe(p) ? TOUCH_NONE : enemies_touch(p->x, p->y);
+            /* Riding a water stream: the stream moves the player and
+             * ends a dash (it must not wait out the ride, invulnerable). */
+            uint8_t touch;
+            p->dash = 0;
+            touch = safe(p) ? TOUCH_NONE : enemies_touch(p->x, p->y);
             if (touch) {
                 hurt(p, touch);
             }
@@ -560,7 +555,7 @@ void player_update(Player *p, uint16_t pad, uint16_t pressed)
             walk(p, pad);
             jump_and_fall(p, pad);
         }
-        shoot(p, pad, pressed);
+        shoot(p, pressed);
         touch_bubbles(p, pad);
         if (g_freeze) {
             enemies_defeat_at(p->x, p->y, p->id);
@@ -613,8 +608,6 @@ void player_draw(const Player *p)
         if (p->dash) {
             /* dashing: bright flash */
             attr = (uint8_t)((attr & (0xFFu ^ SPR_ATTR_PAL_MASK)) | (((g_frame >> 1) & 1 ? PAL_YELLOW : PAL_NONE) << SPR_ATTR_PAL_SHIFT));
-        } else if (p->charge >= CHARGE_FRAMES / 2) {
-            attr = (uint8_t)((attr & (0xFFu ^ SPR_ATTR_PAL_MASK)) | (PAL_YELLOW << SPR_ATTR_PAL_SHIFT));
         }
         if (p->stun) {
             attr = (uint8_t)((attr & (0xFFu ^ SPR_ATTR_PAL_MASK)) | (PAL_ORANGE << SPR_ATTR_PAL_SHIFT));

@@ -409,6 +409,7 @@ static void begin_transition(void)
     items_clear();
     effects_clear();
     enemies_clear();
+    cpu_reset();      /* no half-done "get unstuck" move into the new room */
     for (i = 0; i < NUM_PLAYERS; i++) {
         player_enter_round(&g_players[i]);
     }
@@ -440,6 +441,14 @@ static void join(Player *p)
     played[p->id] = 1;
     player_start(p);
     sfx(SFX_START);
+}
+
+/* Start pressed on a controller: a human joins, even on the slot a CPU
+ * partner had (unless the developer option keeps the CPU there). */
+static void join_by_start(Player *p)
+{
+    p->cpu = (uint8_t)((debug_cpu_mask >> p->id) & 1);
+    join(p);
 }
 
 static void new_game(uint8_t starter)
@@ -567,7 +576,7 @@ static void update_continue(const uint16_t pressed[NUM_PLAYERS])
     uint8_t i;
     for (i = 0; i < NUM_PLAYERS; i++) {
         if (pressed[i] & PAD_START) {
-            join(&g_players[i]);
+            join_by_start(&g_players[i]);
             text_clear_row(12);
             text_clear_row(14);
             g_state = GS_PLAY;
@@ -612,7 +621,7 @@ static uint8_t handle_start(const uint16_t pressed[NUM_PLAYERS])
             continue;
         }
         if (g_players[i].state == PS_OFF) {
-            join(&g_players[i]);
+            join_by_start(&g_players[i]);
         } else if (g_state == GS_PLAY) {
             text_put(13, 13, "PAUSE", PAL_NONE);
             sfx(SFX_PAUSE);
@@ -952,7 +961,7 @@ static void draw_options(void)
         text_put(21, row, values[i], pal);
     }
     text_put(3, 21, g_opt.plus ? "PLUS: DASH WITH L/R, ENERGY," : "ARCADE: THE CLASSIC RULES.  ", PAL_GREY);
-    text_put(3, 22, g_opt.plus ? "SPECIAL SHOT: HOLD Y.       " : "                            ", PAL_GREY);
+    text_put(3, 22, g_opt.plus ? "PUSH BUBBLE: TOP BUTTON.    " : "                            ", PAL_GREY);
     text_put(4, 25, "UP/DOWN, LEFT/RIGHT, START", PAL_GREY);
 }
 
@@ -1197,6 +1206,9 @@ void game_tick(const uint16_t real_pad[NUM_PLAYERS])
                 g_players[i].cpu = 0;          /* a human takes over player 2 */
                 played[i] = 1;
                 pad[i] = 0;
+                pressed[i] = 0;
+                prev_pad[i] = real_pad[i];     /* the held Start must not pause next frame */
+                continue;
             } else {
                 pad[i] = cpu_pad(&g_players[i]);
             }

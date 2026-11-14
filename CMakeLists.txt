@@ -82,6 +82,10 @@ if(EMSCRIPTEN)
         "SHELL:--exclude-file *guarded-stillness*"
         "SHELL:--shell-file ${PROJECT_SOURCE_DIR}/web/shell.html")
     set_property(TARGET blubberblasen APPEND PROPERTY LINK_DEPENDS ${PROJECT_SOURCE_DIR}/web/shell.html)
+    # The packed assets live in blubberblasen.data, which is written at link
+    # time: a changed (or added) asset must relink, or the old .data ships.
+    file(GLOB_RECURSE BB_WEB_ASSETS CONFIGURE_DEPENDS ${PROJECT_SOURCE_DIR}/assets/*)
+    set_property(TARGET blubberblasen APPEND PROPERTY LINK_DEPENDS ${BB_WEB_ASSETS})
 else()
     # Fallback when there is no assets folder next to the executable.
     target_compile_definitions(blubberblasen PRIVATE BB_ASSET_DIR="${PROJECT_SOURCE_DIR}/assets")
@@ -103,14 +107,19 @@ if(BB_DEBUG_SWITCHES)
     add_test(NAME game COMMAND test_game)
 endif()
 
-# map2c must reject broken settings files
+# map2c must reject broken settings files, for the right reason: the tests
+# match the expected message, so a missing fixture ("cannot open file")
+# fails instead of passing like any other non-zero exit would.
+set(BB_BAD_bad_delay "bad_delay\\.txt:2: fewer delay values than enemies")
+set(BB_BAD_bad_key   "bad_key\\.txt:1: unknown setting")
 foreach(bad bad_delay bad_key)
     add_test(NAME map2c_${bad}
              COMMAND map2c -o ${PROJECT_BINARY_DIR}/generated/${bad}.c ${PROJECT_SOURCE_DIR}/tests/map2c/${bad}.map)
-    set_tests_properties(map2c_${bad} PROPERTIES WILL_FAIL TRUE)
+    set_tests_properties(map2c_${bad} PROPERTIES PASS_REGULAR_EXPRESSION "${BB_BAD_${bad}}")
 endforeach()
 
 # every room must be playable (reachability check)
 add_test(NAME rooms_playable COMMAND mapview --check ${LEVEL_FILES})
 add_test(NAME rooms_check_detects_problems COMMAND mapview --check ${PROJECT_SOURCE_DIR}/tests/rooms/unreachable.map)
-set_tests_properties(rooms_check_detects_problems PROPERTIES WILL_FAIL TRUE)
+set_tests_properties(rooms_check_detects_problems PROPERTIES
+                     PASS_REGULAR_EXPRESSION "enemy 0 \\(x=15 y=13\\) cannot be reached")

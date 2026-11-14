@@ -10,7 +10,7 @@ The project is built in three stages:
 
 | Stage | Goal | Status |
 |-------|------|--------|
-| 1 | Playable prototype on PC (C99 + raylib) | In progress: first playable version (5 rounds, title, game over, high scores) |
+| 1 | Playable prototype on PC (C99 + raylib) | In progress: playable version (100 rounds, boss, secret room, title, game over, high scores) |
 | 2 | Split into game code and a "pseudo SNES" layer with a SNES-like API (sprites, tilemaps, palettes, memory layout) | Planned |
 | 3 | Port to real SNES hardware (65816 C compiler and/or assembly) | Planned |
 
@@ -18,20 +18,20 @@ The game code is written from day one so that it survives all three stages with 
 
 ### Version
 
-The game has a version number `major.minor.revision`, currently **1.0.0**. It is set in one place, `GAME_VERSION` in `src/game/game.h`, and shown on the title screen. The roadmap stages above are separate from it.
+The game has a version number `major.minor.revision`, It is set in one place, `GAME_VERSION` in `src/game/game.h`, and shown on the title screen. The roadmap stages above are separate from it.
 
 ## Architecture in short
 
 - **Language:** C99.
-- **Platform layer:** raylib, used **only** in `src/platform/`. Game code never includes `raylib.h` ([ADR-0001](docs/adr/0001-stage1-platform-c-raylib.md)).
+- **Platform layer:** raylib, used **only** in `src/platform/`. Game code never includes `raylib.h` (ADR-0001, not written yet).
 - **SNES-shaped interface** between game and platform:
   - Input: one 16-bit button word per player per frame (SNES joypad bit layout).
   - Output: a shadow sprite table (OAM-like, 16 × 16 sprites) and two 8 × 8 tilemaps, rendered into a 256 × 224 framebuffer and scaled to the window. Layer 0 (level, below the sprites) is 32 × 64 tiles, scrolls vertically and has a window line so it never shows behind the HUD; layer 1 (text, above the sprites) is fixed.
   - Graphics (stage 1): 24-bit PNGs, magenta = transparent. A "palette" is a tint for now. See [assets/README.md](assets/README.md).
   - Audio: sound effects requested by ID (one bit per effect per tick) and one music track ID; the platform streams the track.
-  - Save RAM: 64 bytes (high score table) that the platform keeps in a file, like a battery-backed cartridge.
+  - Save RAM: 128 bytes (high score table in the first 64, options from byte 64) that the platform keeps in a file, like a battery-backed cartridge.
   - Time: the game is ticked exactly once per frame at 60 Hz.
-- **Old-school game loop** ([ADR-0002](docs/adr/0002-oldschool-game-loop-no-ecs.md)):
+- **Old-school game loop** (ADR-0002, not written yet):
   - One main loop, top-level state machine (`enum` + `switch`).
   - Fixed-size, statically allocated object tables (`players[2]`, `enemies[8]`, ...). No ECS, no heap objects.
   - Fixed-point math only (e.g. 8.8 in `int16_t`). No `float`/`double`, no `malloc`/`free` in game code.
@@ -45,15 +45,18 @@ BlubberBlasen/
 ├── CMakeLists.txt
 ├── README.md
 ├── docs/
-│   └── adr/                 # Architecture Decision Records
+│   └── adr/                 # Architecture Decision Records (empty so far)
 ├── src/
 │   ├── game/                # Portable game code (no raylib, no float, no malloc)
 │   │   ├── game.h           #   interface to the platform (pad in; OAM, tilemaps, sound, SRAM out)
 │   │   ├── internal.h       #   shared state and object tables
 │   │   ├── game.c           #   state machine, screens, HUD
 │   │   ├── level.c          #   tile collision, airflow, auto-tiling
-│   │   ├── player.c enemy.c bubble.c item.c
+│   │   ├── player.c enemy.c bubble.c item.c boss.c effect.c
+│   │   ├── cpu.c            #   CPU partner (navigation, look-ahead dodging)
+│   │   ├── debug.c          #   developer switches (BB_DEBUG builds only)
 │   │   ├── hiscore.c text.c
+│   │   ├── fixed.h          #   8.8 fixed-point helpers
 │   │   └── level_data.h     #   level format shared with tools/map2c
 │   └── platform/            # platform_raylib.c: window, input, rendering, audio, 60 Hz tick
 ├── assets/                  # Graphics, sound and level files (see assets/README.md)
@@ -231,17 +234,17 @@ Keeping `game` as a separate library without a raylib link dependency makes acci
 | B (jump) | `K` | `.` | South button |
 | Y (bubble) | `J` | `,` | West button |
 | A | `C` | | East button |
-| X | `V` | | North button |
+| X (push bubble, Plus mode) | `H` or `V` | `M` | North button (Xbox Y, PlayStation △) |
 | L / R (dash left / right, Plus mode) | `Q` / `E` | | |
 | Dash (held direction, else facing) | `L` | `/` | LB or RB |
 | Start | `Enter` | `Right Ctrl` | Start |
 | Select | `Shift` (either) | | Back / Select |
 
-On the title screen, Select opens the options: **mode** (Arcade, or Plus with dash, energy bar and special shot), **co-op rescue** (on/off) and **player 2** (human or CPU partner). They are saved with the high scores.
+On the title screen, Select opens the options: **mode** (Arcade, or Plus with dash, energy bar and push bubble), **co-op rescue** (on/off) and **player 2** (human or CPU partner). They are saved with the high scores.
 
 The first gamepad belongs to player 1, the second to player 2. The game starts on the title screen: press Start to begin. The other player can join at any time with their Start button. A player with no lives left can continue the same way (the score is kept). During play, Start pauses.
 
-On a phone or tablet the web page shows touch controls for player 1: a D-pad, Jump, Bubble, Dash, Start and Options. They are part of `web/shell.html` and only send the matching keyboard keys, so the game itself has no touch code. Player 2 needs a keyboard, a gamepad or the CPU partner.
+On a phone or tablet the web page shows touch controls for player 1: a D-pad, Jump, Bubble, Push, Dash, Start and Options. They are part of `web/shell.html` and only send the matching keyboard keys, so the game itself has no touch code. Player 2 needs a keyboard, a gamepad or the CPU partner.
 
 Mappings live in `src/platform/platform_raylib.c` and may change. `Esc` quits, `F11` toggles full screen, `Tab` toggles the retro TV filter.
 
@@ -249,15 +252,17 @@ Mappings live in `src/platform/platform_raylib.c` and may change. `Esc` quits, `
 
 Shoot bubbles (Y) at the enemies to trap them, then touch the trapped enemy to defeat it: it flies through the room and lands as food. Touching an enemy that is not in a bubble costs a life. A trapped enemy breaks free after a few seconds, angry and faster. Floating bubbles pop when you touch them, but if you fall onto one while holding jump (B), you bounce off it. Two players play at the same time and share the room. Every bubble a popped bubble touches pops too: defeat several enemies in one chain and each one's food is worth double the one before (1,000, 2,000, 4,000 ... 64,000). There are seven enemy types, introduced over the rounds: walkers, throwers that stop and throw rocks, bouncers that fly diagonally through the platforms, flutters that fly around and change direction often, hoppers on springs, spitters that run fast and spit fireballs, and droppers that patrol and shoot straight down. The last enemy in a round gets angry, and when the round's time runs out all of them do ("HURRY UP!"); ten seconds later an invincible storm cloud comes for you. Losing a life calms everything down again. Some rounds send in special bubbles: water washes enemies away (all of them one combo), fire drops onto a platform and burns (it stuns players too), lightning flies across the room. A chain of three or more enemies earns EXTEND letter bubbles; collect E-X-T-E-N-D (shown on the side walls) for an extra life and an instant round skip. Hidden counters (bubbles blown, bubbles popped, jumps, distance walked, water bubbles popped) unlock power-ups that appear on a platform in a later round: three candies (bubbles fly farther, faster, more often), shoes (run faster) and an umbrella (skip 3 rounds). Candies and shoes are lost with a life. Every round also puts out one bonus food (500 to 2,000 points) after ten seconds. Clear all enemies to get to the next round, which scrolls in from below. There are 100 rounds on ten factory floors (see [the story](docs/story.md)); round 100 is the Grumble Boiler: bubbles bounce off it, but in that round every bubble you blow turns into a lightning bubble, and only lightning hurts it. Beat it, pop the giant bubble it ends up in, and the ending depends on whether two players made it. Reach round 20, 40, 50 or 60 without anybody losing a life and a door appears on the floor (press Up in front of it): it leads to a secret room full of gems with a clue, and in round 50 to round 70. More items are unlocked by hidden counters: the Soap Star and the Rinse Wave turn every enemy into a gem, the Steam Whistle freezes them (touch a frozen enemy to defeat it), the Fire Glove shoots fireballs for one round and the Bubble Ring gives 100 points per bubble. You have 3 lives (the spare ones are shown in the bottom corners), plus one at 30,000 and one at 100,000 points; when the last player is out, a countdown gives you a few seconds to continue with Start. A good score gets you into the high score table.
 
-**Plus mode** adds an energy bar per player (on the bottom wall). It only fills by defeating enemies (more in combos) and drains when you stop attacking; losing a life empties it. L / R dash about seven tiles left or right without turning around (the dash key, `L` on the keyboard or either shoulder button on a gamepad, dashes the way you hold or, if you hold nothing, the way you face). A dash pops every bubble it sweeps through, passes through inner walls and platforms, never ends inside a wall, keeps you invulnerable for the whole dash and half a second after it (you blink), works once per jump, costs a bit of energy, and a press up to six frames too early (for example just before landing) still counts. The player sprite shows the energy: a yellow glow with small spikes when a dash is available, cycling colours when the bar is full (each with a chime), a flash and two afterimages while dashing. With a full bar, hold Y to charge a special shot: a large, slow bubble that can catch two enemies at once.
+**Plus mode** adds an energy bar per player (on the bottom wall). It only fills by defeating enemies (more in combos) and drains when you stop attacking; losing a life empties it. L / R dash about seven tiles left or right without turning around (the dash key, `L` on the keyboard or either shoulder button on a gamepad, dashes the way you hold or, if you hold nothing, the way you face). A dash pops every bubble it sweeps through, passes through inner walls and platforms, never ends inside a wall, keeps you invulnerable for the whole dash and half a second after it (you blink), works once per jump, costs a bit of energy, and a press up to six frames too early (for example just before landing) still counts. The player sprite shows the energy: a yellow glow with small spikes when a dash is available, cycling colours when the bar is full (each with a chime), a flash and two afterimages while dashing.
+
+**Push bubble** (Plus mode): X, the top face button (Y on an Xbox pad, △ on PlayStation), blows a small, fast bubble that traps nothing. It works like a cue ball: it bursts on the first floating bubble it meets and shoves it, empty or with an enemy inside. A hit on the bubble's upper third pushes it down, on the lower third up, in the middle along the push bubble's way. The shoved bubble slides, ignoring the air, slows down and stops at the walls; an empty one traps the first enemy it slides into, like a fired bubble. A special bubble (water, fire, lightning, an EXTEND letter) is set off as if you touched it. The push bubble destroys enemy shots and bursts without effect on enemies, players and the boss; it collects nothing. Each player has one at a time, and it costs no energy.
 
 **Co-op rescue** (two players): an enemy that touches you traps you in a rescue bubble instead of killing you. It drifts with the air; your partner frees you by touching it, with no life lost. If it runs out, you lose a life. Shots, the storm cloud and the boss still kill.
 
-**CPU partner:** with player 2 set to CPU, a computer partner plays player 2. It frees you from rescue bubbles, avoids danger, pops trapped enemies (preferably several at once), hunts enemies and stays near you. To avoid danger it looks ahead every frame: it predicts where enemies, shots, storm clouds and the boss will be over the next half second, tries out its own moves (stay, walk, jump, dash, turn and shoot) and only follows its goal if that stays safe; it leaves the food to you and earns no score. Press Start on controller 2 to take over from it. A game finished with the CPU partner counts as a two-player game.
+**CPU partner:** with player 2 set to CPU, a computer partner plays player 2. It frees you from rescue bubbles, avoids danger, pops trapped enemies (preferably several at once), hunts enemies and stays near you. To avoid danger it looks ahead every frame: it predicts where enemies, shots, storm clouds and the boss will be over the next half second, tries out its own moves (stay, walk, jump, dash, turn and shoot) and only follows its goal if that stays safe; it leaves the food to you and earns no score. Press Start on controller 2 to take over from it; once it has lost its last life, Start on controller 2 lets a human join in its place. A game finished with the CPU partner counts as a two-player game.
 
 ## Coding rules for `src/game/`
 
-These rules keep the code portable to the 65816. CI enforces the first three.
+These rules keep the code portable to the 65816. There is no CI yet, so nothing enforces them automatically: run the check below before committing.
 
 1. No `#include <raylib.h>` (or any platform header).
 2. No `float` or `double`.
@@ -275,8 +280,8 @@ grep -rnE 'raylib\.h|\bfloat\b|\bdouble\b|\b(malloc|calloc|realloc|free)\s*\(' s
 
 ## Documentation
 
-- [ADR-0001: Stage 1 prototype in C99 with raylib behind a thin platform layer](docs/adr/0001-stage1-platform-c-raylib.md)
-- [ADR-0002: Old-school game loop and data layout, structured like the later SNES version](docs/adr/0002-oldschool-game-loop-no-ecs.md)
+- ADR-0001: Stage 1 prototype in C99 with raylib behind a thin platform layer (not written yet)
+- ADR-0002: Old-school game loop and data layout, structured like the later SNES version (not written yet)
 - Game Design Guide (arcade mechanics reference for the first playable version)
 - [Story](docs/story.md): the Blubber Factory, heroes, floors, secret rooms, boss and endings
 

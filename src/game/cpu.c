@@ -482,10 +482,13 @@ static int16_t evaluate(const Player *p, uint8_t act, uint8_t samples)
         int16_t t = sample_t[k];
         int16_t ox, oy = (int16_t)PX(p->y);
         if (dash) {
-            if (t <= DASH_FRAMES + DASH_GRACE) {
-                continue;                                   /* invulnerable */
+            /* Invulnerable for the whole look-ahead (every sample is within
+             * DASH_FRAMES + DASH_GRACE), so what counts is where the dash
+             * ends: that spot against the furthest prediction. */
+            if (k != samples - 1) {
+                continue;
             }
-            ox = (int16_t)(PX(p->x) + dir * (((t < DASH_FRAMES ? t : DASH_FRAMES) * 1152) >> 8));
+            ox = (int16_t)(PX(p->x) + dir * ((DASH_FRAMES * 1152) >> 8));
         } else {
             ox = (int16_t)(PX(p->x) + dir * ((235 * t) >> 8));
         }

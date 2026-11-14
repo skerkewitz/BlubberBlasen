@@ -35,7 +35,7 @@ enum {
     SPR_P_WALK0 = 0, SPR_P_WALK1 = 1, SPR_P_JUMP = 2, SPR_P_FALL = 3, SPR_P_SHOOT = 4,
     SPR_P_DEATH0 = 5, SPR_P_RING = 9,
     SPR_E_WALK0 = 16, SPR_E_ANGRY0 = 18, SPR_E_THROWN0 = 20,
-    SPR_BUBBLE0 = 32, SPR_TRAP0 = 35, SPR_BURST0 = 38, SPR_BURST1 = 39, SPR_TRAP_ANGRY = 40,
+    SPR_BUBBLE0 = 32, SPR_PUSH = 35, SPR_BURST0 = 38, SPR_BURST1 = 39, SPR_TRAP_ANGRY = 40,
     SPR_BUBBLE_ORANGE0 = 41, SPR_BUBBLE_RED0 = 44,        /* empty bubble about to expire */
     SPR_FOOD0 = 48,                                       /* food tier 0..6 */
     SPR_TRAP_ORANGE0 = 56, SPR_TRAP_RED0 = 59,            /* enemy about to escape */
@@ -104,7 +104,7 @@ typedef enum {
 /* --- Objects --------------------------------------------------------------- */
 typedef enum { PS_OFF, PS_ALIVE, PS_DYING, PS_ENTERING, PS_RESCUE } PlayerState;
 
-/* Options (saved in SRAM). Plus mode = dash, energy, special shot. */
+/* Options (saved in SRAM). Plus mode = dash, energy, push bubble. */
 typedef struct {
     uint8_t plus;          /* 0 Arcade, 1 Plus */
     uint8_t rescue;        /* co-op rescue on/off (both modes) */
@@ -139,7 +139,6 @@ typedef struct {
     uint8_t  energy_state; /* 0 low, 1 dash available, 2 full (for the chimes) */
     uint8_t  trail_x[8], trail_y[8];   /* recent positions, for the dash afterimages */
     uint8_t  trail_pos;
-    uint8_t  charge;       /* frames Y has been held for the special shot */
     uint8_t  facing_left;
     uint8_t  on_ground;
     uint8_t  shoot_cooldown;
@@ -199,10 +198,9 @@ typedef struct {
     uint8_t  kind;         /* BubbleKind */
     uint8_t  letter;       /* BK_LETTER: 0..5 = E X T E N D */
     uint8_t  shot_frames;  /* how long it flies (range power-up) */
-    uint8_t  big;          /* Plus mode special shot: holds up to two enemies */
-    uint8_t  etype2;       /* second trapped enemy of a big bubble, 0 = none */
     uint8_t  owner;        /* player who blew it */
     fx8_8    shot_speed;   /* how fast it flies (speed power-up) */
+    fx8_8    vx, vy;       /* floating: momentum from a push bubble, fades out */
     uint8_t  pop_timer;    /* frames until a popping bubble bursts */
     uint16_t age;          /* frames */
     uint16_t x, y;         /* 8.8 */
@@ -354,7 +352,8 @@ void     bubbles_clear(void);
 void     bubble_shoot(uint16_t x, uint16_t y, uint8_t facing_left, uint16_t powers);
 void     bubbles_trapped_to_gems(void);   /* items: trapped enemies become gems */
 void     bubble_spawn_special(uint8_t kind, uint8_t letter, uint16_t x, uint16_t y);
-void     bubble_shoot_special(uint16_t x, uint16_t y, uint8_t facing_left);   /* Plus mode */
+uint8_t  push_shoot(uint8_t player, uint16_t x, uint16_t y, uint8_t facing_left);   /* Plus mode; 0 = one already flying */
+uint8_t  push_active(uint8_t player);
 void     bubble_pop(Bubble *b, int8_t dir, uint8_t player);   /* starts a chain reaction */
 uint8_t  bubbles_trapped_count(void);
 void     bubbles_update(void);

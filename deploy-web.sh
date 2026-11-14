@@ -15,10 +15,9 @@ FILES=(blubberblasen.html blubberblasen.js blubberblasen.wasm blubberblasen.data
 export PATH="/usr/lib/emscripten:$PATH"
 command -v emcmake >/dev/null || { echo "emcmake not found (Emscripten missing?)" >&2; exit 1; }
 
-# Configure once, as a release build without the debug switches.
-if [ ! -f "$BUILD/CMakeCache.txt" ]; then
-    emcmake cmake -S "$ROOT" -B "$BUILD" -DCMAKE_BUILD_TYPE=Release -DBB_DEBUG_SWITCHES=OFF
-fi
+# Always configure as a release build without the debug switches, also when
+# build-web already exists and was configured differently by hand.
+emcmake cmake -S "$ROOT" -B "$BUILD" -DCMAKE_BUILD_TYPE=Release -DBB_DEBUG_SWITCHES=OFF
 cmake --build "$BUILD" -j8
 
 mkdir -p "$TARGET"

@@ -4,6 +4,8 @@
  * (angry) after a while. Floating bubbles push each other apart, and a
  * popped bubble pops every bubble it touches (chain reaction); each trapped
  * enemy in one chain is worth twice as much as the one before.
+ * Plus mode adds the push bubble: it traps nothing and shoves the floating
+ * bubble it hits, like a cue ball.
  * Ported from AiBubbleSystem / AirflowSystem, extended per the design guide.
  */
 
@@ -23,8 +25,12 @@
 #define CHAIN_REACH   15           /* bubbles closer than this pop each other */
 #define PUSH_REACH    13           /* floating bubbles closer than this push apart */
 #define SPECIAL_LIFE  1200         /* special and letter bubbles: 20 s */
-#define BIG_SPEED     FX(1, 128)   /* Plus mode special shot: large and slow */
-#define BIG_FRAMES    60
+#define PUSH_SPEED    FX(6, 0)     /* Plus mode push bubble: small and fast */
+#define PUSH_FRAMES   12           /* about 72 px, then it vanishes */
+#define PUSH_HIT      10           /* hit box of the push bubble against others */
+#define PUSH_THIRD    4            /* |dy| below this hits the middle of a bubble */
+#define SHOVE_SPEED   FX(3, 0)     /* momentum a hit bubble gets */
+#define SHOVE_STOP    FX(0, 32)    /* below this the air takes over again */
 #define SHOT_RANGE_POWER 14        /* SHOOT_FRAMES with the range candy */
 #define SHOOT_SPEED_POWER FX(6, 0)
 #define TOP_LIMIT     (FIELD_Y + 6)
@@ -34,11 +40,24 @@ static uint8_t chain_kills;   /* trapped enemies popped in the running chain */
 static int8_t  chain_dir;     /* direction the first defeated enemy flies */
 static uint8_t chain_owner;   /* player who started the chain */
 
+/* Plus mode push bubble, one per player: it traps nothing, it shoves the
+ * floating bubble it hits (like a cue ball) and bursts. */
+typedef struct {
+    uint8_t  active;
+    uint8_t  age;
+    int8_t   dir;          /* -1 left, 1 right */
+    uint16_t x, y;         /* 8.8 */
+} PushShot;
+static PushShot push_shots[NUM_PLAYERS];
+
 void bubbles_clear(void)
 {
     uint8_t i;
     for (i = 0; i < MAX_BUBBLES; i++) {
         g_bubbles[i].state = BS_OFF;
+    }
+    for (i = 0; i < NUM_PLAYERS; i++) {
+        push_shots[i].active = 0;
     }
     chain_kills = 0;
 }
@@ -75,8 +94,8 @@ void bubble_spawn_special(uint8_t kind, uint8_t letter, uint16_t x, uint16_t y)
     b->state = BS_FLOAT;
     b->kind = kind;
     b->letter = letter;
-    b->big = 0;
-    b->etype2 = 0;
+    b->vx = 0;
+    b->vy = 0;
     b->dir = AIR_UP;
     b->angry = 0;
     b->trapped = 0;
@@ -95,8 +114,8 @@ void bubble_shoot(uint16_t x, uint16_t y, uint8_t facing_left, uint16_t powers)
     }
     b->state = BS_SHOOT;
     b->kind = BK_NORMAL;
-    b->big = 0;
-    b->etype2 = 0;
+    b->vx = 0;
+    b->vy = 0;
     b->shot_frames = (uint8_t)((powers & (1u << POWER_RANGE)) ? SHOT_RANGE_POWER : SHOOT_FRAMES);
     b->shot_speed = (powers & (1u << POWER_SPEED)) ? SHOOT_SPEED_POWER : SHOOT_SPEED;
     if (g_count.blown < 255) {
@@ -137,20 +156,24 @@ void bubbles_trapped_to_gems(void)
     }
 }
 
-/* Plus mode: a large, slow bubble that keeps flying after its first
- * catch and can hold two enemies. */
-void bubble_shoot_special(uint16_t x, uint16_t y, uint8_t facing_left)
+uint8_t push_shoot(uint8_t player, uint16_t x, uint16_t y, uint8_t facing_left)
 {
-    Bubble *b;
-    bubble_shoot(x, y, facing_left, 0);
-    for (b = &g_bubbles[0]; b < &g_bubbles[MAX_BUBBLES]; b++) {
-        if (b->state == BS_SHOOT && b->age == 0 && b->x == x) {
-            b->big = 1;
-            b->shot_frames = BIG_FRAMES;
-            b->shot_speed = BIG_SPEED;
-            return;
-        }
+    PushShot *s = &push_shots[player];
+    if (s->active) {
+        return 0;          /* one at a time */
     }
+    s->active = 1;
+    s->age = 0;
+    s->dir = (int8_t)(facing_left ? -1 : 1);
+    s->x = x;
+    s->y = y;
+    level_clamp_x(&s->x);
+    return 1;
+}
+
+uint8_t push_active(uint8_t player)
+{
+    return push_shots[player].active;
 }
 
 uint8_t bubbles_trapped_count(void)
@@ -158,7 +181,7 @@ uint8_t bubbles_trapped_count(void)
     uint8_t i, n = 0;
     for (i = 0; i < MAX_BUBBLES; i++) {
         const Bubble *b = &g_bubbles[i];
-        n = (uint8_t)(n + (b->state == BS_TRAPPED || ((b->state == BS_POPPING || b->state == BS_SHOOT) && b->trapped)));
+        n = (uint8_t)(n + (b->state == BS_TRAPPED || (b->state == BS_POPPING && b->trapped)));
     }
     return n;
 }
@@ -191,17 +214,13 @@ static void burst(Bubble *b)
     uint8_t i;
 
     if (b->trapped) {
-        uint8_t n, k;
-        for (k = 0, n = (uint8_t)(b->etype2 ? 2 : 1); k < n; k++) {
-            uint8_t tier = (uint8_t)(chain_kills < FOOD_TIERS - 1 ? chain_kills : FOOD_TIERS - 1);
-            int8_t dir = chain_kills == 0 ? chain_dir : (int8_t)((rng_next() & 1) ? 1 : -1);
-            energy_gain(chain_owner, (uint8_t)(ENERGY_PER_ENEMY + (chain_kills ? ENERGY_COMBO : 0)));
-            if (chain_kills < 255) {
-                chain_kills++;
-            }
-            item_spawn_thrown(b->x, b->y, dir, tier);
+        uint8_t tier = (uint8_t)(chain_kills < FOOD_TIERS - 1 ? chain_kills : FOOD_TIERS - 1);
+        int8_t dir = chain_kills == 0 ? chain_dir : (int8_t)((rng_next() & 1) ? 1 : -1);
+        energy_gain(chain_owner, (uint8_t)(ENERGY_PER_ENEMY + (chain_kills ? ENERGY_COMBO : 0)));
+        if (chain_kills < 255) {
+            chain_kills++;
         }
-        b->etype2 = 0;
+        item_spawn_thrown(b->x, b->y, dir, tier);
         sfx(SFX_KILL);
     } else if (b->kind == BK_LETTER) {
         extend_collect(chain_owner, b->letter);
@@ -238,46 +257,44 @@ static void burst(Bubble *b)
     }
 }
 
-static void update_shot(Bubble *b)
+/* An empty bubble on the move (fired, or shoved by a push bubble) traps
+ * the first enemy it touches and stops. */
+static uint8_t catch_enemy(Bubble *b)
 {
     uint8_t i;
-    uint16_t before = b->x;
-
-    b->x = (uint16_t)(b->dir == AIR_LEFT ? b->x - (uint16_t)b->shot_speed : b->x + (uint16_t)b->shot_speed);
-    level_clamp_x(&b->x);
-
     for (i = 0; i < MAX_ENEMIES; i++) {
         Enemy *e = &g_enemies[i];
         if (e->active && !e->entering && overlap(b->x, b->y, e->x, e->y, 12, 12)) {
             e->active = 0;
             sfx(SFX_TRAP);
-            if (b->big && !b->trapped) {
-                b->trapped = 1;          /* first catch: keeps flying */
-                b->etype = e->type;
-                b->angry = e->angry;
-                continue;
-            }
-            if (b->big) {
-                b->etype2 = e->type;     /* second catch */
-            } else {
-                b->etype = e->type;
-                b->angry = e->angry;
-            }
+            b->etype = e->type;
+            b->angry = e->angry;
             b->state = BS_TRAPPED;
             b->trapped = 1;
             b->age = 0;
             b->dir = AIR_UP;
-            return;
+            b->vx = 0;
+            b->vy = 0;
+            return 1;
         }
+    }
+    return 0;
+}
+
+static void update_shot(Bubble *b)
+{
+    uint16_t before = b->x;
+
+    b->x = (uint16_t)(b->dir == AIR_LEFT ? b->x - (uint16_t)b->shot_speed : b->x + (uint16_t)b->shot_speed);
+    level_clamp_x(&b->x);
+
+    if (catch_enemy(b)) {
+        return;
     }
 
     if (b->age > b->shot_frames || b->x == before || boss_touch(b->x, b->y)) {
-        b->state = b->trapped ? BS_TRAPPED : BS_FLOAT;
+        b->state = BS_FLOAT;
         b->dir = AIR_UP;
-        if (b->trapped) {
-            b->age = 0;
-            return;
-        }
         /* In the boss round every bubble becomes a lightning bubble. */
         if (level_defs[g_level].kind == LEVEL_BOSS) {
             b->kind = BK_LIGHTNING;
@@ -341,10 +358,118 @@ static void separate(void)
     }
 }
 
+/* A shoved bubble slides, ignoring the air, and slows down; a wall stops
+ * it. Only shifts, no multiplication (65816). */
+static fx8_8 slow_down(fx8_8 v)
+{
+    v = (fx8_8)(v > 0 ? v - (v >> 4) : v + ((fx8_8)-v >> 4));
+    return (fx8_8)(abs16(v) < SHOVE_STOP ? 0 : v);
+}
+
+static void slide(Bubble *b)
+{
+    uint16_t x = (uint16_t)(b->x + (uint16_t)b->vx);
+    uint16_t y = (uint16_t)(b->y + (uint16_t)b->vy);
+    b->x = x;
+    b->y = y;
+    clamp_bubble(b);
+    b->vx = b->x != x ? 0 : slow_down(b->vx);
+    b->vy = b->y != y ? 0 : slow_down(b->vy);
+    if (b->state == BS_FLOAT && b->kind == BK_NORMAL) {
+        (void)catch_enemy(b);   /* a shoved empty bubble traps like a fired one */
+    }
+}
+
+/* Where the push bubble hits decides the shove: the upper third pushes the
+ * bubble down, the lower third up, the middle along the push bubble's way. */
+static void shove(Bubble *b, const PushShot *s)
+{
+    int16_t dy = (int16_t)((int16_t)PX(s->y) - (int16_t)PX(b->y));
+    b->vx = 0;
+    b->vy = 0;
+    if (dy < -PUSH_THIRD) {
+        b->vy = SHOVE_SPEED;
+    } else if (dy > PUSH_THIRD) {
+        b->vy = (fx8_8)-SHOVE_SPEED;
+    } else {
+        b->vx = (fx8_8)(s->dir < 0 ? -SHOVE_SPEED : SHOVE_SPEED);
+    }
+}
+
+static void push_burst(PushShot *s)
+{
+    item_spawn(IT_BURST, s->x, s->y, 0);
+    s->active = 0;
+}
+
+/* It bursts on the first thing it meets: a floating bubble (shoved, or
+ * set off like a touch if it is a special one), an enemy shot (destroyed),
+ * an enemy, another player or the boss (nothing happens), or a wall. It
+ * collects nothing. */
+static void update_push(uint8_t id)
+{
+    PushShot *s = &push_shots[id];
+    uint16_t before;
+    uint8_t i;
+
+    if (!s->active) {
+        return;
+    }
+    before = s->x;
+    s->x = (uint16_t)(s->dir < 0 ? s->x - (uint16_t)PUSH_SPEED : s->x + (uint16_t)PUSH_SPEED);
+    level_clamp_x(&s->x);
+    s->age++;
+
+    for (i = 0; i < MAX_BUBBLES; i++) {
+        Bubble *b = &g_bubbles[i];
+        if (floating(b) && overlap(s->x, s->y, b->x, b->y, PUSH_HIT, PUSH_HIT)) {
+            if (b->kind != BK_NORMAL) {
+                bubble_pop(b, s->dir, id);
+            } else {
+                shove(b, s);
+                sfx(SFX_POP);
+            }
+            push_burst(s);
+            return;
+        }
+    }
+    for (i = 0; i < MAX_ITEMS; i++) {
+        Item *it = &g_items[i];
+        if (it->kind == IT_ROCK && overlap(s->x, s->y, it->x, it->y, PUSH_HIT, PUSH_HIT)) {
+            it->kind = IT_OFF;
+            sfx(SFX_POP);
+            push_burst(s);
+            return;
+        }
+    }
+    for (i = 0; i < MAX_ENEMIES; i++) {
+        const Enemy *e = &g_enemies[i];
+        if (e->active && !e->entering && overlap(s->x, s->y, e->x, e->y, PUSH_HIT, PUSH_HIT)) {
+            push_burst(s);
+            return;
+        }
+    }
+    for (i = 0; i < NUM_PLAYERS; i++) {
+        const Player *p = &g_players[i];
+        if (i != id && (p->state == PS_ALIVE || p->state == PS_RESCUE) &&
+            overlap(s->x, s->y, p->x, p->y, PUSH_HIT, PUSH_HIT)) {
+            push_burst(s);
+            return;
+        }
+    }
+    if (boss_touch(s->x, s->y) || s->x == before || s->age >= PUSH_FRAMES) {
+        push_burst(s);
+    }
+}
+
 void bubbles_update(void)
 {
     uint8_t i;
     uint8_t popping = 0;
+
+    for (i = 0; i < NUM_PLAYERS; i++) {
+        update_push(i);
+    }
 
     for (i = 0; i < MAX_BUBBLES; i++) {
         Bubble *b = &g_bubbles[i];
@@ -367,14 +492,18 @@ void bubbles_update(void)
             continue;
         }
 
-        /* Follow the airflow; re-read it every 16 frames. */
-        if ((b->age & 15) == 0) {
-            b->dir = level_air_at((uint8_t)(PX(b->x) + 8), (uint8_t)(PX(b->y) + 8));
-            if (b->dir == AIR_NONE) {
-                b->dir = (uint8_t)(1 + (rng_next() & 3));
+        if (b->vx || b->vy) {
+            slide(b);              /* shoved by a push bubble */
+        } else {
+            /* Follow the airflow; re-read it every 16 frames. */
+            if ((b->age & 15) == 0) {
+                b->dir = level_air_at((uint8_t)(PX(b->x) + 8), (uint8_t)(PX(b->y) + 8));
+                if (b->dir == AIR_NONE) {
+                    b->dir = (uint8_t)(1 + (rng_next() & 3));
+                }
             }
+            drift(b, b->state == BS_TRAPPED ? TRAP_SPEED : FLOAT_SPEED);
         }
-        drift(b, b->state == BS_TRAPPED ? TRAP_SPEED : FLOAT_SPEED);
 
         if (b->state == BS_FLOAT && b->kind != BK_NORMAL) {
             if (b->age >= SPECIAL_LIFE) {
@@ -385,10 +514,6 @@ void bubbles_update(void)
             b->state = BS_OFF;
         } else if (b->state == BS_TRAPPED && b->age >= TRAP_LIFE) {
             enemy_spawn(b->x, b->y, b->etype, 1, (uint8_t)(rng_next() & 1));
-            if (b->etype2) {
-                enemy_spawn(b->x, b->y, b->etype2, 1, (uint8_t)!(rng_next() & 1));
-                b->etype2 = 0;
-            }
             item_spawn(IT_BURST, b->x, b->y, 0);
             b->state = BS_OFF;
         }
@@ -451,7 +576,7 @@ void bubbles_draw(void)
             } else {
                 tile = (uint8_t)(SPR_RING0 + ph);
             }
-            oam_add(PX(b->x), PX(b->y), tile, (uint8_t)(b->big ? (PAL_YELLOW << SPR_ATTR_PAL_SHIFT) : 0u));
+            oam_add(PX(b->x), PX(b->y), tile, 0);
             oam_add(PX(b->x), PX(b->y), inner, inner_attr);
             continue;
         } else if (b->state != BS_SHOOT && b->age >= BUBBLE_RED) {
@@ -464,6 +589,11 @@ void bubbles_draw(void)
         } else {
             tile = (uint8_t)(SPR_BUBBLE0 + ph);
         }
-        oam_add(PX(b->x), PX(b->y), tile, (uint8_t)(b->big ? (PAL_YELLOW << SPR_ATTR_PAL_SHIFT) : 0u));
+        oam_add(PX(b->x), PX(b->y), tile, 0);
+    }
+    for (i = 0; i < NUM_PLAYERS; i++) {
+        if (push_shots[i].active) {
+            oam_add(PX(push_shots[i].x), PX(push_shots[i].y), SPR_PUSH, 0);
+        }
     }
 }

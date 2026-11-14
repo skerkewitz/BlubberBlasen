@@ -24,7 +24,8 @@ Stage 1 keeps it simple: graphics are plain **24-bit PNG** files, and the colour
 | 18, 19 | Enemy angry |
 | 20..23 | Defeated enemy flying (spin) |
 | 32..34 | Bubble (animation) |
-| 35..37 | Bubble with a trapped enemy |
+| 35 | Push bubble (Plus mode), a small light-blue bubble |
+| 36, 37 | Bubble with a trapped enemy (not used) |
 | 38, 39 | Bubble burst |
 | 40 | Bubble with a trapped angry enemy |
 | 41..43, 44..46 | Empty bubble about to burst (orange, then red) |
@@ -59,7 +60,7 @@ Stage 1 keeps it simple: graphics are plain **24-bit PNG** files, and the colour
 
 Score pop-ups also include 100 and 200 (cells 82..85).
 
-Cells 35..37, 40 and 56..61 (trapped walker in one picture) are no longer used.
+Cells 36, 37, 40 and 56..61 (trapped walker in one picture) are no longer used. Cell 35 held one of them and is now the push bubble.
 
 All sprites face **right**; the game mirrors them for the left.
 

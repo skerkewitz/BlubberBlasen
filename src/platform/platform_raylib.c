@@ -329,6 +329,7 @@ static uint16_t read_keyboard(int player)
         if (IsKeyDown(KEY_K))            pad |= PAD_B;   /* jump   */
         if (IsKeyDown(KEY_J))            pad |= PAD_Y;   /* bubble */
         if (IsKeyDown(KEY_C))            pad |= PAD_A;
+        if (IsKeyDown(KEY_H))            pad |= PAD_X;   /* push bubble (Plus) */
         if (IsKeyDown(KEY_V))            pad |= PAD_X;
         if (IsKeyDown(KEY_Q))            pad |= PAD_L;
         if (IsKeyDown(KEY_E))            pad |= PAD_R;
@@ -343,6 +344,7 @@ static uint16_t read_keyboard(int player)
         if (IsKeyDown(KEY_RIGHT))        pad |= PAD_RIGHT;
         if (IsKeyDown(KEY_PERIOD))       pad |= PAD_B;   /* jump   */
         if (IsKeyDown(KEY_COMMA))        pad |= PAD_Y;   /* bubble */
+        if (IsKeyDown(KEY_M))            pad |= PAD_X;   /* push bubble (Plus) */
         if (IsKeyDown(KEY_SLASH))        pad |= PAD_L | PAD_R;   /* dash: held direction or facing */
         if (IsKeyDown(KEY_RIGHT_CONTROL)) pad |= PAD_START;
     }
