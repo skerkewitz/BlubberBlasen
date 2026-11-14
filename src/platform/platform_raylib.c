@@ -13,6 +13,7 @@
 #include <string.h>
 
 #include "raylib.h"
+#include "rlgl.h"       /* rlGetShaderIdDefault: detect a failed shader compile */
 #include "game/game.h"
 
 #ifdef __EMSCRIPTEN__
@@ -333,7 +334,8 @@ static uint16_t read_keyboard(int player)
         if (IsKeyDown(KEY_E))            pad |= PAD_R;
         if (IsKeyDown(KEY_L))            pad |= PAD_L | PAD_R;   /* dash: held direction or facing */
         if (IsKeyDown(KEY_ENTER))        pad |= PAD_START;
-        if (IsKeyDown(KEY_RIGHT_SHIFT))  pad |= PAD_SELECT;
+        /* Either Shift: the browser build (Emscripten's GLFW) reports both as Left Shift. */
+        if (IsKeyDown(KEY_RIGHT_SHIFT) || IsKeyDown(KEY_LEFT_SHIFT)) pad |= PAD_SELECT;
     } else {
         if (IsKeyDown(KEY_UP))           pad |= PAD_UP;
         if (IsKeyDown(KEY_DOWN))         pad |= PAD_DOWN;
@@ -446,6 +448,7 @@ static void play_sounds(uint32_t mask)
 
 /* --- Command line -----------------------------------------------------------
  *   --mute            no sound (all builds)
+ *   --no-crt          start without the retro TV filter (all builds; Tab toggles it)
  * Developer options, only in builds with BB_DEBUG (see README):
  *   --autoplay        a simple built-in bot plays instead of the keyboard (implies --mute)
  *   --autoplay2       like --autoplay, and a second bot plays player 2
@@ -463,6 +466,7 @@ static void play_sounds(uint32_t mask)
  */
 #define MAX_SHOTS 16
 static int      opt_mute;
+static int      opt_no_crt;
 #ifdef BB_DEBUG
 static int      opt_autoplay;
 static int      opt_autoplay2;
@@ -483,7 +487,9 @@ static void parse_args(int argc, char **argv)
 {
     int i;
     for (i = 1; i < argc; i++) {
-        if (strcmp(argv[i], "--mute") == 0) {
+        if (strcmp(argv[i], "--no-crt") == 0) {
+            opt_no_crt = 1;
+        } else if (strcmp(argv[i], "--mute") == 0) {
             opt_mute = 1;
 #ifdef BB_DEBUG
         } else if (strcmp(argv[i], "--autoplay") == 0) {
@@ -674,6 +680,97 @@ static void debug_status(void)
 }
 #endif /* BB_DEBUG */
 
+/* --- Retro TV look ------------------------------------------------------------
+ * A post-processing pass applied only when the 256x224 framebuffer is scaled
+ * into the window; the framebuffer itself (and --shot) stays clean.
+ * It imitates a SNES on a consumer CRT over composite video:
+ *   - 15-bit colour (5 bits per channel, like SNES CGRAM)
+ *   - composite blur: luma slightly soft, chroma bleeds wider (YIQ)
+ *   - scanlines whose beam widens on bright pixels
+ *   - an aperture-grille mask (RGB stripes) and a light vignette
+ * Scanlines and mask fade out below 3x scale, where they would only alias.
+ * Tab toggles it; --no-crt starts with it off. */
+#define CRT_SHADER_BODY \
+    "uniform sampler2D texture0;\n" \
+    "uniform vec4 colDiffuse;\n" \
+    "uniform vec2 sourceSize;\n" \
+    "uniform float scale;\n" \
+    "const mat3 toYIQ = mat3(0.299, 0.596, 0.211, 0.587, -0.274, -0.523, 0.114, -0.322, 0.312);\n" \
+    "const mat3 toRGB = mat3(1.0, 1.0, 1.0, 0.956, -0.272, -1.106, 0.621, -0.647, 1.703);\n" \
+    "vec3 fetch(vec2 texel)\n" \
+    "{\n" \
+    "    vec3 c = TEX(texture0, texel / sourceSize).rgb;\n" \
+    "    c = floor(c * 31.0 + 0.5) / 31.0;\n" \
+    "    return toYIQ * pow(c, vec3(2.2));\n" \
+    "}\n" \
+    "void main()\n" \
+    "{\n" \
+    "    vec2 p = fragTexCoord * sourceSize;\n" \
+    "    float row = floor(p.y) + 0.5;\n" \
+    "    float cx = floor(p.x) + 0.5;\n" \
+    "    vec3 yiq = vec3(0.0);\n" \
+    "    vec3 wsum = vec3(0.0);\n" \
+    "    for (int i = -2; i <= 2; i++) {\n" \
+    "        float tx = cx + float(i);\n" \
+    "        float d = tx - p.x;\n" \
+    "        vec3 w = vec3(exp(-2.2 * d * d), vec2(exp(-0.45 * d * d)));\n" \
+    "        yiq += w * fetch(vec2(tx, row));\n" \
+    "        wsum += w;\n" \
+    "    }\n" \
+    "    vec3 rgb = max(toRGB * (yiq / wsum), 0.0);\n" \
+    "    float fx = clamp((scale - 1.5) / 1.5, 0.0, 1.0);\n" \
+    "    float luma = dot(rgb, vec3(0.299, 0.587, 0.114));\n" \
+    "    float dy = fract(p.y) - 0.5;\n" \
+    "    float sigma = mix(0.26, 0.42, sqrt(luma));\n" \
+    "    float scan = exp(-dy * dy / (2.0 * sigma * sigma));\n" \
+    "    rgb *= mix(1.0, scan * 1.35, fx * 0.85);\n" \
+    "    float m = mod(floor(gl_FragCoord.x), 3.0);\n" \
+    "    vec3 mask = vec3(m < 0.5 ? 1.12 : 0.88, m > 0.5 && m < 1.5 ? 1.12 : 0.88, m > 1.5 ? 1.12 : 0.88);\n" \
+    "    rgb *= mix(vec3(1.0), mask, fx);\n" \
+    "    vec2 v = fragTexCoord - 0.5;\n" \
+    "    rgb *= 1.0 - 0.35 * dot(v, v);\n" \
+    "    OUT = vec4(pow(rgb, vec3(1.0 / 2.2)), 1.0) * colDiffuse * fragColor;\n" \
+    "}\n"
+
+#ifdef __EMSCRIPTEN__
+static const char crt_fs[] =
+    "#version 100\n"
+    "#ifdef GL_FRAGMENT_PRECISION_HIGH\nprecision highp float;\n#else\nprecision mediump float;\n#endif\n"
+    "varying vec2 fragTexCoord;\n"
+    "varying vec4 fragColor;\n"
+    "#define TEX texture2D\n"
+    "#define OUT gl_FragColor\n"
+    CRT_SHADER_BODY;
+#else
+static const char crt_fs[] =
+    "#version 330\n"
+    "in vec2 fragTexCoord;\n"
+    "in vec4 fragColor;\n"
+    "out vec4 finalColor;\n"
+    "#define TEX texture\n"
+    "#define OUT finalColor\n"
+    CRT_SHADER_BODY;
+#endif
+
+static Shader crt_shader;
+static int    crt_ready;
+static int    crt_on = 1;
+static int    crt_loc_source, crt_loc_scale;
+
+static void crt_load(void)
+{
+    crt_shader = LoadShaderFromMemory(NULL, crt_fs);   /* raylib's default vertex shader */
+    crt_ready = IsShaderValid(crt_shader) && crt_shader.id != rlGetShaderIdDefault();
+    if (crt_ready) {
+        Vector2 size = { (float)SCREEN_W, (float)SCREEN_H };
+        crt_loc_source = GetShaderLocation(crt_shader, "sourceSize");
+        crt_loc_scale  = GetShaderLocation(crt_shader, "scale");
+        SetShaderValue(crt_shader, crt_loc_source, &size, SHADER_UNIFORM_VEC2);
+    } else {
+        TraceLog(LOG_WARNING, "CRT: shader failed, drawing without it");
+    }
+}
+
 /* --- Main ----------------------------------------------------------------- */
 static RenderTexture2D fb;
 static double accumulator;
@@ -739,6 +836,9 @@ static int frame(void)
         ToggleBorderlessWindowed();
     }
 #endif
+    if (IsKeyPressed(KEY_TAB)) {
+        crt_on = !crt_on;
+    }
 
     /* Fixed 60 Hz game tick, independent of monitor refresh rate. */
     accumulator += GetFrameTime();
@@ -816,7 +916,15 @@ static int frame(void)
         dst.height = (float)(SCREEN_H * scale);
         dst.x = (float)((GetScreenWidth()  - (int)dst.width)  / 2);
         dst.y = (float)((GetScreenHeight() - (int)dst.height) / 2);
+        if (crt_ready && crt_on) {
+            float s = (float)scale;
+            SetShaderValue(crt_shader, crt_loc_scale, &s, SHADER_UNIFORM_FLOAT);
+            BeginShaderMode(crt_shader);
+        }
         DrawTexturePro(fb.texture, src, dst, (Vector2){ 0.0f, 0.0f }, 0.0f, WHITE);
+        if (crt_ready && crt_on) {
+            EndShaderMode();
+        }
     }
 #ifdef BB_DEBUG
     debug_status();
@@ -848,6 +956,8 @@ int main(int argc, char **argv)
 #endif
     fb = LoadRenderTexture(SCREEN_W, SCREEN_H);
     SetTextureFilter(fb.texture, TEXTURE_FILTER_POINT);
+    crt_load();
+    crt_on = !opt_no_crt;
     load_assets();
 #ifndef __EMSCRIPTEN__
     if (!opt_mute) {
@@ -871,6 +981,9 @@ int main(int argc, char **argv)
 
     TraceLog(LOG_INFO, "GAME: %ld ticks, %.1f s", ticks_total, GetTime());
     unload_assets();
+    if (crt_ready) {
+        UnloadShader(crt_shader);
+    }
     UnloadRenderTexture(fb);
     if (IsAudioDeviceReady()) {
         CloseAudioDevice();

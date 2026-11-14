@@ -117,6 +117,8 @@ With Visual Studio you can also simply open the folder (*File → Open → Folde
 
 The game finds its `assets/` folder next to the executable or, failing that, in the source tree it was built from. High scores are saved to `blubberblasen.sav` next to the executable. `F11` toggles full screen.
 
+The picture goes through a retro TV filter when it is scaled into the window (platform layer only, the 256x224 framebuffer and `--shot` stay clean): SNES 15-bit colour, composite-style colour bleed, scanlines, an RGB aperture-grille mask and a light vignette. Scanlines and mask fade out below 3x scale. `Tab` toggles the filter, `--no-crt` starts without it.
+
 ### Web build (WebAssembly)
 
 Needs Emscripten (Arch: `sudo pacman -Syu emscripten`, then a new shell or `source /etc/profile.d/emscripten.sh`):
@@ -148,6 +150,7 @@ blubberblasen --autoplay --seed 7 --shot 300 --shot 900 --quit 1000
 | `--autoplay` | A simple built-in bot plays (sound off) |
 | `--autoplay2` | Two bots play, one per player (sound off) |
 | `--mute` | No sound |
+| `--no-crt` | Start without the retro TV filter (`Tab` toggles it) |
 | `--seed <n>` | Fixed random seed |
 | `--round <n>` | New games start at round n |
 | `--clear <tick>` | Remove all enemies at that tick, to see the end of a round |
@@ -228,13 +231,13 @@ Keeping `game` as a separate library without a raylib link dependency makes acci
 | L / R (dash left / right, Plus mode) | `Q` / `E` | | |
 | Dash (held direction, else facing) | `L` | `/` | LB or RB |
 | Start | `Enter` | `Right Ctrl` | Start |
-| Select | `Right Shift` | | Back / Select |
+| Select | `Shift` (either) | | Back / Select |
 
 On the title screen, Select opens the options: **mode** (Arcade, or Plus with dash, energy bar and special shot), **co-op rescue** (on/off) and **player 2** (human or CPU partner). They are saved with the high scores.
 
 The first gamepad belongs to player 1, the second to player 2. The game starts on the title screen: press Start to begin. The other player can join at any time with their Start button. A player with no lives left can continue the same way (the score is kept). During play, Start pauses.
 
-Mappings live in `src/platform/platform_raylib.c` and may change. `Esc` quits, `F11` toggles full screen.
+Mappings live in `src/platform/platform_raylib.c` and may change. `Esc` quits, `F11` toggles full screen, `Tab` toggles the retro TV filter.
 
 ## How to play
 
