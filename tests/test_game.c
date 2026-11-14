@@ -1536,7 +1536,7 @@ static void test_push_bubble(void)
     /* one at a time; nothing in Arcade mode */
     push_setup(0, BK_NORMAL);
     player_update(&g_players[0], PAD_X, PAD_X);
-    CHECK(push_active(0) && !push_shoot(0, g_players[0].x, g_players[0].y, 0), "only one push bubble at a time");
+    CHECK(push_active(0) && !push_shoot(0, g_players[0].x, g_players[0].y, AIR_RIGHT), "only one push bubble at a time");
     push_setup(0, BK_NORMAL);
     g_opt.plus = 0;
     player_update(&g_players[0], PAD_X, PAD_X);
@@ -1763,6 +1763,88 @@ static void test_vacuum(void)
     g_opt.plus = 0;
 }
 
+/* Plus mode: shots stop at walls, Up aims both shots, and only a push gets
+ * a bubble through a platform. Played out in round 16's start shaft (a
+ * pillar to the right, a ledge above, the thrower's ledge the way out). */
+static void test_plus_walls_and_up(void)
+{
+    Player *p = &g_players[0];
+    int16_t cx, cy, wall_x, ceil_y, ledge_top;
+    int f, i, bursts = 0, live = 0;
+
+    setup_room(15);
+    cx = (int16_t)(PX(p->x) + 8);
+    cy = (int16_t)(PX(p->y) + 8);
+    for (wall_x = cx; wall_x < 240 && !level_solid_px(wall_x, cy); wall_x++) {
+    }
+    for (ceil_y = cy; ceil_y > FIELD_Y && !level_solid_px(cx, ceil_y); ceil_y--) {
+    }
+    for (ledge_top = ceil_y; ledge_top > FIELD_Y && level_solid_px(cx, ledge_top); ledge_top--) {
+    }
+    CHECK(wall_x < 240 && ceil_y > FIELD_Y + 40, "round 16 start: a pillar to the right and a ledge above (%d, %d)",
+          wall_x, ceil_y);
+
+    /* sideways: Plus stops in front of the pillar, Arcade passes it */
+    for (i = 0; i < 2; i++) {
+        setup_room(15);
+        g_opt.plus = (uint8_t)(i == 0);
+        p->x = TO_POS(wall_x - 8 - 20);
+        p->facing_left = 0;
+        player_update(p, PAD_Y, PAD_Y);
+        for (f = 0; f < 15; f++) {
+            bubbles_update();
+        }
+        if (i == 0) {
+            CHECK(g_bubbles[0].state == BS_FLOAT && PX(g_bubbles[0].x) + 8 + 6 <= wall_x,
+                  "Plus: a shot stops in front of the wall (x %u, wall %d)", PX(g_bubbles[0].x), wall_x);
+        } else {
+            CHECK(PX(g_bubbles[0].x) + 8 > wall_x, "Arcade: a shot still passes the wall (x %u)", PX(g_bubbles[0].x));
+        }
+    }
+
+    /* point-blank into the wall: it pops at once */
+    setup_room(15);
+    g_opt.plus = 1;
+    p->x = TO_POS(wall_x - 8 - 6);
+    p->facing_left = 0;
+    player_update(p, PAD_Y, PAD_Y);
+    for (i = 0; i < MAX_BUBBLES; i++) {
+        live += g_bubbles[i].state != BS_OFF;
+    }
+    for (i = 0; i < MAX_ITEMS; i++) {
+        bursts += g_items[i].kind == IT_BURST;
+    }
+    CHECK(live == 0 && bursts == 1, "Plus: a bubble blown into the wall pops at once (%d bubbles, %d bursts)", live, bursts);
+
+    /* Arcade: Up does not aim */
+    setup_room(15);
+    g_opt.plus = 0;
+    p->facing_left = 0;
+    player_update(p, PAD_UP | PAD_Y, PAD_Y);
+    CHECK(g_bubbles[0].state == BS_SHOOT && g_bubbles[0].dir == AIR_RIGHT, "Arcade: Up + Y still shoots sideways");
+
+    /* Up + Y: the shot flies up and stops under the ledge */
+    setup_room(15);
+    g_opt.plus = 1;
+    enemy_spawn(p->x, TO_POS(ledge_top - 15), ENEMY_TYPE_WALKER, 0, 0);   /* on the ledge above */
+    player_update(p, PAD_UP | PAD_Y, PAD_Y);
+    for (f = 0; f < 15 && g_bubbles[0].state == BS_SHOOT; f++) {
+        bubbles_update();
+    }
+    CHECK(g_bubbles[0].state == BS_FLOAT && PX(g_bubbles[0].y) + 8 - 6 > ceil_y,
+          "Plus: an upward shot stops under the ledge (y %u, ledge bottom %d)", PX(g_bubbles[0].y), ceil_y);
+    CHECK(g_enemies[0].active, "the enemy on the ledge is out of reach of the shot");
+
+    /* ... and Up + push shoves it up through the ledge, into the enemy */
+    player_update(p, PAD_UP | PAD_X, PAD_X);
+    for (f = 0; f < 40 && g_enemies[0].active; f++) {
+        bubbles_update();
+    }
+    CHECK(!g_enemies[0].active && g_bubbles[0].state == BS_TRAPPED,
+          "Plus: shoot up, push up: the bubble goes through the ledge and traps the enemy (y %u)", PX(g_bubbles[0].y));
+    g_opt.plus = 0;
+}
+
 /* The CPU partner climbs to a platform five rows up (a full jump): it
  * must keep jump held while rising, like a player who wants the full height. */
 static void test_cpu_climbs(void)
@@ -1900,6 +1982,7 @@ int main(void)
     test_round_change_resets();
     test_push_bubble();
     test_vacuum();
+    test_plus_walls_and_up();
     test_cpu_climbs();
     test_debug_switches();
     test_cpu_soak();

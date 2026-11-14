@@ -31,6 +31,7 @@
 #define PUSH_THIRD    4            /* |dy| below this hits the middle of a bubble */
 #define SHOVE_SPEED   FX(3, 0)     /* momentum a hit bubble gets */
 #define SHOVE_STOP    FX(0, 32)    /* below this the air takes over again */
+#define SHOT_EDGE     6            /* Plus mode: leading edge of a shot, from its centre */
 #define SHOT_RANGE_POWER 14        /* SHOOT_FRAMES with the range candy */
 #define SHOOT_SPEED_POWER FX(6, 0)
 #define TOP_LIMIT     (FIELD_Y + 6)
@@ -45,7 +46,7 @@ static uint8_t chain_owner;   /* player who started the chain */
 typedef struct {
     uint8_t  active;
     uint8_t  age;
-    int8_t   dir;          /* -1 left, 1 right */
+    uint8_t  dir;          /* AIR_LEFT, AIR_RIGHT or AIR_UP */
     uint16_t x, y;         /* 8.8 */
 } PushShot;
 static PushShot push_shots[NUM_PLAYERS];
@@ -107,9 +108,22 @@ void bubble_spawn_special(uint8_t kind, uint8_t letter, uint16_t x, uint16_t y)
     b->y = y;
 }
 
-void bubble_shoot(uint16_t x, uint16_t y, uint8_t facing_left, uint16_t powers)
+/* Plus mode: a bubble's centre inside a solid tile. */
+static uint8_t in_wall(uint16_t x, uint16_t y)
 {
-    Bubble *b = alloc_bubble();
+    return (uint8_t)(g_opt.plus && level_solid_px((int16_t)(PX(x) + 8), (int16_t)(PX(y) + 8)));
+}
+
+void bubble_shoot(uint16_t x, uint16_t y, uint8_t dir, uint16_t powers)
+{
+    Bubble *b;
+    if (in_wall(x, y)) {
+        /* Plus mode: blown into a wall at point-blank, it pops at once */
+        item_spawn(IT_BURST, x, y, 0);
+        sfx(SFX_POP);
+        return;
+    }
+    b = alloc_bubble();
     if (!b) {
         return;
     }
@@ -122,7 +136,7 @@ void bubble_shoot(uint16_t x, uint16_t y, uint8_t facing_left, uint16_t powers)
     if (g_count.blown < 255) {
         g_count.blown++;
     }
-    b->dir = (uint8_t)(facing_left ? AIR_LEFT : AIR_RIGHT);
+    b->dir = dir;
     b->angry = 0;
     b->trapped = 0;
     b->pop_timer = 0;
@@ -157,7 +171,7 @@ void bubbles_trapped_to_gems(void)
     }
 }
 
-uint8_t push_shoot(uint8_t player, uint16_t x, uint16_t y, uint8_t facing_left)
+uint8_t push_shoot(uint8_t player, uint16_t x, uint16_t y, uint8_t dir)
 {
     PushShot *s = &push_shots[player];
     if (s->active) {
@@ -165,7 +179,7 @@ uint8_t push_shoot(uint8_t player, uint16_t x, uint16_t y, uint8_t facing_left)
     }
     s->active = 1;
     s->age = 0;
-    s->dir = (int8_t)(facing_left ? -1 : 1);
+    s->dir = dir;
     s->x = x;
     s->y = y;
     level_clamp_x(&s->x);
@@ -282,18 +296,52 @@ static uint8_t catch_enemy(Bubble *b)
     return 0;
 }
 
+/* Plus mode: shots stop at walls and platforms (only a push gets a bubble
+ * through); the leading edge decides. In Arcade mode they only know the
+ * room's outer walls. */
+static uint8_t shot_hits_wall(const Bubble *b)
+{
+    int16_t x = (int16_t)(PX(b->x) + 8), y = (int16_t)(PX(b->y) + 8);
+    if (!g_opt.plus) {
+        return 0;
+    }
+    if (b->dir == AIR_LEFT) {
+        x = (int16_t)(x - SHOT_EDGE);
+    } else if (b->dir == AIR_RIGHT) {
+        x = (int16_t)(x + SHOT_EDGE);
+    } else {
+        y = (int16_t)(y - SHOT_EDGE);
+    }
+    return level_solid_px(x, y);
+}
+
 static void update_shot(Bubble *b)
 {
-    uint16_t before = b->x;
+    uint16_t bx = b->x, by = b->y;
+    uint8_t stop = 0;
 
-    b->x = (uint16_t)(b->dir == AIR_LEFT ? b->x - (uint16_t)b->shot_speed : b->x + (uint16_t)b->shot_speed);
-    level_clamp_x(&b->x);
+    if (b->dir == AIR_UP) {
+        if (PX(b->y) < TOP_LIMIT + PX(b->shot_speed) + 1) {
+            b->y = TO_POS(TOP_LIMIT);   /* the room's ceiling */
+            stop = 1;
+        } else {
+            b->y = (uint16_t)(b->y - (uint16_t)b->shot_speed);
+        }
+    } else {
+        b->x = (uint16_t)(b->dir == AIR_LEFT ? b->x - (uint16_t)b->shot_speed : b->x + (uint16_t)b->shot_speed);
+        level_clamp_x(&b->x);
+        stop = (uint8_t)(b->x == bx);
+    }
 
-    if (catch_enemy(b)) {
+    if (shot_hits_wall(b)) {
+        b->x = bx;                       /* stays in front of the wall */
+        b->y = by;
+        stop = 1;
+    } else if (catch_enemy(b)) {
         return;
     }
 
-    if (b->age > b->shot_frames || b->x == before || boss_touch(b->x, b->y)) {
+    if (stop || b->age > b->shot_frames || boss_touch(b->x, b->y)) {
         b->state = BS_FLOAT;
         b->dir = AIR_UP;
         /* In the boss round every bubble becomes a lightning bubble. */
@@ -388,12 +436,14 @@ static void shove(Bubble *b, const PushShot *s)
     int16_t dy = (int16_t)((int16_t)PX(s->y) - (int16_t)PX(b->y));
     b->vx = 0;
     b->vy = 0;
-    if (dy < -PUSH_THIRD) {
+    if (s->dir == AIR_UP) {
+        b->vy = (fx8_8)-SHOVE_SPEED;     /* from below: always up */
+    } else if (dy < -PUSH_THIRD) {
         b->vy = SHOVE_SPEED;
     } else if (dy > PUSH_THIRD) {
         b->vy = (fx8_8)-SHOVE_SPEED;
     } else {
-        b->vx = (fx8_8)(s->dir < 0 ? -SHOVE_SPEED : SHOVE_SPEED);
+        b->vx = (fx8_8)(s->dir == AIR_LEFT ? -SHOVE_SPEED : SHOVE_SPEED);
     }
 }
 
@@ -417,15 +467,24 @@ static void update_push(uint8_t id)
         return;
     }
     before = s->x;
-    s->x = (uint16_t)(s->dir < 0 ? s->x - (uint16_t)PUSH_SPEED : s->x + (uint16_t)PUSH_SPEED);
-    level_clamp_x(&s->x);
+    if (s->dir == AIR_UP) {
+        if (PX(s->y) < TOP_LIMIT + PX(PUSH_SPEED) + 1) {
+            push_burst(s);               /* the room's ceiling */
+            return;
+        }
+        s->y = (uint16_t)(s->y - (uint16_t)PUSH_SPEED);
+        before = 0xFFFF;                 /* no side wall to meet */
+    } else {
+        s->x = (uint16_t)(s->dir == AIR_LEFT ? s->x - (uint16_t)PUSH_SPEED : s->x + (uint16_t)PUSH_SPEED);
+        level_clamp_x(&s->x);
+    }
     s->age++;
 
     for (i = 0; i < MAX_BUBBLES; i++) {
         Bubble *b = &g_bubbles[i];
         if (floating(b) && overlap(s->x, s->y, b->x, b->y, PUSH_HIT, PUSH_HIT)) {
             if (b->kind != BK_NORMAL) {
-                bubble_pop(b, s->dir, id);
+                bubble_pop(b, (int8_t)(s->dir == AIR_LEFT ? -1 : 1), id);
             } else {
                 shove(b, s);
                 sfx(SFX_POP);

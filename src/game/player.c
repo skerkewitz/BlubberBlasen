@@ -442,9 +442,23 @@ static void jump_and_fall(Player *p, uint16_t pad)
     }
 }
 
-static void shoot(Player *p, uint16_t pressed)
+/* Plus mode: holding Up aims both shots upward, from above the head. */
+static uint8_t aim(const Player *p, uint16_t pad, uint16_t *bx, uint16_t *by)
 {
-    uint8_t fire = 0;
+    if (g_opt.plus && (pad & PAD_UP)) {
+        *bx = p->x;
+        *by = (uint16_t)(p->y - TO_POS(12));
+        return AIR_UP;
+    }
+    *bx = (uint16_t)(p->facing_left ? p->x - TO_POS(8) : p->x + TO_POS(8));
+    *by = p->y;
+    return (uint8_t)(p->facing_left ? AIR_LEFT : AIR_RIGHT);
+}
+
+static void shoot(Player *p, uint16_t pad, uint16_t pressed)
+{
+    uint8_t fire = 0, dir;
+    uint16_t bx, by;
 
     if (p->shoot_cooldown) {
         p->shoot_cooldown--;
@@ -456,8 +470,8 @@ static void shoot(Player *p, uint16_t pressed)
     /* Plus mode: X (the top face button) blows a push bubble (one at a
      * time, no energy). */
     if (g_opt.plus && (pressed & PAD_X)) {
-        uint16_t bx = (uint16_t)(p->facing_left ? p->x - TO_POS(8) : p->x + TO_POS(8));
-        if (push_shoot(p->id, bx, p->y, p->facing_left)) {
+        dir = aim(p, pad, &bx, &by);
+        if (push_shoot(p->id, bx, by, dir)) {
             p->shoot_pose = SHOOT_POSE;
             sfx(SFX_SHOOT);
         }
@@ -472,11 +486,13 @@ static void shoot(Player *p, uint16_t pressed)
 
     fire = (uint8_t)((pressed & PAD_Y) != 0);
     if (fire && p->shoot_cooldown == 0) {
-        uint16_t bx = (uint16_t)(p->facing_left ? p->x - TO_POS(8) : p->x + TO_POS(8));
+        dir = aim(p, pad, &bx, &by);
         if (p->powers & POWER_BIT(POWER_GLOVE)) {
+            /* the glove's fireball only flies sideways */
+            bx = (uint16_t)(p->facing_left ? p->x - TO_POS(8) : p->x + TO_POS(8));
             effect_start_glove(bx, p->y, (int8_t)(p->facing_left ? -1 : 1), p->id);
         } else {
-            bubble_shoot(bx, p->y, p->facing_left, p->powers);
+            bubble_shoot(bx, by, dir, p->powers);
         }
         if (p->powers & POWER_BIT(POWER_RING)) {
             score_add(p->score, 2, 1);   /* Bubble Ring: +100 per shot */
@@ -564,7 +580,7 @@ void player_update(Player *p, uint16_t pad, uint16_t pressed)
             walk(p, pad);
             jump_and_fall(p, pad);
         }
-        shoot(p, pressed);
+        shoot(p, pad, pressed);
         touch_bubbles(p, pad);
         if (g_freeze) {
             enemies_defeat_at(p->x, p->y, p->id);

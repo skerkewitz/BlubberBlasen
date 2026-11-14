@@ -349,10 +349,10 @@ void     enemies_draw(void);
 
 /* --- bubble.c --------------------------------------------------------------- */
 void     bubbles_clear(void);
-void     bubble_shoot(uint16_t x, uint16_t y, uint8_t facing_left, uint16_t powers);
+void     bubble_shoot(uint16_t x, uint16_t y, uint8_t dir, uint16_t powers);   /* dir: AIR_LEFT, AIR_RIGHT, AIR_UP (Plus) */
 void     bubbles_trapped_to_gems(void);   /* items: trapped enemies become gems */
 void     bubble_spawn_special(uint8_t kind, uint8_t letter, uint16_t x, uint16_t y);
-uint8_t  push_shoot(uint8_t player, uint16_t x, uint16_t y, uint8_t facing_left);   /* Plus mode; 0 = one already flying */
+uint8_t  push_shoot(uint8_t player, uint16_t x, uint16_t y, uint8_t dir);   /* Plus mode, dir as above; 0 = one already flying */
 uint8_t  push_active(uint8_t player);
 
 /* --- vacuum.c (Plus mode) ---------------------------------------------------- */
