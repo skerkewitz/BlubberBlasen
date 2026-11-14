@@ -28,7 +28,7 @@ uint16_t  g_level_frames;
 uint8_t   g_level;
 uint8_t   g_round;
 uint8_t   g_hurry;
-uint16_t  g_sfx;
+uint32_t  g_sfx;
 uint8_t   g_skip_rounds;
 uint16_t  g_freeze;
 Counters  g_count;
@@ -143,7 +143,7 @@ uint8_t chance(uint8_t p256)
 
 void sfx(uint8_t id)
 {
-    g_sfx |= (uint16_t)(1u << id);
+    g_sfx |= (uint32_t)1u << id;
 }
 
 void oam_add(uint8_t x, uint8_t y, uint8_t tile, uint8_t attr)
@@ -925,7 +925,7 @@ static void draw_ending(void)
             oam_add((uint8_t)((i & 1) ? SCREEN_W - 24 : 8), y, (uint8_t)(SPR_BUBBLE0 + bubble_phase[i]), 0);
         }
         oam_add(104, 150, (uint8_t)(SPR_P_WALK0 + bob), 0);
-        oam_add(136, 150, (uint8_t)(SPR_P_WALK0 + bob), (uint8_t)(SPR_ATTR_FLIP_X | (PAL_CYAN << SPR_ATTR_PAL_SHIFT)));
+        oam_add(136, 150, (uint8_t)(SPR_P_WALK0 + bob), (uint8_t)(SPR_ATTR_FLIP_X | (PAL_P2 << SPR_ATTR_PAL_SHIFT)));
     } else {
         oam_add(120, 150, SPR_P_WALK0, 0);
     }
@@ -1084,7 +1084,7 @@ static void draw_story(void)
     }
     default:  /* the two heroes */
         oam_add(96, 172, (uint8_t)(SPR_P_WALK0 + bob), 0);
-        oam_add(144, 172, (uint8_t)(SPR_P_WALK0 + bob), (uint8_t)(SPR_ATTR_FLIP_X | (PAL_CYAN << SPR_ATTR_PAL_SHIFT)));
+        oam_add(144, 172, (uint8_t)(SPR_P_WALK0 + bob), (uint8_t)(SPR_ATTR_FLIP_X | (PAL_P2 << SPR_ATTR_PAL_SHIFT)));
         break;
     }
 }
@@ -1099,7 +1099,7 @@ static void draw_lives(void)
     for (i = 0; i < NUM_PLAYERS; i++) {
         const Player *p = &g_players[i];
         uint8_t spare, x;
-        uint8_t attr = (uint8_t)(i == 0 ? 0u : (PAL_CYAN << SPR_ATTR_PAL_SHIFT));
+        uint8_t attr = (uint8_t)(i == 0 ? 0u : (PAL_P2 << SPR_ATTR_PAL_SHIFT));
         if (p->state == PS_OFF || p->lives < 2) {
             continue;
         }
@@ -1377,7 +1377,7 @@ uint8_t game_bg_window_top(void)
     return g_window_top;
 }
 
-uint16_t game_sfx(void)
+uint32_t game_sfx(void)
 {
     return g_sfx;
 }

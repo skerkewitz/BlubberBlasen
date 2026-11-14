@@ -32,11 +32,15 @@
 
 /* --- Palettes ---------------------------------------------------------------
  * Stage 1 uses 24-bit graphics. A "palette" is a tint the platform multiplies
- * the graphic with; palette 0 leaves the graphic unchanged. */
+ * the graphic with; palette 0 leaves the graphic unchanged.
+ * One exception, like a real palette: sprite palette 3 (PAL_P2) is player
+ * 2's colours: the platform swaps the player's green for blue instead of
+ * tinting. On the background, palette 3 is the cyan tint. */
 #define PAL_NONE   0u
 #define PAL_RED    1u
 #define PAL_GREEN  2u
-#define PAL_CYAN   3u
+#define PAL_CYAN   3u   /* background only; on sprites this slot is PAL_P2 */
+#define PAL_P2     3u   /* sprites: player 2 (green swapped for blue) */
 #define PAL_YELLOW 4u
 #define PAL_PINK   5u
 #define PAL_ORANGE 6u
@@ -90,7 +94,8 @@ enum {
     SFX_JUMP, SFX_SHOOT, SFX_POP, SFX_TRAP, SFX_KILL, SFX_GEM, SFX_DEATH,
     SFX_START, SFX_CLEAR, SFX_HURRY, SFX_GAMEOVER, SFX_MENU, SFX_PAUSE, SFX_EXTRA,
     SFX_READY, SFX_FULL, SFX_DASH,   /* Plus mode: dash available, bar full, dash */
-    SFX_COUNT
+    SFX_HELP,                        /* a player in the rescue bubble calls for help */
+    SFX_COUNT                        /* at most 32: game_sfx() is a 32-bit mask */
 };
 
 /* --- Music (a track ID; the platform streams the file) --------------------- */
@@ -106,7 +111,7 @@ const Sprite   *game_oam(void);                              /* MAX_SPRITES entr
 const uint16_t *game_bg(uint8_t layer);   /* layer 0: BG_W * BG0_ROWS, layer 1: BG_W * BG_H entries */
 uint16_t        game_bg_scroll_y(void);   /* layer 0 vertical scroll in pixels, 0..BG0_ROWS*8-1 */
 uint8_t         game_bg_window_top(void); /* layer 0 is only shown from this screen y down */
-uint16_t        game_sfx(void);    /* bit mask of SFX_* requested by the last tick */
+uint32_t        game_sfx(void);    /* bit mask of SFX_* requested by the last tick */
 uint8_t         game_music(void);  /* MUSIC_* that should be playing now */
 uint8_t        *game_sram(void);   /* SRAM_SIZE bytes; platform loads/saves them */
 uint8_t         game_sram_dirty(void); /* 1 once after the game changed SRAM */

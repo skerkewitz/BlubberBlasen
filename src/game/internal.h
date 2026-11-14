@@ -152,13 +152,28 @@ typedef struct {
 
 #define MAX_ENEMIES 8
 
+/* Shooting enemies (thrower, spitter, dropper) stop and flash for
+ * ENEMY_WINDUP frames before the shot leaves, then stand for
+ * ENEMY_RECOVER frames more. The direction is fixed when the wind-up
+ * starts, so the shot can be seen coming and dodged. */
+#define ENEMY_WINDUP   30
+#define ENEMY_RECOVER  8
+#define ENEMY_POSE     (ENEMY_WINDUP + ENEMY_RECOVER)
+
+/* Enemy shot speeds (px per frame, 8.8). */
+#define ROCK_SPEED      FX(2, 0)
+#define SPIT_SPEED      FX(2, 128)
+#define DOWN_SHOT_SPEED FX(2, 128)
+#define SPIT_OFFSET     6      /* the spit starts this far in front of the spitter */
+#define DOWN_SHOT_OFFSET 8     /* the dropper's shot starts this far below it */
+
 typedef struct {
     uint8_t  active;
     uint8_t  type;         /* ENEMY_TYPE_* */
     uint8_t  facing_left;
     uint8_t  moving_down;  /* bouncer / flutter: 0 up, 1 down, 2 level */
     uint8_t  throw_timer;  /* shooters: frames until the next shot; flutter: until it turns */
-    uint8_t  throw_pose;   /* thrower: frames left standing in the throw pose */
+    uint8_t  throw_pose;   /* shooters: frames left standing in the shooting pose */
     fx8_8    vy;           /* hopper */
     uint8_t  angry;
     uint8_t  entering;     /* moving to its spawn point, AI paused */
@@ -223,7 +238,7 @@ extern uint16_t  g_level_frames;   /* frames since the round started */
 extern uint8_t   g_level;          /* 0-based index into level_defs */
 extern uint8_t   g_round;          /* 1-based round number shown to the player */
 extern uint8_t   g_hurry;          /* hurry-up mode active */
-extern uint16_t  g_sfx;
+extern uint32_t  g_sfx;
 extern uint8_t   g_skip_rounds;    /* >0: end the round now and advance that many */
 extern uint16_t  g_freeze;         /* frames left of the Steam Whistle */
 
@@ -306,6 +321,8 @@ uint8_t  player_dash_invulnerable(const Player *p);
 #define ENERGY_COMBO      8      /* extra per further enemy in the same chain */
 #define ENERGY_HOLD       180    /* frames before the bar drains after a gain */
 #define DASH_COST         16
+#define DASH_FRAMES       12     /* 12 x 4.5 px = 54 px, about 7 tiles */
+#define DASH_GRACE        30     /* invulnerable after a dash: time to react and jump clear */
 void     energy_gain(uint8_t player, uint8_t amount);
 void     energy_tick(void);      /* drain; call only while a round is being played */
 
@@ -318,6 +335,7 @@ uint8_t  enemies_count(void);
 void     enemies_make_angry(void);
 void     enemies_calm_down(void);
 uint8_t  enemies_touch(uint16_t x, uint16_t y);   /* TOUCH_*: an enemy body, or something always deadly */
+uint8_t  enemy_shot_in(const Enemy *e);           /* frames until its shot leaves; 0 = not winding up */
 void     enemies_to_gems(void);                   /* items: every enemy becomes a gem */
 void     enemies_defeat_at(uint16_t x, uint16_t y, uint8_t player); /* Steam Whistle: touching frozen enemies */
 

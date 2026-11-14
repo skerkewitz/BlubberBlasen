@@ -19,7 +19,10 @@
  * shots, chasers and the boss are predicted for the next 26 frames from
  * their velocity, a handful of own actions is simulated for the same
  * frames, and the goal's action is only taken if it keeps a safe distance;
- * otherwise the action with the largest minimum distance wins.
+ * otherwise the action with the largest minimum distance wins. A shooter
+ * that winds up counts with the shot it is about to fire: from the frame
+ * the shot leaves, along its line. With an enemy in bubble range the CPU
+ * shoots back instead, which traps a shooter before its shot leaves.
  */
 
 #include "game/internal.h"
@@ -37,7 +40,8 @@
 #define SAFE_DIST      4      /* px of room left beyond a touch (collision is about 10 px apart) */
 #define TOUCH_DIST     10
 #define NEAR_SAMPLES   2      /* t <= 8 frames: what must be safe while shooting */
-#define MAX_DANGERS    24
+#define MAX_DANGERS    32     /* 8 enemies + 8 coming shots + shots in flight, chasers, boss */
+#define NOT_YET        (-1000) /* a coming shot before it leaves: far away */
 #define SAMPLES        5
 
 static const uint8_t sample_t[SAMPLES] = { 4, 8, 14, 20, 26 };
@@ -377,6 +381,47 @@ static void add_danger(uint16_t x, uint16_t y, fx8_8 vx, fx8_8 vy, uint8_t reach
     }
 }
 
+/* The shot an enemy winds up for: nowhere until it leaves in `in` frames,
+ * then along its line. */
+static void add_coming_shot(const Enemy *e)
+{
+    uint8_t in = enemy_shot_in(e);
+    int8_t dir = (int8_t)(e->facing_left ? -1 : 1);
+    int16_t x0 = (int16_t)PX(e->x), y0 = (int16_t)PX(e->y);
+    fx8_8 vx = 0, vy = 0;
+    Danger *d;
+    uint8_t k;
+
+    if (!in || danger_count >= MAX_DANGERS) {
+        return;
+    }
+    switch (e->type) {
+    case ENEMY_TYPE_THROWER:
+        vx = (fx8_8)(dir * ROCK_SPEED);
+        break;
+    case ENEMY_TYPE_SPITTER:
+        vx = (fx8_8)(dir * SPIT_SPEED);
+        x0 = (int16_t)(x0 + dir * SPIT_OFFSET);
+        break;
+    default:
+        vy = DOWN_SHOT_SPEED;
+        y0 = (int16_t)(y0 + DOWN_SHOT_OFFSET);
+        break;
+    }
+    d = &dangers[danger_count++];
+    d->reach = 0;
+    for (k = 0; k < SAMPLES; k++) {
+        int16_t t = (int16_t)sample_t[k] - in;
+        if (t < 0) {
+            d->x[k] = NOT_YET;
+            d->y[k] = NOT_YET;
+        } else {
+            d->x[k] = (int16_t)(x0 + ((vx * t) >> 8));
+            d->y[k] = (int16_t)(y0 + ((vy * t) >> 8));
+        }
+    }
+}
+
 /* Once per frame: where everything dangerous will be. Velocities of enemies,
  * chasers and the boss come from their position one frame ago. */
 static void predict_dangers(void)
@@ -393,6 +438,7 @@ static void predict_dangers(void)
         const Enemy *e = &g_enemies[i];
         if (e->active && !e->entering && !g_freeze) {
             add_danger(e->x, e->y, (fx8_8)(e->x - prev_ex[i]), (fx8_8)(e->y - prev_ey[i]), 0);
+            add_coming_shot(e);
         }
         prev_ex[i] = e->x;
         prev_ey[i] = e->y;
@@ -421,8 +467,8 @@ static void predict_dangers(void)
 
 /* Smallest room (px beyond a touch) to any danger over the first
  * `samples` look-ahead times, if the player did `act`. Later predictions
- * are less certain and get more slack (t / 2). Invulnerable dash frames
- * do not count. */
+ * are less certain and get more slack (t / 2). Frames invulnerable from a
+ * dash (the dash and DASH_GRACE after it) do not count. */
 static int16_t evaluate(const Player *p, uint8_t act, uint8_t samples)
 {
     int16_t best = 0x7FFF;
@@ -436,10 +482,10 @@ static int16_t evaluate(const Player *p, uint8_t act, uint8_t samples)
         int16_t t = sample_t[k];
         int16_t ox, oy = (int16_t)PX(p->y);
         if (dash) {
-            if (t > 2 && t <= 10) {
+            if (t <= DASH_FRAMES + DASH_GRACE) {
                 continue;                                   /* invulnerable */
             }
-            ox = (int16_t)(PX(p->x) + dir * (((t < 12 ? t : 12) * 1152) >> 8));
+            ox = (int16_t)(PX(p->x) + dir * (((t < DASH_FRAMES ? t : DASH_FRAMES) * 1152) >> 8));
         } else {
             ox = (int16_t)(PX(p->x) + dir * ((235 * t) >> 8));
         }
@@ -588,5 +634,10 @@ uint16_t cpu_pad(Player *p)
     }
     /* dodging is checked every frame, without the reaction delay */
     cpu[id].last_out = dodge(p, cpu[id].pad);
+    /* Releasing B cuts a jump short (JUMP_CUT). Navigation and the danger
+     * check both plan with full jumps, so B stays held while rising. */
+    if (!p->on_ground && p->vy < 0) {
+        cpu[id].last_out |= PAD_B;
+    }
     return cpu[id].last_out;
 }

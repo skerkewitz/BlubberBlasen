@@ -121,6 +121,7 @@ First-round numbers are for the normal game. In Super mode the pairs Zen-Chan/Hi
 - Enemies wrap from bottom to top through openings, just like players.
 - An enemy becomes **angry** (pink/red and faster) when it escapes a bubble, when "Hurry Up!" appears, or when it is the last enemy left. All angry enemies calm down when a player loses a life.
 - Projectiles kill players on contact.
+- Fairness rule of Blubber Blasen: every enemy that shoots stops and flashes for half a second (30 frames) before the shot leaves, and the shot keeps the direction the enemy faced when the wind-up began. A shot must never come without warning, even from point-blank range. Bubbling the enemy during the wind-up stops the shot.
 
 ## Level flow
 

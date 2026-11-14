@@ -18,10 +18,11 @@
 #define WALK_ACCEL_SHOES FX(0, 80)
 #define WALK_MAX_SHOES   FX(1, 74)  /* 1.3 px/frame */
 #define RESCUE_FRAMES 420         /* 7 s in the rescue bubble */
+#define RESCUE_HELP_AGAIN (RESCUE_FRAMES / 3)   /* second call for help: 2/3 of the time is over */
 #define RESCUE_SPEED  FX(0, 90)
-#define DASH_FRAMES   12          /* 12 x 4.5 px = 54 px, about 7 tiles */
 #define DASH_SPEED    FX(4, 128)
-#define DASH_SAFE_EDGE 2          /* not invulnerable in the first and last 2 frames */
+#define DASH_POP_X    14          /* a dash pops bubbles this close in x ... */
+#define DASH_POP_Y    20          /* ... and in y: a band taller than the body */
 #define DASH_BUFFER   6           /* a dash pressed up to 6 frames too early still happens */
 #define DASH_EXTEND   48          /* how far a dash may run on to get out of a wall */
 #define CHARGE_FRAMES 30          /* hold Y this long with a full bar */
@@ -90,12 +91,16 @@ void energy_tick(void)
 }
 
 /* Dash (design guide "Dash"): a fast burst of about 7 tiles; the player
- * keeps facing the same way. Invulnerable except in the first and last
- * 2 frames. Passes through inner walls and platforms; the outer walls stop
- * it. One per jump. A press up to 6 frames too early is kept. */
+ * keeps facing the same way. It pops every bubble it sweeps through (a band
+ * taller than the body, see touch_bubbles), so a dash along a row of
+ * bubbles sets them all off. Invulnerable for the whole dash and DASH_GRACE
+ * frames after it (the player blinks), long enough to jump clear of an
+ * enemy the dash ended next to. Passes through inner walls and platforms;
+ * the outer walls stop it. One per jump. A press up to 6 frames too early
+ * is kept. */
 uint8_t player_dash_invulnerable(const Player *p)
 {
-    return (uint8_t)(p->dash > DASH_SAFE_EDGE && p->dash <= DASH_FRAMES - DASH_SAFE_EDGE);
+    return (uint8_t)(p->dash != 0);
 }
 
 /* The body (12 x 16 px) overlaps a solid tile. */
@@ -159,7 +164,10 @@ static void dash_move(Player *p)
     if (!inside_wall(p->x, p->y)) {
         p->last_free_x = p->x;
     }
-    if (--p->dash == 0 && inside_wall(p->x, p->y)) {
+    if (--p->dash == 0 && p->invulnerable < DASH_GRACE) {
+        p->invulnerable = DASH_GRACE;
+    }
+    if (p->dash == 0 && inside_wall(p->x, p->y)) {
         /* ending inside a wall: run on to the next free spot, else back to the last one */
         uint16_t x = p->x;
         uint8_t k;
@@ -204,7 +212,7 @@ static void trap_in_rescue_bubble(Player *p)
     p->vy = 0;
     p->dash = 0;
     p->charge = 0;
-    sfx(SFX_TRAP);
+    sfx(SFX_HELP);
 }
 
 static void update_rescue(Player *p)
@@ -238,6 +246,9 @@ static void update_rescue(Player *p)
         item_spawn(IT_BURST, p->x, p->y, 0);
         sfx(SFX_POP);
         return;
+    }
+    if (p->rescue == RESCUE_HELP_AGAIN) {
+        sfx(SFX_HELP);   /* time is running out */
     }
     if (--p->rescue == 0) {
 #ifdef BB_DEBUG
@@ -476,16 +487,18 @@ static void shoot(Player *p, uint16_t pad, uint16_t pressed)
 }
 
 /* Touching a floating bubble pops it (and starts a chain reaction);
- * falling onto one with jump held bounces off it instead. */
+ * falling onto one with jump held bounces off it instead. A dash sweeps
+ * a taller band and always pops. */
 static void touch_bubbles(Player *p, uint16_t pad)
 {
     uint8_t i;
+    uint8_t w = (uint8_t)(p->dash ? DASH_POP_X : 12), h = (uint8_t)(p->dash ? DASH_POP_Y : 12);
     for (i = 0; i < MAX_BUBBLES; i++) {
         Bubble *b = &g_bubbles[i];
-        if ((b->state != BS_FLOAT && b->state != BS_TRAPPED) || !overlap(p->x, p->y, b->x, b->y, 12, 12)) {
+        if ((b->state != BS_FLOAT && b->state != BS_TRAPPED) || !overlap(p->x, p->y, b->x, b->y, w, h)) {
             continue;
         }
-        if (p->vy > 0 && (pad & PAD_B) && PX(p->y) + 8 <= PX(b->y)) {
+        if (!p->dash && p->vy > 0 && (pad & PAD_B) && PX(p->y) + 8 <= PX(b->y)) {
             p->vy = (fx8_8)-JUMP_SPEED;
             sfx(SFX_JUMP);
         } else {
@@ -570,9 +583,9 @@ void player_draw(const Player *p)
     uint8_t tile = SPR_P_WALK0;
     uint8_t attr = (uint8_t)(p->facing_left ? SPR_ATTR_FLIP_X : 0u);
 
-    /* Player 2 is the same character, tinted. */
+    /* Player 2 is the same character in other colours. */
     if (p->id == 1) {
-        attr = (uint8_t)(attr | (PAL_CYAN << SPR_ATTR_PAL_SHIFT));
+        attr = (uint8_t)(attr | (PAL_P2 << SPR_ATTR_PAL_SHIFT));
     }
 
     switch (p->state) {
@@ -631,7 +644,7 @@ void player_draw(const Player *p)
         }
     } else if (p->energy_state && tile < 5) {
         /* glow outline: yellow = dash available, cycling colours = bar full */
-        static const uint8_t pulse[4] = { PAL_YELLOW, PAL_ORANGE, PAL_PINK, PAL_CYAN };
+        static const uint8_t pulse[4] = { PAL_YELLOW, PAL_ORANGE, PAL_PINK, PAL_GREEN };
         uint8_t pal = p->energy_state == 2 ? pulse[(g_frame >> 2) & 3] : PAL_YELLOW;
         oam_add(PX(p->x), PX(p->y), (uint8_t)(SPR_AURA0 + tile),
                 (uint8_t)((attr & SPR_ATTR_FLIP_X) | (pal << SPR_ATTR_PAL_SHIFT)));

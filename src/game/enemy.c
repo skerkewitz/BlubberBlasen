@@ -9,8 +9,10 @@
  *    the floor and the ceiling.
  *  - Flutter: flies freely through platforms and changes direction often.
  *  - Hopper: bounces in arcs on a spring, rebounds off walls.
- *  - Spitter: fast walker, weak jumper, spits fireballs while running.
+ *  - Spitter: fast walker, weak jumper, spits fireballs.
  *  - Dropper: patrols left and right, drops off edges, shoots straight down.
+ *  All three shooters stop and flash for ENEMY_WINDUP frames before a shot
+ *  (internal.h), so a player can see it coming.
  *  - Chaser: appears some time after HURRY UP, is invincible, flies through
  *    everything towards the player and gets faster.
  */
@@ -24,8 +26,6 @@
 #define JUMP_PIXELS     44
 #define GAP_JUMP_PIXELS 24
 #define THINK_FRAMES    120          /* how often "jump up?" is considered */
-#define THROW_POSE      24           /* frames standing still while throwing */
-#define THROW_RELEASE   10           /* the rock leaves at this pose frame */
 #define THROW_COOLDOWN  120          /* + random 0..127 */
 #define SPEED_SPITTER   FX(1, 128)
 #define SPEED_DROPPER   FX(0, 192)
@@ -247,44 +247,6 @@ static void step_x(Enemy *e, int8_t dir)
     }
 }
 
-/* Thrower: returns 1 while it stands still throwing. */
-static uint8_t try_throw(Enemy *e, int8_t dir)
-{
-    int16_t dy, dx;
-
-    if (e->throw_pose) {
-        e->throw_pose--;
-        if (e->throw_pose == THROW_RELEASE) {
-            item_spawn_shot(SHOT_ROCK, e->x, e->y, dir);
-        }
-        return 1;
-    }
-    if (e->throw_timer) {
-        e->throw_timer--;
-        return 0;
-    }
-    if (!level_on_ground(e->x, e->y)) {
-        return 0;
-    }
-    {
-        uint8_t i;
-        for (i = 0; i < NUM_PLAYERS; i++) {
-            const Player *p = &g_players[i];
-            if (p->state != PS_ALIVE) {
-                continue;
-            }
-            dy = (int16_t)((int16_t)PX(e->y) - (int16_t)PX(p->y));
-            dx = (int16_t)((int16_t)PX(p->x) - (int16_t)PX(e->x));
-            if (dy > -8 && dy < 8 && ((dir < 0 && dx < 0) || (dir > 0 && dx > 0))) {
-                e->throw_pose = THROW_POSE;
-                e->throw_timer = (uint8_t)(THROW_COOLDOWN + (rng_next() & 127));
-                return 1;
-            }
-        }
-    }
-    return 0;
-}
-
 /* Some living player at the same height, in front of the enemy. */
 static uint8_t player_in_line(const Enemy *e, int8_t dir)
 {
@@ -322,20 +284,65 @@ static uint8_t player_below(const Enemy *e)
     return 0;
 }
 
-/* Spitter and dropper shoot while they keep moving. */
-static void shoot_on_the_move(Enemy *e, int8_t dir)
+static uint8_t is_shooter(uint8_t type)
 {
+    return (uint8_t)(type == ENEMY_TYPE_THROWER || type == ENEMY_TYPE_SPITTER || type == ENEMY_TYPE_DROPPER);
+}
+
+uint8_t enemy_shot_in(const Enemy *e)
+{
+    if (!e->active || !is_shooter(e->type) || e->throw_pose <= ENEMY_RECOVER) {
+        return 0;
+    }
+    return (uint8_t)(e->throw_pose - ENEMY_RECOVER);
+}
+
+static void release_shot(const Enemy *e, int8_t dir)
+{
+    switch (e->type) {
+    case ENEMY_TYPE_THROWER:
+        item_spawn_shot(SHOT_ROCK, e->x, e->y, dir);
+        break;
+    case ENEMY_TYPE_SPITTER:
+        item_spawn_shot(SHOT_SPIT, (uint16_t)(dir < 0 ? e->x - TO_POS(SPIT_OFFSET) : e->x + TO_POS(SPIT_OFFSET)), e->y, dir);
+        break;
+    default:
+        item_spawn_shot(SHOT_DOWN, e->x, (uint16_t)(e->y + TO_POS(DOWN_SHOT_OFFSET)), 0);
+        break;
+    }
+}
+
+/* Thrower, spitter, dropper: once a player is in the line of fire, stop,
+ * wind up (the enemy flashes, see enemies_draw), shoot in the direction
+ * it faced when the wind-up began, stand a moment longer. Returns 1 while
+ * the enemy stands in its shooting pose. */
+static uint8_t try_shoot(Enemy *e, int8_t dir)
+{
+    uint8_t target;
+
+    if (e->throw_pose) {
+        e->throw_pose--;
+        if (e->throw_pose == ENEMY_RECOVER) {
+            release_shot(e, dir);
+        }
+        return 1;
+    }
     if (e->throw_timer) {
         e->throw_timer--;
-        return;
+        return 0;
     }
-    if (e->type == ENEMY_TYPE_SPITTER && player_in_line(e, dir)) {
-        item_spawn_shot(SHOT_SPIT, (uint16_t)(dir < 0 ? e->x - TO_POS(6) : e->x + TO_POS(6)), e->y, dir);
-        e->throw_timer = (uint8_t)(SPIT_COOLDOWN + (rng_next() & 63));
-    } else if (e->type == ENEMY_TYPE_DROPPER && player_below(e)) {
-        item_spawn_shot(SHOT_DOWN, e->x, (uint16_t)(e->y + TO_POS(8)), 0);
-        e->throw_timer = (uint8_t)(DROP_COOLDOWN + (rng_next() & 63));
+    if (!level_on_ground(e->x, e->y)) {
+        return 0;
     }
+    target = (uint8_t)(e->type == ENEMY_TYPE_DROPPER ? player_below(e) : player_in_line(e, dir));
+    if (!target) {
+        return 0;
+    }
+    e->throw_pose = ENEMY_POSE;
+    e->throw_timer = (uint8_t)(e->type == ENEMY_TYPE_THROWER ? THROW_COOLDOWN + (rng_next() & 127) :
+                               e->type == ENEMY_TYPE_SPITTER ? SPIT_COOLDOWN + (rng_next() & 63) :
+                                                               DROP_COOLDOWN + (rng_next() & 63));
+    return 1;
 }
 
 static void think_walker(Enemy *e, uint8_t think_now)
@@ -349,11 +356,8 @@ static void think_walker(Enemy *e, uint8_t think_now)
     uint8_t can_climb = (uint8_t)(e->type == ENEMY_TYPE_WALKER || e->type == ENEMY_TYPE_THROWER);
     uint8_t can_gap_jump = (uint8_t)(e->type != ENEMY_TYPE_DROPPER);
 
-    if (e->type == ENEMY_TYPE_THROWER && !e->jump_left && try_throw(e, dir)) {
+    if (is_shooter(e->type) && !e->jump_left && try_shoot(e, dir)) {
         return;
-    }
-    if (e->type == ENEMY_TYPE_SPITTER || e->type == ENEMY_TYPE_DROPPER) {
-        shoot_on_the_move(e, dir);
     }
     if (e->type == ENEMY_TYPE_DROPPER) {
         e->walk_over_edge = 1;   /* always walks off edges */
@@ -571,9 +575,11 @@ void enemies_draw(void)
             break;
         }
         /* The walker has its own angry graphics; the others are tinted red.
-         * Frozen enemies are grey. */
+         * Frozen enemies are grey. A shooter winding up flashes yellow. */
         if (g_freeze) {
             attr = (uint8_t)(attr | (PAL_GREY << SPR_ATTR_PAL_SHIFT));
+        } else if (enemy_shot_in(e) && ((g_frame >> 2) & 1)) {
+            attr = (uint8_t)(attr | (PAL_YELLOW << SPR_ATTR_PAL_SHIFT));
         } else if (e->angry && e->type != ENEMY_TYPE_WALKER) {
             attr = (uint8_t)(attr | (PAL_RED << SPR_ATTR_PAL_SHIFT));
         }

@@ -34,6 +34,7 @@
 static char      asset_root[1024];
 static Texture2D chr_bg;       /* 8x8 background tiles */
 static Texture2D chr_sprites;  /* 16x16 sprite cells   */
+static Texture2D chr_sprites_p2;  /* the same, player colours swapped (sprite palette PAL_P2) */
 static Sound     sounds[SFX_COUNT];
 static int       sound_loaded[SFX_COUNT];
 static Music     music[MUSIC_COUNT];
@@ -51,7 +52,7 @@ static const char *const music_files[MUSIC_COUNT] = {
 static const char *const sfx_files[SFX_COUNT] = {
     "jump", "shoot", "pop", "trap", "kill", "gem", "death",
     "start", "clear", "hurry", "gameover", "menu", "pause", "extra",
-    "ready", "full", "dash"
+    "ready", "full", "dash", "UhHelpMe"
 };
 
 /* Tints for the 8 "palettes" of stage 1. */
@@ -150,6 +151,16 @@ static void load_assets(void)
     chr_bg = build_bg_chr();
     img = load_keyed_image("gfx/sprites.png", 256, 256);
     chr_sprites = LoadTextureFromImage(img);
+    /* Player 2: the player's green ramp becomes a blue one (a palette swap,
+     * as on the SNES; only player cells are drawn with PAL_P2). */
+    {
+        static const Color from[4] = { { 16, 64, 24, 255 }, { 32, 140, 56, 255 }, { 64, 200, 80, 255 }, { 150, 240, 150, 255 } };
+        static const Color to[4]   = { { 16, 32, 88, 255 }, { 40, 80, 190, 255 }, { 70, 130, 240, 255 }, { 160, 200, 255, 255 } };
+        for (i = 0; i < 4; i++) {
+            ImageColorReplace(&img, from[i], to[i]);
+        }
+        chr_sprites_p2 = LoadTextureFromImage(img);
+    }
     UnloadImage(img);
     for (i = 0; i < SFX_COUNT; i++) {
         sound_loaded[i] = 0;
@@ -227,6 +238,7 @@ static void unload_assets(void)
         }
     }
     UnloadTexture(chr_sprites);
+    UnloadTexture(chr_sprites_p2);
     UnloadTexture(chr_bg);
 }
 
@@ -352,8 +364,10 @@ static uint16_t read_gamepad(int index)
     if (IsGamepadButtonDown(index, GAMEPAD_BUTTON_RIGHT_FACE_LEFT))  pad |= PAD_Y;
     if (IsGamepadButtonDown(index, GAMEPAD_BUTTON_RIGHT_FACE_RIGHT)) pad |= PAD_A;
     if (IsGamepadButtonDown(index, GAMEPAD_BUTTON_RIGHT_FACE_UP))    pad |= PAD_X;
-    if (IsGamepadButtonDown(index, GAMEPAD_BUTTON_LEFT_TRIGGER_1))   pad |= PAD_L;
-    if (IsGamepadButtonDown(index, GAMEPAD_BUTTON_RIGHT_TRIGGER_1))  pad |= PAD_R;
+    /* Both shoulder buttons (LB, RB) are the dash key: the held direction,
+     * else the facing one (like L on the keyboard). */
+    if (IsGamepadButtonDown(index, GAMEPAD_BUTTON_LEFT_TRIGGER_1))   pad |= PAD_L | PAD_R;
+    if (IsGamepadButtonDown(index, GAMEPAD_BUTTON_RIGHT_TRIGGER_1))  pad |= PAD_L | PAD_R;
     if (IsGamepadButtonDown(index, GAMEPAD_BUTTON_MIDDLE_LEFT))      pad |= PAD_SELECT;
     if (IsGamepadButtonDown(index, GAMEPAD_BUTTON_MIDDLE_RIGHT))     pad |= PAD_START;
 
@@ -413,17 +427,18 @@ static void draw_sprites(const Sprite *oam)
         if (s->y >= SCREEN_H) {
             continue;
         }
-        draw_cell(chr_sprites, s->tile, SPRITE_SIZE, s->x, s->y,
+        int pal = (s->attr & SPR_ATTR_PAL_MASK) >> SPR_ATTR_PAL_SHIFT;
+        draw_cell(pal == PAL_P2 ? chr_sprites_p2 : chr_sprites, s->tile, SPRITE_SIZE, s->x, s->y,
                   (s->attr & SPR_ATTR_FLIP_X) != 0, (s->attr & SPR_ATTR_FLIP_Y) != 0,
-                  palette[(s->attr & SPR_ATTR_PAL_MASK) >> SPR_ATTR_PAL_SHIFT]);
+                  pal == PAL_P2 ? WHITE : palette[pal]);
     }
 }
 
-static void play_sounds(uint16_t mask)
+static void play_sounds(uint32_t mask)
 {
     int i;
     for (i = 0; i < SFX_COUNT; i++) {
-        if ((mask & (1u << i)) && sound_loaded[i]) {
+        if ((mask & ((uint32_t)1u << i)) && sound_loaded[i]) {
             PlaySound(sounds[i]);
         }
     }

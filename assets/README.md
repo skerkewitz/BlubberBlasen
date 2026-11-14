@@ -110,7 +110,9 @@ Things to keep in mind when designing rooms:
 
 ## Sound effects (`sfx/`)
 
-Mono WAV files, loaded by name: `jump`, `shoot`, `pop`, `trap`, `kill`, `gem`, `death`, `start`, `clear`, `hurry`, `gameover`, `menu`, `pause`, `extra`. A missing file is skipped silently.
+Mono WAV files, loaded by name: `jump`, `shoot`, `pop`, `trap`, `kill`, `gem`, `death`, `start`, `clear`, `hurry`, `gameover`, `menu`, `pause`, `extra`, `ready`, `full`, `dash`, `UhHelpMe`. A missing file is skipped silently.
+
+`UhHelpMe` plays when a player is caught in a rescue bubble (co-op rescue) and once more when two thirds of the bubble's time are over.
 
 ## Music (`music/`)
 
@@ -130,7 +132,8 @@ Two temporary tracks, streamed by the platform layer (`music_files` in `src/plat
 | `tileset01..08.png` | The room tiles from the Java version (`level/round01..08.png`), unchanged. |
 | Bubble cells 32..34 | `spritesheet/bubble.png` from the Java version. |
 | Rest of `sprites.png`, `font.png` | Placeholder art drawn by a script for this prototype. Replace freely. |
-| `sfx/*.wav` | Placeholder sounds synthesised by a script for this prototype. |
+| `sfx/*.wav` | Placeholder sounds synthesised by a script for this prototype, except `UhHelpMe.wav`. |
+| `sfx/UhHelpMe.wav` | Added by the project owner (2026-11-14). |
 | `levels/*.map`, `levels/*.txt` | New room layouts and settings for this prototype. |
 
 The Java version also contained a ripped NES sprite sheet, traced character sprites, original game sound effects, music and arcade round layouts. **None of these are used here, and they must not be added** (see the license note in the main README).

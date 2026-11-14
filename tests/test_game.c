@@ -746,22 +746,34 @@ static void test_hopper(void)
 }
 
 /* Spitter: spits at a player in line without stopping. */
+/* Spitter: winds up (stands still) for ENEMY_WINDUP frames, then spits
+ * the way it faced; afterwards it walks on. */
 static void test_spitter(void)
 {
-    int f, moved = 0;
+    int f;
     uint16_t x0;
 
     setup_room(0);
     enemy_spawn(TO_POS(180), TO_POS(PLAYER_SPAWN_Y), ENEMY_TYPE_SPITTER, 0, 1);
     g_enemies[0].throw_timer = 0;
     x0 = g_enemies[0].x;
-    for (f = 0; f < 30 && count_shots(SHOT_SPIT) == 0; f++) {
+    enemies_update();   /* sees the player: the wind-up starts */
+    CHECK(enemy_shot_in(&g_enemies[0]) == ENEMY_WINDUP, "the spitter should start a wind-up (%u)",
+          enemy_shot_in(&g_enemies[0]));
+    g_players[0].x = TO_POS(120);   /* the player moving does not turn it */
+    for (f = 1; f < ENEMY_WINDUP; f++) {
         enemies_update();
         items_update();
     }
-    moved = g_enemies[0].x != x0;
-    CHECK(count_shots(SHOT_SPIT) > 0, "spitter never spat");
-    CHECK(moved, "spitter should keep moving while it spits");
+    CHECK(count_shots(SHOT_SPIT) == 0, "no shot before the wind-up is over");
+    CHECK(g_enemies[0].x == x0, "the spitter stands still while winding up");
+    enemies_update();
+    CHECK(count_shots(SHOT_SPIT) == 1, "the spit leaves when the wind-up ends");
+    CHECK(g_items[0].vx < 0, "the spit flies the way the spitter faced");
+    for (f = 0; f < ENEMY_RECOVER + 4; f++) {
+        enemies_update();
+    }
+    CHECK(g_enemies[0].x != x0, "after the shot the spitter walks on");
 }
 
 /* Dropper: shoots down at a player below it. */
@@ -774,7 +786,11 @@ static void test_dropper(void)
     enemy_spawn(TO_POS(24), TO_POS(FIELD_Y + 19 * 8 - 8), ENEMY_TYPE_DROPPER, 0, 0);
     g_enemies[0].throw_timer = 0;
     g_players[0].x = TO_POS(28);
-    for (f = 0; f < 30 && count_shots(SHOT_DOWN) == 0; f++) {
+    for (f = 0; f < ENEMY_WINDUP && count_shots(SHOT_DOWN) == 0; f++) {
+        enemies_update();
+    }
+    CHECK(count_shots(SHOT_DOWN) == 0, "the dropper winds up before it shoots");
+    for (f = 0; f < 10 && count_shots(SHOT_DOWN) == 0; f++) {
         enemies_update();
     }
     CHECK(count_shots(SHOT_DOWN) > 0, "dropper never shot down");
@@ -1155,8 +1171,11 @@ static void test_rescue(void)
     g_opt.rescue = 1;
     setup_two_players(0);
     enemy_spawn(g_players[0].x, g_players[0].y, ENEMY_TYPE_WALKER, 0, 0);
+    g_sfx = 0;
     player_update(&g_players[0], 0, 0);
     CHECK(g_players[0].state == PS_RESCUE, "enemy contact should trap player 1 in a rescue bubble");
+    CHECK((g_sfx & ((uint32_t)1u << SFX_HELP)) && !(g_sfx & ((uint32_t)1u << SFX_TRAP)),
+          "a trapped player calls for help (not the enemy trap sound)");
     enemies_clear();
     for (f = 0; f < 30; f++) {
         player_update(&g_players[0], 0, 0);
@@ -1170,8 +1189,18 @@ static void test_rescue(void)
     enemy_spawn(g_players[0].x, g_players[0].y, ENEMY_TYPE_WALKER, 0, 0);
     player_update(&g_players[0], 0, 0);
     enemies_clear();
-    for (f = 0; f < 600 && g_players[0].state == PS_RESCUE; f++) {
-        player_update(&g_players[0], 0, 0);
+    {
+        int calls = 0, call_at = -1;
+        for (f = 0; f < 600 && g_players[0].state == PS_RESCUE; f++) {
+            g_sfx = 0;
+            player_update(&g_players[0], 0, 0);
+            if (g_sfx & ((uint32_t)1u << SFX_HELP)) {
+                calls++;
+                call_at = f;
+            }
+        }
+        CHECK(calls == 1 && call_at >= 270 && call_at <= 290,
+              "a second call for help when 2/3 of the time is over (%d calls, last at frame %d)", calls, call_at);
     }
     CHECK(g_players[0].state == PS_DYING, "an expired rescue bubble costs a life");
 
@@ -1233,6 +1262,39 @@ static void test_plus_mode(void)
           PX(g_players[0].x) - PX(x0));
     CHECK(g_players[0].energy == ENERGY_MAX - DASH_COST, "a dash costs energy");
     CHECK(g_players[0].facing_left == 0, "dash keeps the facing");
+
+    /* after the dash: still safe long enough to jump clear */
+    setup_room(0);
+    g_opt.plus = 1;
+    g_players[0].energy = ENERGY_MAX;
+    g_players[0].x = TO_POS(60);
+    player_update(&g_players[0], PAD_R, PAD_R);
+    CHECK(player_dash_invulnerable(&g_players[0]), "invulnerable from the first dash frame");
+    for (f = 0; f < DASH_FRAMES - 1; f++) {
+        player_update(&g_players[0], 0, 0);
+    }
+    CHECK(g_players[0].dash == 0 && g_players[0].invulnerable >= DASH_GRACE - 1, "the dash ends with a grace time");
+    enemy_spawn(g_players[0].x, g_players[0].y, ENEMY_TYPE_WALKER, 0, 0);
+    for (f = 0; f < DASH_GRACE + 5; f++) {   /* jump at once, keep B held */
+        player_update(&g_players[0], PAD_B, (uint16_t)(f == 0 ? PAD_B : 0));
+    }
+    CHECK(g_players[0].state == PS_ALIVE && g_players[0].invulnerable == 0,
+          "jumping right after a dash next to an enemy should get clear before the grace time ends");
+    enemies_clear();
+
+    /* the dash pops bubbles in a band taller than the body */
+    setup_room(0);
+    g_opt.plus = 1;
+    g_players[0].energy = ENERGY_MAX;
+    g_players[0].x = TO_POS(60);
+    g_bubbles[0] = make_trapped(100, (uint8_t)(PLAYER_SPAWN_Y - 16));
+    g_bubbles[0].state = BS_FLOAT;
+    g_bubbles[0].trapped = 0;
+    player_update(&g_players[0], PAD_R, PAD_R);
+    for (f = 0; f < DASH_FRAMES; f++) {
+        player_update(&g_players[0], 0, 0);
+    }
+    CHECK(g_bubbles[0].state == BS_POPPING, "a dash under a bubble should pop it");
 
     /* special shot: hold Y with a full bar; one bubble catches two enemies */
     setup_room(0);
@@ -1304,6 +1366,32 @@ static void test_cpu_partner(void)
     game_tick(pad);
     CHECK(!g_players[1].cpu && g_state == GS_PLAY, "Start on controller 2 hands player 2 to a human (no pause)");
     g_opt.p2_cpu = 0;
+}
+
+/* The CPU partner climbs to a platform five rows up (a full jump): it
+ * must keep jump held while rising, like a player who wants the full height. */
+static void test_cpu_climbs(void)
+{
+    int f, reached = 0;
+    uint16_t last = 0, pad;
+
+    setup_two_players(0);
+    g_players[1].cpu = 1;
+    g_players[0].x = TO_POS(24);   /* round 1: left platform on row 20 */
+    g_players[0].y = TO_POS(FIELD_Y + 20 * 8 - 16);
+    g_players[1].x = TO_POS(120);  /* on the floor */
+    g_players[1].y = TO_POS(PLAYER_SPAWN_Y);
+    cpu_reset();
+    for (f = 0; f < 600 && !reached; f++) {
+        g_frame++;
+        player_update(&g_players[0], 0, 0);
+        pad = cpu_pad(&g_players[1]);
+        player_update(&g_players[1], pad, (uint16_t)(pad & ~last));
+        last = pad;
+        reached = g_players[1].on_ground && PX(g_players[1].y) == FIELD_Y + 20 * 8 - 16;
+    }
+    CHECK(reached, "the CPU partner should jump up to the platform next to player 1 (P2 at %u,%u)",
+          PX(g_players[1].x), PX(g_players[1].y));
 }
 
 /* Debug switches. */
@@ -1414,6 +1502,7 @@ int main(void)
     test_dash_rules();
     test_options();
     test_cpu_partner();
+    test_cpu_climbs();
     test_debug_switches();
     test_cpu_soak();
     test_determinism_and_play();

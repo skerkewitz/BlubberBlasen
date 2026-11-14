@@ -17,9 +17,6 @@
 #define POPUP_FRAMES    60
 #define POPUP_SPEED     FX(0, 100)
 #define THROWN_TOP      (FIELD_Y + 8)
-#define ROCK_SPEED      FX(2, 0)
-#define SPIT_SPEED      FX(2, 128)
-#define DOWN_SHOT_SPEED FX(2, 128)
 
 /* Food values 1000 << tier as (ten-thousands, thousands) digits. */
 static const uint8_t food_value[FOOD_TIERS][2] = {
