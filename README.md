@@ -127,7 +127,7 @@ With Visual Studio you can also simply open the folder (*File → Open → Folde
 
 The game finds its `assets/` folder next to the executable or, failing that, in the source tree it was built from. High scores are saved to `blubberblasen.sav` next to the executable. `F11` toggles full screen.
 
-The picture goes through a retro TV filter when it is scaled into the window (platform layer only, the 256x224 framebuffer and `--shot` stay clean): SNES 15-bit colour, composite-style colour bleed, scanlines, an RGB aperture-grille mask and a light vignette. Scanlines and mask fade out below 3x scale. `Tab` toggles the filter, `--no-crt` starts without it.
+The picture goes through a retro TV filter when it is scaled into the window (platform layer only, the 256x224 framebuffer and `--shot` stay clean): SNES 15-bit colour, composite-style colour bleed, scanlines, an RGB aperture-grille mask (RGB phosphor stripes on the tube), a soft glow, a light vignette and curved glass (barrel distortion; the edges bulge outward and nothing of the picture is cut off). Scanlines and mask fade out below 3x scale. `Tab` toggles the filter, `--no-crt` starts without it. [RETRO-EFFECT.md](RETRO-EFFECT.md) explains each effect and how to adjust it.
 
 ### Web build (WebAssembly)
 
@@ -194,6 +194,7 @@ All developer options and debug switches exist only in builds with the CMake opt
 | `F12` | Vacuum walls: walls stop bubbles inside a vacuum (to compare with the default pass-through) |
 | `Backspace` | Mark this moment in the recording ("that was weird!"); while replaying: jump to 3 s before the next mark |
 | `--shot <tick>` | Save the framebuffer as `shot_<tick>.png` in the working directory (repeatable) |
+| `--shot-crt <n>` | Also save each shot through the retro TV filter at n x scale, as `shot_<tick>_crt.png` |
 | `--quit <tick>` | Exit after that many game ticks |
 
 ### Recordings

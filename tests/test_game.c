@@ -68,6 +68,29 @@ static void test_levels(void)
     }
 }
 
+/* A walker may only climb to a platform it can land on. Row 0 is the
+ * ceiling: a 44 px jump at it from the top platform left the room and
+ * wrapped it for a few frames to the bottom of the room. Every allowed jump
+ * must end inside the field. */
+static void test_jump_up_stays_in_room(void)
+{
+    uint8_t l, tx;
+    int16_t ty;
+
+    for (l = 0; l < level_count; l++) {
+        level_load(l, 0);
+        for (ty = 1; ty < LEVEL_H; ty++) {
+            uint16_t y = TO_POS(FIELD_Y + (ty << 3) - 16);   /* feet on row ty */
+            for (tx = 0; tx < LEVEL_W - 1; tx++) {
+                if (level_can_jump_up(TO_POS(tx << 3), y)) {
+                    CHECK(ty - 5 >= 1, "level %u: jump up from row %d at x %u reaches the ceiling", l + 1, ty, tx << 3);
+                }
+            }
+        }
+    }
+    level_load(0, 0);
+}
+
 /* Simple deterministic input generator, independent from the game RNG. */
 static uint16_t bot_rng = 0x1234;
 static uint16_t bot_next(void)
@@ -1947,6 +1970,7 @@ int main(void)
     trace = t ? strtoul(t, 0, 10) : 0;
     test_score();
     test_levels();
+    test_jump_up_stays_in_room();
     test_chain();
     test_push();
     test_food_value();

@@ -175,6 +175,7 @@ Pass them to `rungame.sh`, `rungame.bat` or `replay.sh`.
 | `--clear <tick>` | Remove all enemies at that tick |
 | `--invincible`, `--infinite-lives`, `--hitboxes`, `--air`, `--cpu-view`, `--full-energy` | Start with that debug switch on |
 | `--shot <tick>` | Save the picture as `shot_<tick>.png` (repeatable) |
+| `--shot-crt <n>` | Also save each shot through the retro TV filter at n x scale, as `shot_<tick>_crt.png` |
 | `--quit <tick>` | Quit after that many ticks |
 | `--mute` | No sound |
 | `--no-crt` | Start without the retro TV filter |

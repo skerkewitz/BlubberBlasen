@@ -136,12 +136,18 @@ static int16_t feet_tile_row(uint16_t y)
     return (int16_t)(((int16_t)PX(y) + 16 - FIELD_Y) >> 3);   /* row the feet stand on */
 }
 
-/* A platform exactly five rows up, with room above it. */
+/* A platform exactly five rows up, with room above it. Row 0 is the
+ * ceiling, not a platform: jumping at it would carry the enemy out of the
+ * top of the room, where it wraps to the bottom. */
 uint8_t level_can_jump_up(uint16_t x, uint16_t y)
 {
     int16_t tx = (int16_t)((PX(x) + 8) >> 3);
     int16_t ty = feet_tile_row(y);
     uint8_t i;
+
+    if (ty - 5 < 1) {
+        return 0;
+    }
 
     for (i = 1; i <= 4; i++) {
         if (level_solid_tile(tx, (int16_t)(ty - i))) {
