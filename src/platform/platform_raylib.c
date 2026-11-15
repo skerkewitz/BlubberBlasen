@@ -954,7 +954,7 @@ static void debug_status(void)
  * A post-processing chain applied only when the 256x224 framebuffer is scaled
  * into the window; the framebuffer itself (and --shot) stays clean.
  * It imitates a SNES on a consumer CRT over composite video, in the stages a
- * real set has (RETRO-EFFECT.md explains each step and its constants):
+ * real set has (docs/RETRO-EFFECT.md explains each step and its constants):
  *   1. Signal (signal_fs, into `signal`, 1024x224, fixed size): 15-bit colour
  *      (5 bits per channel, like SNES CGRAM) and the composite blur: luma
  *      soft, chroma bleeds wider (YIQ, horizontal only). 4x oversampled
@@ -972,6 +972,11 @@ static void debug_status(void)
  *      - a round beam spot: each pixel takes the line above, its own and the
  *        line below, each as a bell curve that widens on bright pixels; the
  *        curve keeps its energy, so bright lines fill the gaps (scanlines)
+ *      - towards the edges the beam goes out of focus (DEFOCUS, DEFOCUS_H)
+ *        and the red and blue beams drift apart from green (CONVERGE), so
+ *        each colour channel is drawn by its own beam
+ *      - DISTANCE (0 = at the desk, 1 = from the sofa) softens everything
+ *        and fades scanlines and mask, the way the eye did from far away
  *      - an aperture-grille mask: R, G, B phosphor stripes with dark gaps,
  *        laid out on the tube (TRIADS per game pixel), so it bends with the
  *        glass and keeps its size relative to the picture; each stripe is
@@ -1073,14 +1078,26 @@ static void debug_status(void)
     "const float BEAM_DARK = 0.22;\n" \
     "const float BEAM_BRIGHT = 0.36;\n" \
     "const float TRIADS = 1.0;\n" \
+    "const float DEFOCUS = 0.5;\n" \
+    "const float DEFOCUS_H = 0.4;\n" \
+    "const float CONVERGE = 0.3;\n" \
+    "const float DISTANCE = 0.0;\n" \
     CRT_MASK_CONSTS \
     "vec3 line(float row, float x)\n" \
     "{\n" \
     "    return pow(TEX(texture0, vec2(x, row) / sourceSize).rgb, vec3(2.2));\n" \
     "}\n" \
-    "vec3 spot(vec3 col, float dy)\n" \
+    "vec3 wide(float row, float x, float h)\n" \
     "{\n" \
-    "    float sigma = mix(BEAM_DARK, BEAM_BRIGHT, sqrt(dot(col, vec3(0.299, 0.587, 0.114))));\n" \
+    "    return 0.5 * (line(row, x - h) + line(row, x + h));\n" \
+    "}\n" \
+    "vec3 row3(float row, float x, float ox, float h)\n" \
+    "{\n" \
+    "    return vec3(wide(row, x + ox, h).r, wide(row, x, h).g, wide(row, x - ox, h).b);\n" \
+    "}\n" \
+    "vec3 spot(vec3 col, vec3 dy, float grow)\n" \
+    "{\n" \
+    "    float sigma = mix(BEAM_DARK, BEAM_BRIGHT, sqrt(dot(col, vec3(0.299, 0.587, 0.114)))) * grow;\n" \
     "    return col * exp(-dy * dy / (2.0 * sigma * sigma)) / (sigma * 2.5066);\n" \
     "}\n" \
     "float lit(float a, float b, float s)\n" \
@@ -1097,11 +1114,15 @@ static void debug_status(void)
     "    vec2 e = (0.5 - abs(c)) * sourceSize * scale;\n" \
     "    float inside = clamp(min(e.x, e.y) + 0.5, 0.0, 1.0);\n" \
     "    vec2 p = (c + 0.5) * sourceSize;\n" \
+    "    float e2 = 2.0 * dot(c, c);\n" \
+    "    float grow = (1.0 + DEFOCUS * e2) * (1.0 + DISTANCE);\n" \
+    "    float h = DEFOCUS_H * e2 + 0.5 * DISTANCE;\n" \
+    "    vec2 o = CONVERGE * 2.0 * c;\n" \
     "    float row = floor(p.y) + 0.5;\n" \
-    "    float dy = p.y - row;\n" \
-    "    vec3 mid = line(row, p.x);\n" \
-    "    vec3 beam = spot(line(row - 1.0, p.x), dy + 1.0) + spot(mid, dy) + spot(line(row + 1.0, p.x), dy - 1.0);\n" \
-    "    float fx = clamp((scale - 1.5) / 1.5, 0.0, 1.0);\n" \
+    "    vec3 dy = p.y - row + vec3(o.y, 0.0, -o.y);\n" \
+    "    vec3 mid = row3(row, p.x, o.x, h);\n" \
+    "    vec3 beam = spot(row3(row - 1.0, p.x, o.x, h), dy + 1.0, grow) + spot(mid, dy, grow) + spot(row3(row + 1.0, p.x, o.x, h), dy - 1.0, grow);\n" \
+    "    float fx = clamp((scale - 1.5) / 1.5, 0.0, 1.0) * (1.0 - DISTANCE);\n" \
     "    vec3 rgb = mix(mid, beam, fx * SCANLINES);\n" \
     "    float t = p.x * TRIADS;\n" \
     "    t -= floor(t);\n" \

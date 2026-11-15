@@ -127,7 +127,7 @@ With Visual Studio you can also simply open the folder (*File → Open → Folde
 
 The game finds its `assets/` folder next to the executable or, failing that, in the source tree it was built from. High scores are saved to `blubberblasen.sav` next to the executable. `F11` toggles full screen.
 
-The picture goes through a retro TV filter when it is scaled into the window (platform layer only, the 256x224 framebuffer and `--shot` stay clean): SNES 15-bit colour, composite-style colour bleed, scanlines, an RGB aperture-grille mask (RGB phosphor stripes on the tube), a soft glow, a light vignette and curved glass (barrel distortion; the edges bulge outward and nothing of the picture is cut off). Scanlines and mask fade out below 3x scale. `Tab` toggles the filter, `--no-crt` starts without it. [RETRO-EFFECT.md](RETRO-EFFECT.md) explains each effect and how to adjust it.
+The picture goes through a retro TV filter when it is scaled into the window (platform layer only, the 256x224 framebuffer and `--shot` stay clean): SNES 15-bit colour, composite-style colour bleed, scanlines, an RGB aperture-grille mask (RGB phosphor stripes on the tube), a soft glow, a light vignette and curved glass (barrel distortion; the edges bulge outward and nothing of the picture is cut off), softer edges with slight colour fringes, like a real tube. Scanlines and mask fade out below 3x scale. `Tab` toggles the filter, `--no-crt` starts without it. [docs/RETRO-EFFECT.md](docs/RETRO-EFFECT.md) explains each effect and how to adjust it.
 
 ### Web build (WebAssembly)
 
@@ -199,7 +199,7 @@ All developer options and debug switches exist only in builds with the CMake opt
 
 ### Recordings
 
-Step by step, with all debug keys: [DEBUG-REPLAY.md](DEBUG-REPLAY.md).
+Step by step, with all debug keys: [docs/DEBUG-REPLAY.md](docs/DEBUG-REPLAY.md).
 
 The game is deterministic: the same start and the same buttons give the same game. Development builds on the PC use this to record every run, so a bug that has just happened can be watched again, frame by frame.
 

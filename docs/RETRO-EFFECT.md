@@ -26,7 +26,8 @@ section headed `Retro TV look`. The work is split into three stages, like a real
 3. **Screen** (`CRT_SHADER_BODY`): everything finer than a game pixel, drawn at window
    resolution: curved glass, beam and scanlines, phosphor stripes, then the glow added on
    top and the vignette. It reads the signal at the line above, its own line and the line
-   below, so each screen pixel needs only three reads plus one for the glow.
+   below, each colour at its own position (misconvergence) and twice for the sideways
+   defocus: 18 reads plus one for the glow per screen pixel, with no colour conversion.
 
 Stages 1 and 2 are fixed size and cost the same in any window. Only stage 3 grows with the
 window. `crt_prepare()` runs stages 1 and 2 each frame; `crt_draw()` runs stage 3.
@@ -45,6 +46,21 @@ the shader is compiled at runtime.
 The order follows a real set: the signal is smeared first (colour bleed), then the beam
 draws its lines, then it lights the phosphor stripes, and last the glass spreads a little
 light (glow). Blurring after the stripes would wash them out.
+
+### Where the softness comes from
+
+There is no single blur. Several effects make the picture soft, each in its own direction
+and for its own reason:
+
+| Effect | Direction | Where it is strongest | Knobs |
+| --- | --- | --- | --- |
+| Composite blur (3) | Horizontal, along each line | Everywhere the same | `LUMA_SHARP`, `CHROMA_SHARP` |
+| Beam spot (4) | Vertical, into the neighbouring lines | Bright lines | `BEAM_DARK`, `BEAM_BRIGHT` |
+| Defocus at the edges (5) | Both | Edges and corners | `DEFOCUS`, `DEFOCUS_H` |
+| Glow (7) | Both, wide and faint | Around bright things on dark | `GLOW`, `GLOW_SIZE` |
+| Viewing distance (9) | Both | Everywhere; off by default | `DISTANCE` |
+
+The first four happen inside a real TV. The last one happened in the viewer's eye.
 
 ### 1. Curved glass
 
@@ -77,7 +93,7 @@ that the real hardware could not show.
 
 To turn it off, delete that line. To use 6 bits, change both `31.0` to `63.0`.
 
-### 3. Composite colour bleed
+### 3. Composite blur and colour bleed
 
 Composite video sends brightness (luma) and colour (chroma) mixed in one signal, and the
 colour part has much less bandwidth. On a TV, colours smeared sideways along the line much
@@ -119,7 +135,36 @@ over more space instead of getting brighter. That is why there is no brightness 
 
 This part may still change: whether we want scanlines this strong is an open question.
 
-### 5. Phosphor stripes (aperture grille)
+### 5. Edges: defocus and misconvergence
+
+A real tube was sharpest in the middle. Towards the edges the electron beam travelled
+further and hit the glass at an angle, so its spot got larger and the picture softer. A
+colour tube also had three beams, one per colour, and they never met perfectly. Towards
+the edges red and blue drifted away from green, which put thin colour fringes on edges:
+white text with a reddish edge on one side and a bluish one on the other. Cheap TVs had
+more of both.
+
+The screen stage draws each colour channel with its own beam. Red is read slightly further
+out from the centre, blue slightly further in, and green stays put; the offset grows from 0
+in the middle to `CONVERGE` game pixels at the middle of each edge. The beam's bell curve
+gets wider towards the edges (`DEFOCUS`), and each read is spread sideways over
+`DEFOCUS_H` game pixels. The middle of the picture, where you look most, stays as sharp as
+before. Both effects grow with the square of the distance from the centre.
+
+| Constant | Now | Effect |
+| --- | --- | --- |
+| `DEFOCUS` | `0.5` | How much wider the beam is in the corners: 0.5 means 50 % wider there, and 25 % at the middle of each edge. |
+| `DEFOCUS_H` | `0.4` | Sideways softening in the corners, in game pixels; half of it at the middle of each edge. |
+| `CONVERGE` | `0.3` | Red and blue offset at the edge midpoints, in game pixels. Above about 0.5 the fringes look broken rather than old. |
+
+Implementation note: an earlier version called one function three times, once per colour.
+The NVIDIA driver (610.88, RTX 4070) returned wrong values from the second and third call,
+which turned the picture red. The browser renderer got it right. The current code reads the
+three colours inside `row3()` instead. If you restructure this part, compare a
+`--shot-crt` screenshot with all three constants at 0 against one from before the change:
+they must be identical.
+
+### 6. Phosphor stripes (aperture grille)
 
 A colour CRT has no pixels. Behind the glass are thin vertical stripes of red, green and
 blue phosphor with dark gaps between them, and each stripe glows only in its own colour.
@@ -146,12 +191,12 @@ The darker the gaps, the less light the mask lets through, so the shader brighte
 stripes to keep the average brightness the same. Bright colours then hit the monitor's
 maximum and get a little paler and flatter. A real CRT got around this with very bright
 phosphor spots; a normal monitor can't. Part of the clipped light comes back as glow
-(effect 6). If bright areas look washed out, raise `MASK_DARK`.
+(effect 7). If bright areas look washed out, raise `MASK_DARK`.
 
 The glow shader needs the same mask values to work out how much light gets clipped, which
 is why they sit in `CRT_MASK_CONSTS` and not in the main shader alone.
 
-### 6. Glow (halation)
+### 7. Glow (halation)
 
 On a real tube some light scattered inside the thick front glass and came out next to where
 it was made, so bright things had a faint halo and the picture looked soft rather than
@@ -176,11 +221,26 @@ Small values matter here. Glow is added in linear light, and the gamma step at t
 faint light over black very visible: a linear 0.05 shows as about 25 % grey. With `GLOW`
 at 0.06 and `OVERFLOW` at 0.3 the dark shading under the platforms already turned pink.
 
-### 7. Vignette
+### 8. Vignette
 
 The picture gets a little darker towards the corners, as the edges of a tube were dimmer
 than its centre. `rgb *= (1.0 - 0.35 * dot(c, c))` darkens the corners by about 17 %.
 Change `0.35` to make it stronger or weaker; 0 turns it off.
+
+### 9. Viewing distance (off by default)
+
+From a sofa two or three metres away, the eye could hardly tell single game pixels apart on
+a 14" TV, and the phosphor stripes and most of the scanlines were too fine to see at all.
+At a desk in front of a large monitor you see every one of them. `DISTANCE` imitates the
+sofa: it widens the beam, softens every read sideways, and fades out the scanlines and the
+phosphor stripes.
+
+| Constant | Now | Effect |
+| --- | --- | --- |
+| `DISTANCE` | `0.0` | 0 is the desk, 1 the sofa. 1 removes stripes and scanlines completely; 0.3 to 0.5 keeps a hint of them. |
+
+This simulates the eye, not the TV, so it is a matter of taste. Sitting two metres back from
+the monitor shows the same thing for free.
 
 ## Small windows
 
