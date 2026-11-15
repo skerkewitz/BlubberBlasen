@@ -121,6 +121,8 @@ cmake --build build --config Debug
 .\build\Debug\blubberblasen.exe  # Visual Studio generator
 ```
 
+`rungame.bat` (Windows) and `rungame.sh` (Linux, macOS, WSL) start the built game from the project folder and pass all arguments on, for example `rungame --replay build\Debug\recordings\<file>.bbr`. They take the Debug build if there is one, else Release. `./replay.sh <recording> [options]` plays a recording by its file name alone, for example `./replay.sh 20261115-165418-marked --jump 9300`; without arguments it lists the newest recordings.
+
 With Visual Studio you can also simply open the folder (*File → Open → Folder*); it picks up `CMakeLists.txt` automatically.
 
 The game finds its `assets/` folder next to the executable or, failing that, in the source tree it was built from. High scores are saved to `blubberblasen.sav` next to the executable. `F11` toggles full screen.
@@ -186,7 +188,7 @@ All developer options and debug switches exist only in builds with the CMake opt
 | `F4` | Show hitboxes |
 | `F5` | Show air currents |
 | `F6` | Full energy (Plus mode) |
-| `F7` / `F8` | Pause and step one frame at a time / next frame |
+| `F7` / `F8` | Pause and step one frame at a time / next frame (`Shift`+`F8`: one frame back, `Ctrl`+`Shift`+`F8`: one second back, while replaying) |
 | `F9` | Slow motion (quarter speed) |
 | `F10` | Spawn the next item or special bubble in front of player 1 |
 | `F12` | Vacuum walls: walls stop bubbles inside a vacuum (to compare with the default pass-through) |
@@ -196,11 +198,13 @@ All developer options and debug switches exist only in builds with the CMake opt
 
 ### Recordings
 
+Step by step, with all debug keys: [DEBUG-REPLAY.md](DEBUG-REPLAY.md).
+
 The game is deterministic: the same start and the same buttons give the same game. Development builds on the PC use this to record every run, so a bug that has just happened can be watched again, frame by frame.
 
 - Each run writes `recordings/<date>-<time>.bbr` next to the executable. The file holds the start (game version, seed, save RAM, developer options) and then only the buttons of both players when they change, the debug keys that change the game (`F2`, `F3`, `F6`, `F10`, `F12`), and every second a checksum of the picture. That is a few kilobytes per minute, and the file is plain text.
 - Saw something odd? Press `Backspace`. The moment is marked, and the recording is kept as `...-marked.bbr`. Of the unmarked recordings only the newest 20 are kept.
-- `blubberblasen --replay recordings/<file>.bbr` plays it back. The keyboard does nothing then; the window shows the tick and the buttons each player is holding. The game pauses 3 s before and at each mark (`Backspace` jumps to the next one); `F7`, `F8` and `F9` pause, step and slow down as usual, and the switches that only show something (`F1`, `F4`, `F5`) work too. `--jump <tick>` runs fast to a tick first.
+- `blubberblasen --replay recordings/<file>.bbr` plays it back. The keyboard does nothing then; the window shows the tick and the buttons each player is holding. The game pauses 3 s before and at each mark (`Backspace` jumps to the next one); `F7`, `F8` and `F9` pause, step and slow down as usual, `Shift`+`F8` steps one frame back and `Ctrl`+`Shift`+`F8` one second (the replay runs again from the start, fast, to the frame before), and the switches that only show something (`F1`, `F4`, `F5`) work too. `--jump <tick>` runs fast to a tick first.
 - A recording only fits the game it was made with. After a change to the rules (a speed, a timer, a new mechanic) an old recording drifts apart: the checksums stop matching, and the replay says at which tick. Bug recordings are short-lived anyway. The recordings in `tests/replays/` are tests: when one fails after an intended change, record it again (`--autoplay --record --plus --seed 42 --quit 3000` made `plus_bot_seed42.bbr`) and copy it over, or delete it.
 
 Recordings exist only in development builds (`BB_DEBUG_SWITCHES`) and not in the web build.

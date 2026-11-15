@@ -645,7 +645,7 @@ static void dbg_say(const char *text)
  * a recording with marks is kept as ...-marked.bbr, of the others only the
  * newest KEEP_RECORDINGS stay. --replay plays one back: the keyboard does
  * nothing then, Backspace jumps to the next mark, F7/F8/F9 pause, step and
- * slow down as usual. */
+ * slow down as usual, Shift+F8 steps one frame back, Ctrl+Shift+F8 one second. */
 #ifdef BB_REPLAY
 #define KEEP_RECORDINGS 20
 #define MARK_LEAD_IN    180   /* a jump to a mark stops 3 s before it */
@@ -759,6 +759,27 @@ static void mark_key(void)
     }
     dbg_say("NO MORE MARKS");
 }
+
+/* Shift+F8 while paused: one frame back, Ctrl+Shift+F8: one second back.
+ * There are no snapshots of the game: the replay starts again from its
+ * first tick and runs fast up to the frame wanted (about 20000 ticks a
+ * second). */
+static void step_back(long frames)
+{
+    long target = ticks_total - frames;
+    if (ticks_total == 0) {
+        dbg_say("THIS IS THE FIRST FRAME");
+        return;
+    }
+    if (target < 0) {
+        target = 0;
+    }
+    replay_play_begin(&player, &play);
+    ticks_total = 0;
+    desync_said = 0;
+    shown_pad[0] = shown_pad[1] = 0;
+    ff_target = target;
+}
 #else
 static int dbg_action(uint8_t kind, uint16_t a, uint16_t b)
 {
@@ -798,7 +819,18 @@ static void debug_keys(void)
         dbg_message_until = GetTime() + 2.0;
     }
     if (IsKeyPressed(KEY_F8) && dbg_paused) {
-        dbg_step = 1;
+        if (IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT)) {
+#ifdef BB_REPLAY
+            if (replaying) {
+                step_back(IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL) ? TICK_HZ : 1);
+            } else
+#endif
+            {
+                dbg_say("GOING BACK: ONLY WHILE REPLAYING");
+            }
+        } else {
+            dbg_step = 1;
+        }
     }
     if (IsKeyPressed(KEY_F9)) {
         dbg_slow = !dbg_slow;
@@ -1104,7 +1136,8 @@ static uint32_t game_step(void)
             return 0;
         }
         replay_before_tick(&player, (uint32_t)ticks_total, pad);
-        if (player.marked && opt_quit < 0) {   /* scripted runs (--quit) never pause */
+        /* scripted runs (--quit) never pause; a jump stops where it was told */
+        if (player.marked && opt_quit < 0 && ff_target < 0) {
             dbg_paused = 1;
             snprintf(dbg_message, sizeof dbg_message, "MARK AT TICK %ld (F7 = go on)", ticks_total);
             dbg_message_until = GetTime() + 4.0;
@@ -1189,7 +1222,7 @@ static int frame(void)
     }
 #endif
 #ifdef BB_REPLAY
-    if (replaying && ff_target > ticks_total) {
+    if (replaying && ff_target >= 0) {
         /* jumping: run without pictures or sound, a limited number per frame */
         long n = 0;
         while (ticks_total < ff_target && ticks_total < (long)play.end_tick && n++ < 20000) {
@@ -1199,7 +1232,9 @@ static int frame(void)
             ff_target = -1;
             if (opt_quit < 0) {
                 dbg_paused = 1;
-                dbg_say("PAUSED (F7 = go on, F8 = next frame)");
+                snprintf(dbg_message, sizeof dbg_message, "PAUSED AT TICK %ld (F7 GO ON, F8 NEXT, SHIFT+F8 BACK, +CTRL: 1 S)",
+                         ticks_total);
+                dbg_message_until = GetTime() + 3.0;
             }
         }
         accumulator = 0.0;
