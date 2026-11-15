@@ -87,7 +87,7 @@ Play found three uses that later tuning has to keep working:
 - Shot defence: a push can destroy an enemy shot, but with only one push bubble at a time a near enemy still gets you while you deal with a far one.
 - Bubbles through walls: a shoved bubble crosses platforms, so a bubble can be sent past a wall without jumping into it.
 
-**Vacuum (A).** Puts a vacuum where the player is. For 1.5 s the air inside a circle of 5 tiles (40 px) points to its centre, so floating bubbles (empty, trapped, special, letters, and a partner's rescue bubble) gather there, about 1 px per frame at the edge and 3 near the centre. Then the room's air takes over again. The vacuum stays where it was placed, also when pressed mid-jump; pressing again moves it. Bubbles pass through walls on the way in. It moves no enemies or items, pops nothing, and costs no energy. A pulsing blue glow shows exactly the area that pulls (drawn as a colour window, the way the SNES would do it).
+**Vacuum (A).** Puts a vacuum where the player is. For 1.5 s the air inside a circle of 5 tiles (40 px) points to its centre, so floating bubbles (empty, trapped, special, letters, and a partner's rescue bubble) gather there, about 1 px per frame at the edge and 3 near the centre. Then the room's air takes over again. The vacuum stays where it was placed, also when pressed mid-jump; pressing again moves it. Bubbles pass through walls on the way in. It moves no enemies or items, pops nothing, and costs no energy. A pulsing blue glow shows exactly the area that pulls (drawn as a colour window, the way the SNES would do it). It grows from a point to full size in 8 frames, wobbles like jelly while active (round, tall, round, wide, 4 px each way, every 32 frames), and shrinks back to a point and fades over the last 12 frames. The pull always covers the shape shown, so it reaches its full 40 px only once grown, and pressing again starts a new vacuum that grows again.
 
 **Dash and energy (L / R).** Each player has an energy bar of 96 on the bottom wall. Defeating an enemy gives 16, plus 8 for each further enemy in the same chain. The bar holds for 3 s after a gain and then drains, so it rewards keeping up the attack. Losing a life empties it.
 
@@ -118,7 +118,7 @@ Rules all enemies share:
 
 ## A round
 
-1. **Intro.** The new room scrolls in from below, 2 px per frame, and the round number and, every ten rounds, the floor name are shown.
+1. **Intro.** The new room scrolls in from below, 2 px per frame, and the round number and, every ten rounds, the floor name are shown. The text sits on a darkened box so it stays readable on any room (a colour window in subtract-and-halve mode, the way the SNES would do it; sprites are not darkened).
 2. **Play.** The Hurry Up timer runs. It is set per round, from 40 s in round 1 down to 17 s in round 99. After 5 s a waiting power-up appears on a platform, and after 10 s the round's bonus food (500 to 2,000 points). Rounds with a special bubble type send one in through the opening at a fixed interval.
 3. **Hurry Up.** "HURRY UP!" appears and every enemy turns angry. 10 s later a Soot Cloud comes for each living player. Round 100 has no time limit.
 4. **Clear.** When the last enemy is gone, players have 5 s to collect the food.

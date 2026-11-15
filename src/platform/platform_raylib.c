@@ -429,30 +429,62 @@ static void draw_bg(const uint16_t *map, int rows, int scroll_y, int window_top)
     EndScissorMode();
 }
 
-/* SNES colour math in windows: inside each window's span on every scanline
- * the window's colour is added (clamped) to what layer 0 and the backdrop
- * drew. Called between layer 0 and the sprites, so sprites stay untouched. */
-static void draw_windows(const ColorWindow *w)
+/* Fill a window's span on every scanline with colour c in the current blend mode. */
+static void draw_window_spans(const ColorWindow *w, Color c)
 {
-    int i, y;
-    BeginBlendMode(BLEND_ADDITIVE);
-    for (i = 0; i < NUM_WINDOWS; i++) {
-        Color c;
-        if (!w[i].add_r && !w[i].add_g && !w[i].add_b) {
-            continue;
-        }
-        /* 5-bit to 8-bit like the SNES DAC: v << 3 | v >> 2 */
-        c.r = (unsigned char)((w[i].add_r << 3) | (w[i].add_r >> 2));
-        c.g = (unsigned char)((w[i].add_g << 3) | (w[i].add_g >> 2));
-        c.b = (unsigned char)((w[i].add_b << 3) | (w[i].add_b >> 2));
-        c.a = 255;
-        for (y = 0; y < SCREEN_H; y++) {
-            if (w[i].left[y] <= w[i].right[y]) {
-                DrawRectangle(w[i].left[y], y, w[i].right[y] - w[i].left[y] + 1, 1, c);
-            }
+    int y;
+    for (y = 0; y < SCREEN_H; y++) {
+        if (w->left[y] <= w->right[y]) {
+            DrawRectangle(w->left[y], y, w->right[y] - w->left[y] + 1, 1, c);
         }
     }
-    EndBlendMode();
+}
+
+/* SNES colour math in windows: inside each window's span on every scanline
+ * the window's colour is added to or subtracted from what layer 0 and the
+ * backdrop drew (clamped), optionally halved (see ColorWindow in game.h).
+ * Halving goes first and the colour is halved with it:
+ * (bg +- c) / 2 = bg / 2 +- c / 2. Called between layer 0 and the sprites,
+ * so sprites stay untouched. */
+static void draw_windows(const ColorWindow *w)
+{
+    int i;
+    for (i = 0; i < NUM_WINDOWS; i++) {
+        uint8_t r = w[i].add_r, g = w[i].add_g, b = w[i].add_b;
+        uint8_t half = (uint8_t)((w[i].math & CMATH_HALF) != 0);
+        Color c;
+        if (!r && !g && !b && !half) {
+            continue;
+        }
+        if (half) {
+            /* framebuffer * (1 - 128/255); alpha stays at 255, unlike BLEND_ALPHA */
+            rlSetBlendFactorsSeparate(RL_ZERO, RL_ONE_MINUS_SRC_ALPHA, RL_ZERO, RL_ONE, RL_FUNC_ADD, RL_FUNC_ADD);
+            BeginBlendMode(BLEND_CUSTOM_SEPARATE);
+            draw_window_spans(&w[i], (Color){ 0, 0, 0, 128 });
+            EndBlendMode();
+            r >>= 1;
+            g >>= 1;
+            b >>= 1;
+            if (!r && !g && !b) {
+                continue;
+            }
+        }
+        /* 5-bit to 8-bit like the SNES DAC: v << 3 | v >> 2 */
+        c.r = (unsigned char)((r << 3) | (r >> 2));
+        c.g = (unsigned char)((g << 3) | (g >> 2));
+        c.b = (unsigned char)((b << 3) | (b >> 2));
+        c.a = 255;
+        if (w[i].math & CMATH_SUB) {
+            /* framebuffer - colour (raylib's BLEND_SUBTRACT_COLORS is the other
+             * way round); alpha stays, or the frame would turn transparent here */
+            rlSetBlendFactorsSeparate(RL_ONE, RL_ONE, RL_ZERO, RL_ONE, RL_FUNC_REVERSE_SUBTRACT, RL_FUNC_ADD);
+            BeginBlendMode(BLEND_CUSTOM_SEPARATE);
+        } else {
+            BeginBlendMode(BLEND_ADDITIVE);
+        }
+        draw_window_spans(&w[i], c);
+        EndBlendMode();
+    }
 }
 
 static void draw_sprites(const Sprite *oam)
@@ -977,10 +1009,12 @@ static void debug_status(void)
  *        each colour channel is drawn by its own beam
  *      - DISTANCE (0 = at the desk, 1 = from the sofa) softens everything
  *        and fades scanlines and mask, the way the eye did from far away
- *      - an aperture-grille mask: R, G, B phosphor stripes with dark gaps,
- *        laid out on the tube (TRIADS per game pixel), so it bends with the
- *        glass and keeps its size relative to the picture; each stripe is
- *        box-filtered over the screen pixel so odd scales don't shimmer
+ *      - an aperture-grille mask: R, G, B phosphor stripes with dark gaps.
+ *        From MASK_ON_TUBE_FROM (6x) up they follow the curved picture
+ *        (TRIADS per game pixel), each stripe box-filtered over the screen
+ *        pixel. Below that they are straight, one screen pixel per stripe:
+ *        1-pixel stripes on the curve drift against the pixel grid and
+ *        show moire bands.
  *      - the glow added on top, then a light vignette.
  * Scanlines, mask and the clipped-light glow fade out below 3x scale, where
  * they would only alias. Tab toggles it; --no-crt starts with it off. */
@@ -1078,6 +1112,7 @@ static void debug_status(void)
     "const float BEAM_DARK = 0.22;\n" \
     "const float BEAM_BRIGHT = 0.36;\n" \
     "const float TRIADS = 1.0;\n" \
+    "const float MASK_ON_TUBE_FROM = 6.0;\n" \
     "const float DEFOCUS = 0.5;\n" \
     "const float DEFOCUS_H = 0.4;\n" \
     "const float CONVERGE = 0.3;\n" \
@@ -1125,8 +1160,12 @@ static void debug_status(void)
     "    float fx = clamp((scale - 1.5) / 1.5, 0.0, 1.0) * (1.0 - DISTANCE);\n" \
     "    vec3 rgb = mix(mid, beam, fx * SCANLINES);\n" \
     "    float t = p.x * TRIADS;\n" \
-    "    t -= floor(t);\n" \
     "    float hw = 0.5 * TRIADS / scale;\n" \
+    "    if (scale < MASK_ON_TUBE_FROM) {\n" \
+    "        t = gl_FragCoord.x / 3.0;\n" \
+    "        hw = 0.5 / 3.0;\n" \
+    "    }\n" \
+    "    t -= floor(t);\n" \
     "    float s0 = (1.0 - MASK_FILL) / 6.0;\n" \
     "    vec3 cover = vec3(lit(t - hw, t + hw, s0), lit(t - hw, t + hw, s0 + 1.0 / 3.0), lit(t - hw, t + hw, s0 + 2.0 / 3.0));\n" \
     "    vec3 mask = mix(vec3(MASK_DARK), vec3(1.0), cover) * MASK_GAIN;\n" \

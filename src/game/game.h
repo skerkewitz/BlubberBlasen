@@ -11,7 +11,7 @@
 #include <stdint.h>
 
 /* --- Version: major.minor.revision, shown on the title screen -------------- */
-#define GAME_VERSION "1.1.0"
+#define GAME_VERSION "1.3.0"
 
 /* --- Screen --------------------------------------------------------------- */
 #define SCREEN_W 256
@@ -71,13 +71,24 @@ typedef struct {
  * SNES an HDMA table for the window registers). Inside a window the platform
  * adds a colour to the background layer 0 and the backdrop, not to sprites or
  * layer 1 (colour math enabled for BG1 and the backdrop only). On a line with
- * left > right the window is empty; add_r/g/b all 0 means the window is off. */
+ * left > right the window is empty.
+ * `math` picks the SNES colour math mode (CGADSUB bits 7 and 6):
+ *   0                        bg + colour
+ *   CMATH_SUB                bg - colour (clamped at 0)
+ *   CMATH_HALF               (bg + colour) / 2
+ *   CMATH_SUB | CMATH_HALF   (bg - colour) / 2; colour 0 halves the brightness
+ * On the SNES the mode is one register for the whole screen (HDMA can change
+ * it per line), so windows with different modes must not share a frame.
+ * Colour 0 without CMATH_HALF changes nothing: the window is off. */
 #define NUM_WINDOWS 2
+#define CMATH_SUB   0x01u
+#define CMATH_HALF  0x02u
 
 typedef struct {
     uint8_t left[SCREEN_H];          /* first pixel inside */
     uint8_t right[SCREEN_H];         /* last pixel inside */
-    uint8_t add_r, add_g, add_b;     /* added colour, SNES 5-bit (0..31) */
+    uint8_t add_r, add_g, add_b;     /* fixed colour, SNES 5-bit (0..31) */
+    uint8_t math;                    /* CMATH_* flags, 0 = add */
 } ColorWindow;
 
 /* --- Background tilemaps -----------------------------------------------------

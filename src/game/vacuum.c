@@ -5,33 +5,55 @@
  * so floating bubbles (and a partner's rescue bubble) gather there; then the
  * room's air takes over again. Bubbles move faster the closer they get.
  *
- * The circle is shown the SNES way, with no sprites: a window (left and
+ * The area is shown the SNES way, with no sprites: a window (left and
  * right edge per scanline, an HDMA table on the real hardware) inside which
- * a colour is added to the background (colour math). The same table decides
- * which bubbles are inside, so what you see is exactly what pulls.
+ * a colour is added to the background (colour math). The same span table
+ * decides which bubbles are inside, so what you see is exactly what pulls.
  *
- * No square roots: the circle and the speed come from small tables. The pull
+ * It lives in three phases: it grows from a point to full size in a few
+ * frames, wobbles like jelly while active (round, tall, round, wide), then
+ * shrinks back to a point while its colour fades. The wobble is an ellipse:
+ * one quarter-circle table, stretched to the current width and height.
+ *
+ * No square roots: the shape and the speed come from small tables. The pull
  * goes along the axis with the bigger distance, like the room's air (four
  * directions only).
  */
 
 #include "game/internal.h"
 
-#define VACUUM_FRAMES 90    /* 1.5 s */
-#define VACUUM_RADIUS 40    /* px, 5 tiles */
-#define VACUUM_FADE   30    /* the glow fades out over the last frames */
+#define VACUUM_FRAMES 90    /* 1.5 s in all */
+#define VACUUM_RADIUS 40    /* px, 5 tiles: the round size */
+#define VACUUM_SHRINK 12    /* last frames: shrink to a point and fade */
+#define VACUUM_WOBBLE 4     /* px the ellipse leans each way */
+#define VACUUM_MAX    (VACUUM_RADIUS + VACUUM_WOBBLE)
 
 typedef struct {
-    uint8_t  timer;         /* frames left, 0 = off */
-    uint16_t x, y;          /* 8.8, top left of the player who placed it */
+    uint8_t  timer;                   /* frames left, 0 = off */
+    uint16_t scale;                   /* size this frame, 0..256 = full */
+    uint8_t  ry;                      /* half height this frame (px) */
+    uint16_t x, y;                    /* 8.8, top left of the player who placed it */
+    uint8_t  span[VACUUM_MAX + 1];    /* half width at each distance from the middle line */
 } Vacuum;
 
 static Vacuum vacuums[NUM_PLAYERS];
 
-/* Half width of the circle (px) at each distance from its middle line. */
+/* Half width of the round circle (px) at each distance from its middle line. */
 static const uint8_t half_width[VACUUM_RADIUS + 1] = {
     40, 39, 39, 39, 39, 39, 39, 39, 39, 38, 38, 38, 38, 37, 37, 37, 36, 36, 35, 35, 34,
     34, 33, 32, 32, 31, 30, 29, 28, 27, 26, 25, 24, 22, 21, 19, 17, 15, 12, 8, 0
+};
+
+/* Size while growing, by frames since placed (0..256 = full): fast from a
+ * point, slowing down at the end. */
+static const uint16_t grow_scale[VACUUM_GROW] = { 0, 60, 112, 156, 192, 220, 240, 252 };
+
+/* Size while shrinking, by frames left: slow at first, then collapsing. */
+static const uint16_t shrink_scale[VACUUM_SHRINK] = { 0, 41, 78, 112, 142, 169, 192, 212, 228, 240, 249, 254 };
+
+/* One wobble period (32 frames, two per step), in 1/16 px: + is taller. */
+static const int8_t wobble[16] = {
+    0, 24, 45, 59, 64, 59, 45, 24, 0, -24, -45, -59, -64, -59, -45, -24
 };
 
 /* Distance in tiles from the centre (rounded), by tiles apart on the two
@@ -50,6 +72,34 @@ static const fx8_8 ring_speed[6] = {
     FX(3, 0), FX(2, 128), FX(2, 0), FX(1, 128), FX(1, 64), FX(1, 0)
 };
 
+/* This frame's size (0..256) and the span table of its ellipse. */
+static void shape(Vacuum *v)
+{
+    uint8_t age = (uint8_t)(VACUUM_FRAMES - v->timer);
+    uint16_t s = 256;
+    int16_t w = 0, rx, ry, dy;
+
+    if (age < VACUUM_GROW) {
+        s = grow_scale[age];
+    } else if (v->timer < VACUUM_SHRINK) {
+        s = shrink_scale[v->timer];
+    }
+    if (age >= VACUUM_GROW) {
+        w = (int16_t)(wobble[((age - VACUUM_GROW) >> 1) & 15] * VACUUM_WOBBLE / 4);
+    }
+    rx = (int16_t)(((int32_t)(VACUUM_RADIUS * 16 - w) * s + 2048) >> 12);
+    ry = (int16_t)(((int32_t)(VACUUM_RADIUS * 16 + w) * s + 2048) >> 12);
+    if (rx < 1) rx = 1;
+    if (ry < 1) ry = 1;
+
+    v->scale = s;
+    v->ry = (uint8_t)ry;
+    for (dy = 0; dy <= ry; dy++) {
+        int16_t row = (int16_t)((dy * VACUUM_RADIUS + ry / 2) / ry);   /* row of the round table */
+        v->span[dy] = (uint8_t)((half_width[row] * rx + VACUUM_RADIUS / 2) / VACUUM_RADIUS);
+    }
+}
+
 void vacuums_clear(void)
 {
     uint8_t i;
@@ -60,9 +110,11 @@ void vacuums_clear(void)
 
 void vacuum_start(uint8_t player, uint16_t x, uint16_t y)
 {
-    vacuums[player].timer = VACUUM_FRAMES;   /* a second press moves it here */
-    vacuums[player].x = x;
-    vacuums[player].y = y;
+    Vacuum *v = &vacuums[player];
+    v->timer = VACUUM_FRAMES;   /* a second press moves it here, growing anew */
+    v->x = x;
+    v->y = y;
+    shape(v);
 }
 
 uint8_t vacuum_active(uint8_t player)
@@ -74,8 +126,8 @@ void vacuums_tick(void)
 {
     uint8_t i;
     for (i = 0; i < NUM_PLAYERS; i++) {
-        if (vacuums[i].timer) {
-            vacuums[i].timer--;
+        if (vacuums[i].timer && --vacuums[i].timer) {
+            shape(&vacuums[i]);
         }
     }
 }
@@ -118,8 +170,8 @@ uint8_t vacuum_move(uint16_t *x, uint16_t *y)
         }
         adx = iabs((int16_t)((int16_t)PX(*x) - (int16_t)PX(v->x)));
         ady = iabs((int16_t)((int16_t)PX(*y) - (int16_t)PX(v->y)));
-        if (ady > VACUUM_RADIUS || adx > half_width[ady]) {
-            continue;                    /* outside the circle */
+        if (ady > v->ry || adx > v->span[ady]) {
+            continue;                    /* outside the shape shown this frame */
         }
         ring = ring_of[ady >> 3][adx >> 3];
         if (ring < best_ring) {          /* the nearer vacuum wins */
@@ -162,8 +214,9 @@ uint8_t vacuum_move(uint16_t *x, uint16_t *y)
     return 1;
 }
 
-/* Window i shows player i's vacuum: a soft blue glow that pulses gently
- * and fades out at the end. Colours are SNES 5-bit (0..31). */
+/* Window i shows player i's vacuum: a soft blue glow that pulses gently,
+ * in this frame's shape. It fades while the vacuum shrinks at the end.
+ * Colours are SNES 5-bit (0..31). */
 void vacuums_windows(ColorWindow *w)
 {
     static const uint8_t pulse[8] = { 0, 1, 2, 3, 3, 2, 1, 0 };
@@ -176,19 +229,17 @@ void vacuums_windows(ColorWindow *w)
             continue;
         }
         amount = (uint8_t)(3 + pulse[(g_frame >> 2) & 7]);
-        if (v->timer < VACUUM_FADE / 3) {
-            amount = (uint8_t)(amount >> 2);
-        } else if (v->timer < VACUUM_FADE) {
-            amount = (uint8_t)(amount >> 1);
+        if (v->timer < VACUUM_SHRINK) {
+            amount = (uint8_t)(((uint16_t)amount * v->scale) >> 8);
         }
         w[i].add_r = (uint8_t)(amount >> 1);
         w[i].add_g = (uint8_t)(amount - (amount >> 2));
         w[i].add_b = amount;
         cx = (int16_t)(PX(v->x) + 8);
         cy = (int16_t)(PX(v->y) + 8);
-        for (dy = -VACUUM_RADIUS; dy <= VACUUM_RADIUS; dy++) {
+        for (dy = (int16_t)-v->ry; dy <= v->ry; dy++) {
             int16_t line = (int16_t)(cy + dy);
-            int16_t hw = half_width[iabs(dy)];
+            int16_t hw = v->span[iabs(dy)];
             int16_t l = (int16_t)(cx - hw), r = (int16_t)(cx + hw);
             if (line < FIELD_Y || line >= FIELD_BOTTOM) {
                 continue;                /* not over the HUD */

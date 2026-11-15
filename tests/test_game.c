@@ -1603,6 +1603,119 @@ static void vacuum_setup(void)
     g_players[0].y = TO_POS(PLAYER_SPAWN_Y);
 }
 
+/* Past the grow animation: the vacuum is at full, round size. */
+static void vacuum_grown(void)
+{
+    int k;
+    for (k = 0; k < VACUUM_GROW; k++) {
+        vacuums_tick();
+    }
+}
+
+static void vacuum_clear_windows(ColorWindow *w)
+{
+    int f, y;
+    for (f = 0; f < NUM_WINDOWS; f++) {
+        w[f].add_r = w[f].add_g = w[f].add_b = 0;
+        w[f].math = 0;
+        for (y = 0; y < SCREEN_H; y++) {
+            w[f].left[y] = 255;
+            w[f].right[y] = 0;
+        }
+    }
+}
+
+/* Half width on line y and half height (lines above the middle) of window 0. */
+static int vacuum_half_w(const ColorWindow *w, int y)
+{
+    return w[0].left[y] > w[0].right[y] ? -1 : (w[0].right[y] - w[0].left[y]) / 2;
+}
+
+static int vacuum_half_h(const ColorWindow *w, int cy)
+{
+    int h = 0;
+    while (cy - h - 1 >= 0 && w[0].left[cy - h - 1] <= w[0].right[cy - h - 1]) {
+        h++;
+    }
+    return h;
+}
+
+/* The vacuum grows from a point, wobbles (tall, then wide) and shrinks
+ * and fades at the end; the pull follows the shape shown. */
+static void test_vacuum_animation(void)
+{
+    static ColorWindow w[NUM_WINDOWS];
+    int k, cxp, cyp, hw, full_b;
+    uint16_t x0;
+
+    vacuum_setup();
+    g_players[0].y = TO_POS(FIELD_Y + 100);
+    cxp = PX(g_players[0].x) + 8;
+    cyp = PX(g_players[0].y) + 8;
+    vacuum_start(0, g_players[0].x, g_players[0].y);
+    vacuum_clear_windows(w);
+    vacuums_windows(w);
+    hw = vacuum_half_w(w, cyp);
+    CHECK(hw >= 0 && hw <= 1 && w[0].left[cyp] <= cxp && w[0].right[cyp] >= cxp, "a new vacuum starts as a point (%d px)", hw);
+
+    for (k = 0; k < VACUUM_GROW / 2; k++) {
+        vacuums_tick();
+    }
+    vacuum_clear_windows(w);
+    vacuums_windows(w);
+    hw = vacuum_half_w(w, cyp);
+    CHECK(hw > 10 && hw < 40, "halfway through growing it is part size (%d px)", hw);
+    for (; k < VACUUM_GROW; k++) {
+        vacuums_tick();
+    }
+    vacuum_clear_windows(w);
+    vacuums_windows(w);
+    full_b = w[0].add_b;
+    CHECK(vacuum_half_w(w, cyp) == 40 && vacuum_half_h(w, cyp) == 40, "after %d frames it is full and round", VACUUM_GROW);
+
+    /* wobble: a quarter period later it is taller than wide, half a period
+     * after that wider than tall */
+    for (k = 0; k < 8; k++) {
+        vacuums_tick();
+    }
+    vacuum_clear_windows(w);
+    vacuums_windows(w);
+    CHECK(vacuum_half_h(w, cyp) > 40 && vacuum_half_w(w, cyp) < 40, "it wobbles taller (%d x %d)", vacuum_half_w(w, cyp),
+          vacuum_half_h(w, cyp));
+    for (k = 0; k < 16; k++) {
+        vacuums_tick();
+    }
+    vacuum_clear_windows(w);
+    vacuums_windows(w);
+    CHECK(vacuum_half_h(w, cyp) < 40 && vacuum_half_w(w, cyp) > 40, "and then wider (%d x %d)", vacuum_half_w(w, cyp),
+          vacuum_half_h(w, cyp));
+
+    /* shrink and fade: run on until it is clearly smaller */
+    while (vacuum_active(0)) {
+        vacuums_tick();
+        vacuum_clear_windows(w);
+        vacuums_windows(w);
+        if (vacuum_half_h(w, cyp) < 25) {
+            break;
+        }
+    }
+    CHECK(vacuum_active(0) && w[0].add_b < full_b, "at the end it shrinks and fades (%d px, colour %d of %d)",
+          vacuum_half_h(w, cyp), w[0].add_b, full_b);
+
+    /* the pull follows the shape: right after placing, a bubble 20 px away
+     * is outside the small circle; once grown, it is drawn in */
+    vacuum_setup();
+    vacuum_start(0, g_players[0].x, g_players[0].y);
+    bubble_spawn_special(BK_NORMAL, 0, (uint16_t)(g_players[0].x + TO_POS(20)), g_players[0].y);
+    x0 = g_bubbles[0].x;
+    bubbles_update();
+    CHECK(g_bubbles[0].x >= x0, "a growing vacuum does not pull beyond its edge yet");
+    for (k = 1; k < VACUUM_GROW; k++) {
+        bubbles_update();
+    }
+    CHECK(g_bubbles[0].x < x0, "once grown it pulls the bubble in");
+}
+
 static void test_vacuum(void)
 {
     Bubble *near_b, *far_b;
@@ -1640,16 +1753,11 @@ static void test_vacuum(void)
     {
         static ColorWindow w[NUM_WINDOWS];
         int y, cxp, cyp, empty_above = 1;
-        for (f = 0; f < NUM_WINDOWS; f++) {
-            w[f].add_r = w[f].add_g = w[f].add_b = 0;
-            for (y = 0; y < SCREEN_H; y++) {
-                w[f].left[y] = 255;
-                w[f].right[y] = 0;
-            }
-        }
+        vacuum_clear_windows(w);
         vacuum_setup();
         g_players[0].y = TO_POS(FIELD_Y + 100);
         vacuum_start(0, g_players[0].x, g_players[0].y);
+        vacuum_grown();
         vacuums_windows(w);
         cxp = PX(g_players[0].x) + 8;
         cyp = PX(g_players[0].y) + 8;
@@ -1700,6 +1808,7 @@ static void test_vacuum(void)
     /* faster the closer to the centre */
     vacuum_setup();
     vacuum_start(0, g_players[0].x, g_players[0].y);
+    vacuum_grown();
     bubble_spawn_special(BK_NORMAL, 0, (uint16_t)(g_players[0].x + TO_POS(38)), g_players[0].y);
     x0 = g_bubbles[0].x;
     bubbles_update();
@@ -1714,6 +1823,7 @@ static void test_vacuum(void)
     /* a bubble sliding from a push keeps its push */
     vacuum_setup();
     vacuum_start(0, g_players[0].x, g_players[0].y);
+    vacuum_grown();
     bubble_spawn_special(BK_NORMAL, 0, (uint16_t)(g_players[0].x + TO_POS(20)), g_players[0].y);
     g_bubbles[0].vx = FX(3, 0);
     x0 = g_bubbles[0].x;
@@ -1770,6 +1880,7 @@ static void test_vacuum(void)
             vacuum_setup();
             game_debug_set(DBG_VACUUM_WALLS, (uint8_t)blocked_mode);
             vacuum_start(0, bx, below);
+            vacuum_grown();
             bubble_spawn_special(BK_NORMAL, 0, bx, above);
             for (f = 0; f < 60; f++) {
                 bubbles_update();
@@ -1963,6 +2074,38 @@ static void test_dash_rules(void)
     g_opt.plus = 0;
 }
 
+/* "ROUND n" and the floor name get a darkened box (a subtract-and-halve
+ * colour window) so they stay readable on any room; it goes with the text. */
+static void test_intro_box(void)
+{
+    const ColorWindow *w;
+    int y, lines = 0, outside = 0;
+
+    start_at_round(74, 0);
+    CHECK(g_state == GS_ROUND_INTRO, "round 74 should start with the intro (state %d)", (int)g_state);
+    w = &game_windows()[0];
+    CHECK(w->math == (CMATH_SUB | CMATH_HALF), "the intro box darkens (math %u)", w->math);
+    for (y = 0; y < SCREEN_H; y++) {
+        if (w->left[y] > w->right[y]) {
+            continue;
+        }
+        if (y < 12 * 8 || y >= 16 * 8) {
+            outside++;
+        }
+        lines++;
+        /* "PUMP STATION" (12 letters) is centred: columns 10..21 */
+        CHECK(w->left[y] < 10 * 8 && w->right[y] >= 22 * 8 - 1, "line %d: the box must cover the floor name (%u..%u)",
+              y, w->left[y], w->right[y]);
+    }
+    CHECK(lines >= 4 * 8 && outside > 0, "the box covers rows 12-15 with a margin (%d lines)", lines);
+    CHECK(game_windows()[1].left[100] > game_windows()[1].right[100], "only one window for the box");
+    CHECK(run_until(GS_PLAY, 600), "round 74 did not start");
+    w = &game_windows()[0];
+    for (y = 0; y < SCREEN_H && w->left[y] > w->right[y]; y++) {
+    }
+    CHECK(y == SCREEN_H && w->math == 0, "the box goes away with the text");
+}
+
 int main(void)
 {
     game_debug_skip_story(1);
@@ -1988,6 +2131,7 @@ int main(void)
     test_bonus_food();
     test_water_carries();
     test_transition();
+    test_intro_box();
     test_flutter();
     test_hopper();
     test_spitter();
@@ -2006,6 +2150,7 @@ int main(void)
     test_round_change_resets();
     test_push_bubble();
     test_vacuum();
+    test_vacuum_animation();
     test_plus_walls_and_up();
     test_cpu_climbs();
     test_debug_switches();

@@ -69,8 +69,8 @@ reached further out than the corners. The term is barrel distortion. (Pincushion
 distortion is the opposite, with edges bent inward.)
 
 The screen stage bends the texture coordinate before it does anything else, so the
-scanlines, the colour bleed, the phosphor stripes, the glow and the vignette all follow the
-curve. The middle of each picture edge stays exactly on the edge of the window, and towards
+scanlines, the colour bleed, the glow and the vignette all follow the curve, and so do the
+phosphor stripes from 6x up (see effect 6). The middle of each picture edge stays exactly on the edge of the window, and towards
 the corners the edges curve inward, with black outside. No game pixel is ever cut off. That
 matters because the HUD uses the top row and the corners.
 
@@ -170,15 +170,36 @@ A colour CRT has no pixels. Behind the glass are thin vertical stripes of red, g
 blue phosphor with dark gaps between them, and each stripe glows only in its own colour.
 Up close you see a fine RGB grid; from the sofa it adds up to the picture.
 
-The shader builds that grid on the tube, not on the monitor: it uses the bent game
-coordinate, so the stripes follow the curved glass and stay the same size relative to the
-picture at any window size. Each triplet (red, green, blue) is `1 / TRIADS` game pixels
-wide. For each screen pixel the shader works out how much of each stripe it covers, so
-stripes that are 1.33 or 2.25 screen pixels wide come out evenly instead of shimmering.
+The shader lays the grid out in one of two ways, depending on the scale:
+
+- **From 6x up** (`MASK_ON_TUBE_FROM`; a 1440p or 4K screen in full screen): the stripes
+  follow the curved picture. They use the bent game coordinate, so they bend with the
+  picture and stay the same size relative to it: each triplet (red, green, blue) is
+  `1 / TRIADS` game pixels wide. For each screen pixel the shader works out how much of
+  each stripe it covers, so stripes that are 2 or 2.67 screen pixels wide come out evenly.
+- **Below 6x** (the default 768 x 672 window, the web build, a 1080p screen in full
+  screen): the stripes are straight, one screen pixel each, three pixels per triplet.
+
+Why two layouts: bent stripes never line up with the straight pixel grid. The curve
+stretches the lines by up to 3 % towards the top and bottom, so there the stripes drift
+against the pixels. At 1-pixel stripes one pixel shows a pure red stripe and a few dozen
+pixels further on a half red, half green mix; the eye sees that slow drift as curved
+colour bands (moire) across large even areas like the yellow of the title logo. Straight
+1-pixel stripes can't drift.
+
+This is a deliberate look decision (2026-11-15): from 6x up the grid follows the curve
+because we like it that way, and at that size the drift only makes some stripes look a
+little uneven in width, which we accept. Physically it is the other way round. On a real
+tube the phosphor stripes sit fixed on the glass and look straight from the front; what
+bent was the picture, because the beam was steered by magnetic fields. Straight stripes at
+every scale would be the more faithful choice and would also remove the uneven stripes at
+6x and above (set `MASK_ON_TUBE_FROM` to a value above any real scale, say 100, to get
+that). Don't "fix" the bending without knowing this.
 
 | Constant | Now | Effect |
 | --- | --- | --- |
-| `TRIADS` | `1.0` | Triplets per game pixel. |
+| `TRIADS` | `1.0` | Triplets per game pixel, from 6x up. Below 6x a triplet is always 3 screen pixels. |
+| `MASK_ON_TUBE_FROM` | `6.0` | Scale from which the stripes follow the curve. Lower it to 5 and 5x windows show the uneven stripes at their worst (1.67 pixels per stripe). |
 | `MASK_FILL` | `0.75` | Part of each stripe that glows; the rest is the dark gap. |
 | `MASK_DARK` | `0.1` | How much of the other colours leaks into a stripe. 0 is pure R, G and B; 1 turns the mask off. 0.45 is a soft tint. |
 
@@ -191,7 +212,9 @@ The darker the gaps, the less light the mask lets through, so the shader brighte
 stripes to keep the average brightness the same. Bright colours then hit the monitor's
 maximum and get a little paler and flatter. A real CRT got around this with very bright
 phosphor spots; a normal monitor can't. Part of the clipped light comes back as glow
-(effect 7). If bright areas look washed out, raise `MASK_DARK`.
+(effect 7). If bright areas look washed out, raise `MASK_DARK`. Below 6x this is a little
+stronger: each 1-pixel stripe carries its full brightness, so the title screen comes out
+about 5 % darker than with the blended stripes of the curved layout.
 
 The glow shader needs the same mask values to work out how much light gets clipped, which
 is why they sit in `CRT_MASK_CONSTS` and not in the main shader alone.

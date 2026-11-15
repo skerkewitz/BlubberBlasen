@@ -8,6 +8,10 @@
 
 #define START_LIVES     3
 #define INTRO_FRAMES    120
+#define INTRO_BOX_PAD    6                    /* px around the intro text */
+#define INTRO_BOX_TOP    (12 * 8 - INTRO_BOX_PAD)          /* row 12 "ROUND n" */
+#define INTRO_BOX_BOTTOM (16 * 8 - 1 + INTRO_BOX_PAD)      /* row 15 "READY!" */
+#define INTRO_BOX_DARKEN 8                    /* SNES 5-bit: (room - 8) / 2 */
 #define CLEAR_FRAMES    300      /* collect the gems, then the next round */
 #define HURRY_TEXT      120
 #define GAME_OVER_FRAMES 240
@@ -46,6 +50,7 @@ uint8_t   g_window_top;
 static Sprite   oam[MAX_SPRITES];
 static uint8_t  oam_count;
 static ColorWindow windows[NUM_WINDOWS];
+static uint8_t  intro_box_l, intro_box_r;   /* darkened box behind "ROUND n", px; l > r = none */
 static uint16_t state_timer;
 static uint16_t rng;
 static uint16_t prev_pad[NUM_PLAYERS];
@@ -363,6 +368,8 @@ static void round_intro(void)
     bg_clear(1);
     draw_hud_labels();
     draw_hud_values();
+    intro_box_l = 1;   /* no box until the text is up */
+    intro_box_r = 0;
     if (level_defs[g_level].kind == LEVEL_SECRET) {
         start_secret_room();
         return;
@@ -383,6 +390,12 @@ static void round_intro(void)
             len++;
         }
         text_put((uint8_t)((BG_W - len) >> 1), 13, name, PAL_CYAN);
+        /* The box covers the floor name, and at least "ROUND 100" (columns 11..20). */
+        if (len < 10) {
+            len = 10;
+        }
+        intro_box_l = (uint8_t)(((BG_W - len) >> 1) * 8 - INTRO_BOX_PAD);
+        intro_box_r = (uint8_t)((((BG_W - len) >> 1) + len) * 8 - 1 + INTRO_BOX_PAD);
     }
     text_put(13, 15, "READY!", PAL_NONE);
     sfx(SFX_START);
@@ -1125,7 +1138,24 @@ static void draw_lives(void)
     }
 }
 
-/* Windows start empty every frame; the vacuums fill theirs. */
+/* "ROUND n", the floor name and "READY!" (rows 12 to 15) get a darkened box
+ * behind them, so the text stays readable on any room. Like the vacuum it is
+ * a colour window, here in subtract-and-halve mode: the room behind shows at
+ * about a third of its brightness. Text is on layer 1 and enemies are
+ * sprites, so neither is darkened. Never shown at the same time as a vacuum
+ * (that one adds), so one colour math mode per frame is enough on the SNES. */
+static void intro_box_window(ColorWindow *w)
+{
+    uint8_t y;
+    w->add_r = w->add_g = w->add_b = INTRO_BOX_DARKEN;
+    w->math = CMATH_SUB | CMATH_HALF;
+    for (y = INTRO_BOX_TOP; y <= INTRO_BOX_BOTTOM; y++) {
+        w->left[y] = intro_box_l;
+        w->right[y] = intro_box_r;
+    }
+}
+
+/* Windows start empty every frame; the vacuums or the round intro fill theirs. */
 static void build_windows(void)
 {
     uint8_t i;
@@ -1134,6 +1164,7 @@ static void build_windows(void)
         windows[i].add_r = 0;
         windows[i].add_g = 0;
         windows[i].add_b = 0;
+        windows[i].math = 0;
         for (y = 0; y < SCREEN_H; y++) {
             windows[i].left[y] = 255;
             windows[i].right[y] = 0;
@@ -1141,6 +1172,8 @@ static void build_windows(void)
     }
     if (g_state == GS_PLAY || g_state == GS_PAUSE) {
         vacuums_windows(windows);
+    } else if (g_state == GS_ROUND_INTRO && intro_box_l <= intro_box_r) {
+        intro_box_window(&windows[0]);
     }
 }
 

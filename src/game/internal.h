@@ -356,6 +356,7 @@ uint8_t  push_shoot(uint8_t player, uint16_t x, uint16_t y, uint8_t dir);   /* P
 uint8_t  push_active(uint8_t player);
 
 /* --- vacuum.c (Plus mode) ---------------------------------------------------- */
+#define VACUUM_GROW 8   /* frames from a point to full size after placing */
 void     vacuums_clear(void);
 void     vacuum_start(uint8_t player, uint16_t x, uint16_t y);   /* 8.8 centre (a player's top left) */
 uint8_t  vacuum_active(uint8_t player);
