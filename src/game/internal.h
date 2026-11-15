@@ -52,11 +52,12 @@ enum {
     SPR_LIFE1 = 153, SPR_LIFE2 = 154,                     /* one / two life icons */
     SPR_FLUTTER0 = 160, SPR_HOPPER0 = 162, SPR_SPITTER0 = 164, SPR_DROPPER0 = 166,
     SPR_SPIT = 168, SPR_DOWN_SHOT = 169,
-    SPR_SMALL_ENEMY4 = 170,                               /* small flutter, hopper, spitter, dropper */
+    SPR_SMALL_ENEMY4 = 170,                               /* small flutter, hopper, spitter, dropper, shield */
     SPR_BOSS0 = 176, SPR_BOSS1 = 180,                     /* 32x32: four cells each, TL TR BL BR */
     SPR_GIANT_BUBBLE = 184, SPR_SOOT = 188, SPR_DOOR = 189,
     SPR_ITEM_STAR = 190,                                  /* star, wave, whistle, glove, ring */
-    SPR_AURA0 = 196                                       /* glow outline of player frames 0..4 */
+    SPR_AURA0 = 196,                                      /* glow outline of player frames 0..4 */
+    SPR_SHIELD0 = 201                                     /* shield enemy walking */
 };
 
 /* Enemy shots (Item.tier of an IT_ROCK). */
@@ -104,7 +105,7 @@ typedef enum {
 /* --- Objects --------------------------------------------------------------- */
 typedef enum { PS_OFF, PS_ALIVE, PS_DYING, PS_ENTERING, PS_RESCUE } PlayerState;
 
-/* Options (saved in SRAM). Plus mode = dash, energy, push bubble. */
+/* Options (saved in SRAM). Plus mode = dash, push bubble, vacuum, upward aim. */
 typedef struct {
     uint8_t plus;          /* 0 Arcade, 1 Plus */
     uint8_t rescue;        /* co-op rescue on/off (both modes) */
@@ -128,15 +129,14 @@ typedef struct {
     uint16_t rescue;       /* frames left in the rescue bubble */
     uint8_t  rescue_dir;   /* AIR_* the rescue bubble drifts in */
     uint8_t  cpu;          /* controlled by the CPU partner (cpu.c) */
-    uint8_t  energy;       /* Plus mode: 0..ENERGY_MAX */
-    uint8_t  energy_hold;  /* frames before the energy starts to drain */
     uint8_t  dash;         /* Plus mode: frames left in a dash */
     int8_t   dash_dir;
     uint8_t  dash_used;    /* one dash per jump */
+    uint8_t  dash_cooldown;/* frames until the next dash is possible */
+    uint8_t  dash_ready;   /* frames left of the "dash ready" glow */
     uint8_t  dash_buffer;  /* frames a too-early dash press is kept */
     int8_t   dash_buffer_dir;
     uint16_t last_free_x;  /* dash: last position not inside a wall */
-    uint8_t  energy_state; /* 0 low, 1 dash available, 2 full (for the chimes) */
     uint8_t  trail_x[8], trail_y[8];   /* recent positions, for the dash afterimages */
     uint8_t  trail_pos;
     uint8_t  facing_left;
@@ -181,8 +181,11 @@ typedef struct {
     uint8_t  gap_jump;
     uint8_t  walk_over_edge;
     uint8_t  target_x, target_y;  /* spawn point (sprite top-left, pixels) */
+    uint8_t  stun;         /* frames left dazed (a shield enemy that lost its plate) */
     uint16_t x, y;         /* 8.8 */
 } Enemy;
+
+#define SHIELD_STUN 60     /* frames a shield enemy stands dazed after a dash took its plate */
 
 #define MAX_BUBBLES 16
 typedef enum { BS_OFF, BS_SHOOT, BS_FLOAT, BS_TRAPPED, BS_POPPING } BubbleState;
@@ -313,16 +316,15 @@ void     player_update(Player *p, uint16_t pad, uint16_t pressed);
 void     player_draw(const Player *p);
 uint8_t  player_dash_invulnerable(const Player *p);
 
-/* Plus mode energy (design guide "Plus mode"; tuning values there). */
-#define ENERGY_MAX        96
-#define ENERGY_PER_ENEMY  16
-#define ENERGY_COMBO      8      /* extra per further enemy in the same chain */
-#define ENERGY_HOLD       180    /* frames before the bar drains after a gain */
-#define DASH_COST         16
+/* Plus mode dash (design guide "Dash"; tuning values there). It is free:
+ * one per jump in the air, and DASH_COOLDOWN frames after a dash ends
+ * before the next one, longer than DASH_GRACE, so dashes cannot be chained
+ * into lasting invulnerability. */
 #define DASH_FRAMES       12     /* 12 x 4.5 px = 54 px, about 7 tiles */
 #define DASH_GRACE        30     /* invulnerable after a dash: time to react and jump clear */
-void     energy_gain(uint8_t player, uint8_t amount);
-void     energy_tick(void);      /* drain; call only while a round is being played */
+#define DASH_COOLDOWN     60     /* frames after a dash ends before the next one */
+#define DASH_READY_GLOW   10     /* frames the player glows when the next dash is ready */
+uint8_t  player_can_dash(const Player *p);
 
 /* --- enemy.c ---------------------------------------------------------------- */
 void     enemies_clear(void);
@@ -335,7 +337,9 @@ void     enemies_calm_down(void);
 uint8_t  enemies_touch(uint16_t x, uint16_t y);   /* TOUCH_*: an enemy body, or something always deadly */
 uint8_t  enemy_shot_in(const Enemy *e);           /* frames until its shot leaves; 0 = not winding up */
 void     enemies_to_gems(void);                   /* items: every enemy becomes a gem */
-void     enemies_defeat_at(uint16_t x, uint16_t y, uint8_t player); /* Steam Whistle: touching frozen enemies */
+void     enemies_defeat_at(uint16_t x, uint16_t y);   /* Steam Whistle: touching frozen enemies */
+uint8_t  enemy_shield_blocks(const Enemy *e, uint16_t bx);   /* a bubble at x bx hits the plate */
+void     enemies_dash_hit(uint16_t x, uint16_t y);   /* a dash here knocks shield plates off */
 
 /* Hurry Up chaser: invincible, flies through walls towards the player. */
 void     chaser_reset(void);

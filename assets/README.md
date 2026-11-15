@@ -52,12 +52,14 @@ Stage 1 keeps it simple: graphics are plain **24-bit PNG** files, and the colour
 | 164, 165 | Spitter |
 | 166, 167 | Dropper |
 | 168, 169 | Spitter fireball, dropper shot |
-| 170..173 | Small flutter, hopper, spitter, dropper (inside trapped bubbles) |
+| 170..174 | Small flutter, hopper, spitter, dropper, shield (inside trapped bubbles) |
 | 176..179, 180..183 | The Grumble Boiler (boss), 32 x 32 in four cells (top left, top right, bottom left, bottom right); mouth closed / open |
 | 184..187 | Giant bubble around the beaten boss, 32 x 32 |
 | 188 | Soot ball (boss shot) |
 | 189 | Door to the secret room |
 | 190..194 | Items: Soap Star, Rinse Wave, Steam Whistle, Fire Glove, Bubble Ring |
+| 196..200 | Glow outline of player frames 0..4 (dash ready) |
+| 201, 202 | Shield enemy (Riveter) walking |
 
 Score pop-ups also include 100 and 200 (cells 82..85).
 
@@ -105,16 +107,17 @@ Things to keep in mind when designing rooms:
 - A gap in the bottom row lets things fall out and come back in at the top.
 - Airflow decides where bubbles drift. Cells without airflow make bubbles wander randomly.
 - Special and letter bubbles come in through the first gap in the bottom row (else the top row, else near the bottom centre).
-- Enemy types in the `.map`: 1 walker, 2 bouncer, 3 thrower, 4 flutter, 5 hopper, 6 spitter, 7 dropper. Bouncers and flutters fly and need no floor; all others must stand on one.
-- `mapview --check` (CTest `rooms_playable`) verifies that every room can be played.
+- Enemy types in the `.map`: 1 walker, 2 bouncer, 3 thrower, 4 flutter, 5 hopper, 6 spitter, 7 dropper, 8 shield (Riveter). Bouncers and flutters fly and need no floor; all others must stand on one.
+- `mapview --check` (CTest `rooms_playable`) verifies that every room can be played. It also lists enemies that only a dash reaches (Plus mode) and enemies that need more than walking, jumping and dashing; neither fails the check.
+- A pocket that only a dash gets into (rounds 12 and 14): walls on both sides, a platform as its ceiling, at most 3 rows high so players can jump out, air blowing up inside. Put a Riveter or another enemy that does not jump up into it, or it walks out on its own.
 - `round100.map` is the boss arena (`boss 1` in its settings, no enemies). `secret.map` is the gem room behind the doors (`secret 1`); it is not part of the normal round order.
 - Rounds 31 to 99 were generated from room patterns by the asset script and checked with `mapview --check`; they can be reworked in the editor like any other room.
 
 ## Sound effects (`sfx/`)
 
-Mono WAV files, loaded by name: `jump`, `shoot`, `pop`, `trap`, `kill`, `gem`, `death`, `start`, `clear`, `hurry`, `gameover`, `menu`, `pause`, `extra`, `ready`, `full`, `dash`, `UhHelpMe`, `vacuum`. A missing file is skipped silently.
+Mono WAV files, loaded by name: `jump`, `shoot`, `pop`, `trap`, `kill`, `gem`, `death`, `start`, `clear`, `hurry`, `gameover`, `menu`, `pause`, `extra`, `dash`, `UhHelpMe`, `vacuum`, `multikill`. A missing file is skipped silently.
 
-`UhHelpMe` plays when a player is caught in a rescue bubble (co-op rescue) and once more when two thirds of the bubble's time are over. `vacuum` plays when a player places a vacuum (Plus mode).
+`UhHelpMe` plays when a player is caught in a rescue bubble (co-op rescue) and once more when two thirds of the bubble's time are over. `vacuum` plays when a player places a vacuum (Plus mode). `multikill` plays once per chain, in place of `kill`, when the third trapped enemy of the chain pops (the chain that earns EXTEND letters).
 
 ## Music (`music/`)
 
@@ -134,8 +137,9 @@ Two temporary tracks, streamed by the platform layer (`music_files` in `src/plat
 | `tileset01..08.png` | The room tiles from the Java version (`level/round01..08.png`), unchanged. |
 | Bubble cells 32..34 | `spritesheet/bubble.png` from the Java version. |
 | Rest of `sprites.png`, `font.png` | Placeholder art drawn by a script for this prototype. Replace freely. |
-| `sfx/*.wav` | Placeholder sounds synthesised by a script for this prototype, except `UhHelpMe.wav` and `vacuum.wav`. |
+| `sfx/*.wav` | Placeholder sounds synthesised by a script for this prototype, except `UhHelpMe.wav`, `vacuum.wav` and `multikill.wav`. |
 | `sfx/UhHelpMe.wav`, `sfx/vacuum.wav` | Added by the project owner (2026-11-14). |
+| `sfx/multikill.wav` | Added by the project owner (2026-11-15). |
 | `levels/*.map`, `levels/*.txt` | New room layouts and settings for this prototype. |
 
 The Java version also contained a ripped NES sprite sheet, traced character sprites, original game sound effects, music and arcade round layouts. **None of these are used here, and they must not be added** (see the license note in the main README).

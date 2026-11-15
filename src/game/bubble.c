@@ -3,7 +3,8 @@
  * A shot bubble that hits an enemy traps it; a trapped enemy escapes
  * (angry) after a while. Floating bubbles push each other apart, and a
  * popped bubble pops every bubble it touches (chain reaction); each trapped
- * enemy in one chain is worth twice as much as the one before.
+ * enemy in one chain is worth twice as much as the one before. Everything
+ * one dash sweeps through counts as one chain.
  * Plus mode adds the push bubble: it traps nothing and shoves the floating
  * bubble it hits, like a cue ball.
  * Ported from AiBubbleSystem / AirflowSystem, extended per the design guide.
@@ -231,12 +232,13 @@ static void burst(Bubble *b)
     if (b->trapped) {
         uint8_t tier = (uint8_t)(chain_kills < FOOD_TIERS - 1 ? chain_kills : FOOD_TIERS - 1);
         int8_t dir = chain_kills == 0 ? chain_dir : (int8_t)((rng_next() & 1) ? 1 : -1);
-        energy_gain(chain_owner, (uint8_t)(ENERGY_PER_ENEMY + (chain_kills ? ENERGY_COMBO : 0)));
         if (chain_kills < 255) {
             chain_kills++;
         }
         item_spawn_thrown(b->x, b->y, dir, tier);
-        sfx(SFX_KILL);
+        /* The third enemy of a chain earns letters: say so right away,
+         * once per chain, while the player still watches it. */
+        sfx(chain_kills == 3 ? SFX_MULTIKILL : SFX_KILL);
     } else if (b->kind == BK_LETTER) {
         extend_collect(chain_owner, b->letter);
         item_spawn(IT_BURST, b->x, b->y, 0);
@@ -273,13 +275,20 @@ static void burst(Bubble *b)
 }
 
 /* An empty bubble on the move (fired, or shoved by a push bubble) traps
- * the first enemy it touches and stops. */
+ * the first enemy it touches and stops. A shield enemy's plate bursts a
+ * bubble that comes from the front. Returns 1 if the bubble is used up. */
 static uint8_t catch_enemy(Bubble *b)
 {
     uint8_t i;
     for (i = 0; i < MAX_ENEMIES; i++) {
         Enemy *e = &g_enemies[i];
         if (e->active && !e->entering && overlap(b->x, b->y, e->x, e->y, 12, 12)) {
+            if (enemy_shield_blocks(e, b->x)) {
+                item_spawn(IT_BURST, b->x, b->y, 0);
+                sfx(SFX_POP);
+                b->state = BS_OFF;
+                return 1;
+            }
             e->active = 0;
             sfx(SFX_TRAP);
             b->etype = e->type;
@@ -584,11 +593,13 @@ void bubbles_update(void)
 
     separate();
 
-    /* A chain is over when nothing is popping any more. */
+    /* A chain is over when nothing is popping any more. A dash holds it
+     * open: everything one dash sweeps through is one chain, even bubbles
+     * that do not touch (Plus mode, design guide "Dash"). */
     for (i = 0; i < MAX_BUBBLES && !popping; i++) {
         popping = (uint8_t)(g_bubbles[i].state == BS_POPPING);
     }
-    if (!popping) {
+    if (!popping && !player_dash_invulnerable(&g_players[chain_owner])) {
         /* A chain of three or more enemies earns EXTEND letters. */
         if (chain_kills >= 3) {
             extend_letters_earned((uint8_t)((chain_kills - 1) >> 1));

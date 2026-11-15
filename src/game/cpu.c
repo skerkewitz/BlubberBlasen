@@ -543,7 +543,7 @@ static uint16_t dodge(const Player *p, uint16_t goal)
 {
     uint8_t a, best_act;
     int16_t best;
-    uint8_t can_dash = (uint8_t)(g_opt.plus && p->energy >= DASH_COST && !p->dash_used && !p->dash);
+    uint8_t can_dash = player_can_dash(p);
 
     predict_dangers();
     best_act = act_of(goal);

@@ -58,7 +58,7 @@ static const char *const music_files[MUSIC_COUNT] = {
 static const char *const sfx_files[SFX_COUNT] = {
     "jump", "shoot", "pop", "trap", "kill", "gem", "death",
     "start", "clear", "hurry", "gameover", "menu", "pause", "extra",
-    "ready", "full", "dash", "UhHelpMe", "vacuum"
+    "dash", "UhHelpMe", "vacuum", "multikill"
 };
 
 /* Tints for the 8 "palettes" of stage 1. */
@@ -529,7 +529,7 @@ static void play_sounds(uint32_t mask)
  *   --skip-intro      no story pages after the title (also implied by --autoplay and --round)
  *   --intro           show the story pages anyway (for screenshots with --autoplay)
  *   --ending <happy|sad>  start with that ending (to look at it)
- *   --invincible, --infinite-lives, --hitboxes, --air, --cpu-view, --full-energy   switch those debug switches on
+ *   --invincible, --infinite-lives, --hitboxes, --air, --cpu-view   switch those debug switches on
  *   --plus, --rescue, --cpu2   set those options for this run (not saved)
  *   --options         start on the options screen
  * Recordings (desktop development builds, see README "Recordings"):
@@ -607,8 +607,6 @@ static void parse_args(int argc, char **argv)
             opt_switch[DBG_AIR] = 1;
         } else if (strcmp(argv[i], "--cpu-view") == 0) {
             opt_switch[DBG_CPU_VIEW] = 1;
-        } else if (strcmp(argv[i], "--full-energy") == 0) {
-            opt_switch[DBG_FULL_ENERGY] = 1;
         } else if (strcmp(argv[i], "--plus") == 0) {
             opt_plus = opt_set_options = 1;
         } else if (strcmp(argv[i], "--rescue") == 0) {
@@ -665,7 +663,7 @@ static void take_shots(RenderTexture2D fb, long t)
 
 /* --- Debug keys and overlays ------------------------------------------------
  *   F2 invincible   F3 infinite lives   F4 hitboxes   F5 air currents
- *   F6 full energy  F7 pause / frame step (F8 = one frame)   F9 slow motion
+ *   F7 pause / frame step (F8 = one frame)   F9 slow motion
  *   F10 spawn the next item or special bubble next to player 1
  *   F1 CPU partner view: predicted danger positions and the chosen action
  *   Backspace: mark the moment in the recording / jump to the next mark (see below) */
@@ -855,7 +853,6 @@ static void debug_keys(void)
     if (IsKeyPressed(KEY_F3)) dbg_toggle(DBG_INFINITE_LIVES, "INFINITE LIVES");
     if (IsKeyPressed(KEY_F4)) dbg_toggle(DBG_HITBOXES, "HITBOXES");
     if (IsKeyPressed(KEY_F5)) dbg_toggle(DBG_AIR, "AIR CURRENTS");
-    if (IsKeyPressed(KEY_F6)) dbg_toggle(DBG_FULL_ENERGY, "FULL ENERGY");
     if (IsKeyPressed(KEY_F12)) dbg_toggle(DBG_VACUUM_WALLS, "VACUUM WALLS");
     if (IsKeyPressed(KEY_F7)) {
         dbg_paused = !dbg_paused;
@@ -941,10 +938,10 @@ static void debug_overlays(void)
 static void debug_status(void)
 {
     char line[96];
-    snprintf(line, sizeof line, "DEBUG %s%s%s%s%s%s%s%s%s",
+    snprintf(line, sizeof line, "DEBUG %s%s%s%s%s%s%s%s",
              game_debug_get(DBG_CPU_VIEW) ? "CPU " : "", game_debug_get(DBG_INVINCIBLE) ? "INV " : "", game_debug_get(DBG_INFINITE_LIVES) ? "LIVES " : "",
              game_debug_get(DBG_HITBOXES) ? "BOXES " : "", game_debug_get(DBG_AIR) ? "AIR " : "",
-             game_debug_get(DBG_FULL_ENERGY) ? "ENERGY " : "", game_debug_get(DBG_VACUUM_WALLS) ? "VACWALLS " : "", dbg_paused ? "PAUSED " : "", dbg_slow ? "SLOW" : "");
+             game_debug_get(DBG_VACUUM_WALLS) ? "VACWALLS " : "", dbg_paused ? "PAUSED " : "", dbg_slow ? "SLOW" : "");
     if (strcmp(line, "DEBUG ") != 0) {
         DrawText(line, 8, 8, 20, YELLOW);
     }

@@ -56,7 +56,41 @@ static int fall(const MapFile *m, int c, int *r)
     return 0;
 }
 
-int reach_moves(const MapFile *m, int c, int r, int out[REACH_MAX_MOVES][2])
+/* The body (columns c0..c1+1, rows y-1 and y) can move sideways along
+ * row y: inner walls block it, as level_wall_ahead does in the game. */
+static int span_free(const MapFile *m, int c0, int c1, int y)
+{
+    int k, lo = c0 < c1 ? c0 : c1, hi = c0 < c1 ? c1 : c0;
+    for (k = lo; k <= hi + 1; k++) {
+        if (reach_solid(m, k, y) || reach_solid(m, k, y - 1)) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+/* A jump from (c, r) lands on (nc, nr): rise in place (platforms are
+ * one-way), move sideways at some height up to 5 rows above r, then drop
+ * to nr. The sideways part must not pass through a wall. */
+static int jump_path(const MapFile *m, int c, int r, int nc, int nr)
+{
+    int y, k;
+    for (y = r - 5 < 1 ? 1 : r - 5; y <= nr; y++) {
+        int clear = 1;
+        if (!span_free(m, c, nc, y)) {
+            continue;
+        }
+        for (k = y; k < nr && clear; k++) {   /* the drop at nc down to nr */
+            clear = !reach_solid(m, nc, k) && !reach_solid(m, nc + 1, k);
+        }
+        if (clear) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+int reach_moves_ex(const MapFile *m, int c, int r, int out[REACH_MAX_MOVES][2], int flags)
 {
     int n = 0, d, nc, nr;
     for (d = -1; d <= 1; d += 2) {
@@ -71,9 +105,25 @@ int reach_moves(const MapFile *m, int c, int r, int out[REACH_MAX_MOVES][2])
     }
     for (nr = r - 5 < 0 ? 0 : r - 5; nr <= r; nr++) {
         for (nc = c - 4 < 2 ? 2 : c - 4; nc <= c + 4 && nc <= LEVEL_W - 4; nc++) {
-            if (reach_stands(m, nc, nr) && n < REACH_MAX_MOVES) {
+            if (reach_stands(m, nc, nr) && n < REACH_MAX_MOVES &&
+                (!(flags & REACH_WALLS) || nc == c || jump_path(m, c, r, nc, nr))) {
                 out[n][0] = nc;
                 out[n][1] = nr;
+                n++;
+            }
+        }
+    }
+    if (flags & REACH_DASH) {
+        /* Plus mode dash: about 7 tiles along the row, through inner walls */
+        for (d = 1; d <= REACH_DASH_TILES; d++) {
+            if (reach_stands(m, c - d, r) && n < REACH_MAX_MOVES) {
+                out[n][0] = c - d;
+                out[n][1] = r;
+                n++;
+            }
+            if (reach_stands(m, c + d, r) && n < REACH_MAX_MOVES) {
+                out[n][0] = c + d;
+                out[n][1] = r;
                 n++;
             }
         }
@@ -81,7 +131,12 @@ int reach_moves(const MapFile *m, int c, int r, int out[REACH_MAX_MOVES][2])
     return n;
 }
 
-void reach_from_start(const MapFile *m, unsigned char seen[LEVEL_W][LEVEL_H])
+int reach_moves(const MapFile *m, int c, int r, int out[REACH_MAX_MOVES][2])
+{
+    return reach_moves_ex(m, c, r, out, 0);
+}
+
+void reach_from_start_ex(const MapFile *m, unsigned char seen[LEVEL_W][LEVEL_H], int flags)
 {
     static int stack[LEVEL_W * LEVEL_H][2];
     int moves[REACH_MAX_MOVES][2];
@@ -97,7 +152,7 @@ void reach_from_start(const MapFile *m, unsigned char seen[LEVEL_W][LEVEL_H])
     sp++;
     while (sp > 0) {
         sp--;
-        n = reach_moves(m, stack[sp][0], stack[sp][1], moves);
+        n = reach_moves_ex(m, stack[sp][0], stack[sp][1], moves, flags);
         for (i = 0; i < n; i++) {
             int c = moves[i][0], r = moves[i][1];
             if (!seen[c][r]) {
@@ -108,4 +163,9 @@ void reach_from_start(const MapFile *m, unsigned char seen[LEVEL_W][LEVEL_H])
             }
         }
     }
+}
+
+void reach_from_start(const MapFile *m, unsigned char seen[LEVEL_W][LEVEL_H])
+{
+    reach_from_start_ex(m, seen, 0);
 }

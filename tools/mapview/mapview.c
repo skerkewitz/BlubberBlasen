@@ -44,9 +44,10 @@ static const Rgb C_WALL_D = { 150, 40, 100 };
 static const Rgb C_AIR    = { 80, 80, 105 };
 static const Rgb C_WHITE  = { 255, 255, 255 };
 static const Rgb C_LABEL  = { 255, 230, 60 };
-/* enemy types 1..7: walker, bouncer, thrower, flutter, hopper, spitter, dropper */
-static const Rgb C_TYPE[8] = { { 0, 0, 0 }, { 160, 90, 230 }, { 90, 200, 255 }, { 230, 140, 60 },
-                               { 250, 220, 80 }, { 120, 230, 120 }, { 240, 70, 60 }, { 170, 170, 190 } };
+/* enemy types 1..8: walker, bouncer, thrower, flutter, hopper, spitter, dropper, shield */
+static const Rgb C_TYPE[ENEMY_TYPE_COUNT + 1] = { { 0, 0, 0 }, { 160, 90, 230 }, { 90, 200, 255 }, { 230, 140, 60 },
+                               { 250, 220, 80 }, { 120, 230, 120 }, { 240, 70, 60 }, { 170, 170, 190 },
+                               { 240, 170, 100 } };
 static const Rgb C_P1 = { 80, 220, 90 };
 static const Rgb C_P2 = { 240, 240, 240 };
 
@@ -287,9 +288,18 @@ static int enemy_walks(int type)
     return enemy_needs_floor(type) && type != ENEMY_TYPE_HOPPER;
 }
 
+static int seen_near(unsigned char seen[LEVEL_W][LEVEL_H], int x, int y)
+{
+    return (x - 1 >= 0 && seen[x - 1][y]) || seen[x][y] || (x + 1 < LEVEL_W && seen[x + 1][y]);
+}
+
+/* Fails a room if the lenient model cannot reach an enemy. With walls
+ * blocking jumps as in the game, it also reports (without failing) enemies
+ * that only a dash reaches, and those that need more than walking, jumping
+ * and dashing (a bubble bounce, or the enemy walking out on its own). */
 static int check_room(const MapFile *m)
 {
-    static unsigned char seen[LEVEL_W][LEVEL_H];
+    static unsigned char seen[LEVEL_W][LEVEL_H], strict[LEVEL_W][LEVEL_H], dash_seen[LEVEL_W][LEVEL_H];
     int ok = 1, i;
 
     if (!reach_stands(m, 3, LEVEL_H - 2)) {
@@ -297,16 +307,21 @@ static int check_room(const MapFile *m)
         return 0;
     }
     reach_from_start(m, seen);
+    reach_from_start_ex(m, strict, REACH_WALLS);
+    reach_from_start_ex(m, dash_seen, REACH_WALLS | REACH_DASH);
     for (i = 0; i < m->enemy_count; i++) {
         const LevelEnemy *e = &m->enemies[i];
         int x = e->x, y = e->y;
         if (enemy_needs_floor(e->type) && !reach_stands(m, x, y) && !reach_stands(m, x - 1, y)) {
             fprintf(stderr, "mapview: %s: enemy %d (x=%d y=%d) has no floor to stand on\n", m->path, i, x, y);
             ok = 0;
-        } else if (enemy_walks(e->type) && !(x - 1 >= 0 && seen[x - 1][y]) && !seen[x][y] &&
-                   !(x + 1 < LEVEL_W && seen[x + 1][y])) {
+        } else if (enemy_walks(e->type) && !seen_near(seen, x, y)) {
             fprintf(stderr, "mapview: %s: enemy %d (x=%d y=%d) cannot be reached\n", m->path, i, x, y);
             ok = 0;
+        } else if (enemy_walks(e->type) && !seen_near(strict, x, y)) {
+            printf("mapview: %s: enemy %d (x=%d y=%d) %s\n", m->path, i, x, y,
+                   seen_near(dash_seen, x, y) ? "is behind a wall: Plus needs a dash"
+                                              : "needs more than walk, jump and dash");
         }
     }
     return ok;

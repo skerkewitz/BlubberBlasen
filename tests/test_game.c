@@ -348,7 +348,6 @@ static void setup_room(uint8_t level)
     g_state = GS_PLAY;
     player_start(&g_players[0]);   /* resets dash, rescue ... */
     g_players[0].invulnerable = 0;
-    g_players[0].energy = 0;
 }
 
 /* The bouncer stays inside the room and bounces off floor and ceiling. */
@@ -1034,7 +1033,7 @@ static void test_special_items(void)
     items_update();
     CHECK(g_freeze > 0, "Steam Whistle should freeze");
     CHECK(!enemies_touch(g_enemies[0].x, g_enemies[0].y), "frozen enemies are harmless");
-    enemies_defeat_at(g_enemies[0].x, g_enemies[0].y, 0);
+    enemies_defeat_at(g_enemies[0].x, g_enemies[0].y);
     CHECK(enemies_count() == 0, "touching a frozen enemy defeats it");
     g_freeze = 0;
 
@@ -1181,8 +1180,6 @@ static void setup_two_players(uint8_t level)
     player_start(&g_players[1]);
     g_players[1].invulnerable = 0;
     g_players[0].lives = 3;
-    g_players[0].energy = 0;
-    g_players[1].energy = 0;
 }
 
 /* Co-op rescue: trapped instead of killed, freed by the partner;
@@ -1241,36 +1238,20 @@ static void test_rescue(void)
     g_opt.rescue = 0;
 }
 
-/* Plus mode: energy from defeats, drain after the hold time, dash, a full bar. */
+/* Plus mode dash: free, invulnerable, a grace time, a cooldown that keeps
+ * dashes from being chained into lasting invulnerability. */
 static void test_plus_mode(void)
 {
-    int f;
+    int f, unprotected, dashes;
     uint16_t x0;
-    uint8_t e;
 
+    /* dash: about 7 tiles, invulnerable in the middle, costs nothing */
     setup_room(0);
     g_opt.plus = 1;
-    g_players[0].energy = 0;
-    energy_gain(0, ENERGY_PER_ENEMY);
-    CHECK(g_players[0].energy == ENERGY_PER_ENEMY, "defeating an enemy gives energy");
-    for (f = 0; f < ENERGY_HOLD; f++) {
-        energy_tick();
-    }
-    e = g_players[0].energy;
-    CHECK(e == ENERGY_PER_ENEMY, "energy holds for a while after a gain");
-    for (f = 0; f < 40; f++) {
-        g_frame++;
-        energy_tick();
-    }
-    CHECK(g_players[0].energy < e, "then it drains");
-
-    /* dash: about 30 px, invulnerable in the middle, costs energy */
-    setup_room(0);
-    g_opt.plus = 1;
-    g_players[0].energy = ENERGY_MAX;
     g_players[0].x = TO_POS(60);
     x0 = g_players[0].x;
     player_update(&g_players[0], PAD_R, PAD_R);
+    CHECK(g_players[0].dash > 0, "a dash needs nothing but the button");
     for (f = 0; f < 4; f++) {
         player_update(&g_players[0], 0, 0);
     }
@@ -1283,13 +1264,11 @@ static void test_plus_mode(void)
     }
     CHECK(PX(g_players[0].x) - PX(x0) >= 48 && PX(g_players[0].x) - PX(x0) <= 64, "a dash covers 6-8 tiles (%d px)",
           PX(g_players[0].x) - PX(x0));
-    CHECK(g_players[0].energy == ENERGY_MAX - DASH_COST, "a dash costs energy");
     CHECK(g_players[0].facing_left == 0, "dash keeps the facing");
 
     /* after the dash: still safe long enough to jump clear */
     setup_room(0);
     g_opt.plus = 1;
-    g_players[0].energy = ENERGY_MAX;
     g_players[0].x = TO_POS(60);
     player_update(&g_players[0], PAD_R, PAD_R);
     CHECK(player_dash_invulnerable(&g_players[0]), "invulnerable from the first dash frame");
@@ -1305,10 +1284,43 @@ static void test_plus_mode(void)
           "jumping right after a dash next to an enemy should get clear before the grace time ends");
     enemies_clear();
 
+    /* cooldown: no new dash right after one; a short glow when it is ready */
+    setup_room(0);
+    g_opt.plus = 1;
+    g_players[0].x = TO_POS(40);
+    player_update(&g_players[0], PAD_R, PAD_R);
+    for (f = 0; f < DASH_FRAMES + 2; f++) {
+        player_update(&g_players[0], 0, 0);
+    }
+    CHECK(!player_can_dash(&g_players[0]), "no dash during the cooldown");
+    player_update(&g_players[0], PAD_L, PAD_L);
+    CHECK(g_players[0].dash == 0, "a dash pressed during the cooldown does not start");
+    for (f = 0; f < DASH_COOLDOWN; f++) {
+        player_update(&g_players[0], 0, 0);
+    }
+    CHECK(player_can_dash(&g_players[0]) && g_players[0].dash_ready > 0,
+          "after the cooldown the dash is ready again and the player glows");
+
+    /* hammering the dash button leaves gaps without protection */
+    setup_room(0);
+    g_opt.plus = 1;
+    g_players[0].x = TO_POS(40);
+    unprotected = 0;
+    dashes = 0;
+    for (f = 0; f < 600; f++) {
+        uint16_t b = (uint16_t)((f / 100) & 1 ? PAD_L : PAD_R);
+        uint8_t before = g_players[0].dash;
+        player_update(&g_players[0], b, b);
+        dashes += (g_players[0].dash && !before);
+        unprotected += (!g_players[0].invulnerable && !player_dash_invulnerable(&g_players[0]));
+    }
+    CHECK(dashes >= 4 && dashes <= 600 / (DASH_FRAMES + DASH_COOLDOWN) + 1, "dashes are limited by the cooldown (%d)", dashes);
+    CHECK(unprotected >= 600 / 4, "dashing all the time must not keep a player invulnerable (%d of 600 frames unprotected)",
+          unprotected);
+
     /* the dash pops bubbles in a band taller than the body */
     setup_room(0);
     g_opt.plus = 1;
-    g_players[0].energy = ENERGY_MAX;
     g_players[0].x = TO_POS(60);
     g_bubbles[0] = make_trapped(100, (uint8_t)(PLAYER_SPAWN_Y - 16));
     g_bubbles[0].state = BS_FLOAT;
@@ -1318,16 +1330,98 @@ static void test_plus_mode(void)
         player_update(&g_players[0], 0, 0);
     }
     CHECK(g_bubbles[0].state == BS_POPPING, "a dash under a bubble should pop it");
+    g_opt.plus = 0;
+}
 
-    /* a full bar changes nothing about shooting: Y fires on the press
-     * (the special shot that fired on release is gone) */
+/* Everything one dash pops is one chain, also bubbles that do not touch:
+ * the second enemy is worth double, as in a chain reaction. */
+static void test_dash_combo(void)
+{
+    int f, i;
+    uint8_t best_tier = 0, thrown = 0;
+
     setup_room(0);
     g_opt.plus = 1;
-    g_players[0].energy = ENERGY_MAX;
-    player_update(&g_players[0], PAD_Y, PAD_Y);
-    CHECK(g_bubbles[0].state == BS_SHOOT && g_players[0].energy == ENERGY_MAX,
-          "with a full bar, Y blows a normal bubble at once and keeps the energy");
+    g_players[0].x = TO_POS(60);
+    g_bubbles[0] = make_trapped(80, PLAYER_SPAWN_Y);
+    g_bubbles[1] = make_trapped(108, PLAYER_SPAWN_Y);   /* 28 px apart: too far for a chain reaction */
+    player_update(&g_players[0], PAD_R, PAD_R);
+    for (f = 0; f < 40; f++) {
+        player_update(&g_players[0], 0, 0);
+        bubbles_update();
+        for (i = 0; i < MAX_ITEMS; i++) {
+            if (g_items[i].kind == IT_THROWN) {
+                thrown = (uint8_t)(thrown | (1u << g_items[i].tier));
+                best_tier = g_items[i].tier > best_tier ? g_items[i].tier : best_tier;
+            }
+        }
+    }
+    CHECK(g_bubbles[0].state == BS_OFF && g_bubbles[1].state == BS_OFF, "the dash popped both bubbles");
+    CHECK(best_tier == 1 && (thrown & 1), "two enemies in one dash are one combo (food tiers mask 0x%02X)", thrown);
     g_opt.plus = 0;
+}
+
+/* Shield enemy: bubbles from the front burst on the plate, from behind they
+ * trap; a dash knocks the plate off and leaves a dazed plain walker. */
+static void test_shield(void)
+{
+    int f;
+    Enemy *e;
+    uint16_t ex;
+
+    /* from the front: the plate bursts the bubble */
+    setup_room(0);
+    enemy_spawn(TO_POS(90), g_players[0].y, ENEMY_TYPE_SHIELD, 0, 1);   /* faces left, towards the player */
+    g_players[0].x = TO_POS(50);
+    g_players[0].facing_left = 0;
+    bubble_shoot(TO_POS(58), g_players[0].y, AIR_RIGHT, 0);
+    for (f = 0; f < 20; f++) {
+        bubbles_update();
+    }
+    CHECK(g_enemies[0].active && bubbles_trapped_count() == 0, "a bubble from the front bursts on the shield");
+    CHECK(g_bubbles[0].state == BS_OFF, "and is used up (state %d)", g_bubbles[0].state);
+
+    /* from behind: trapped like any enemy */
+    setup_room(0);
+    enemy_spawn(TO_POS(90), g_players[0].y, ENEMY_TYPE_SHIELD, 0, 0);   /* faces right, away from the player */
+    bubble_shoot(TO_POS(58), g_players[0].y, AIR_RIGHT, 0);
+    for (f = 0; f < 20; f++) {
+        bubbles_update();
+    }
+    CHECK(!g_enemies[0].active && bubbles_trapped_count() == 1, "a bubble from behind traps the shield enemy");
+
+    /* a dash through it knocks the plate off */
+    setup_room(0);
+    g_opt.plus = 1;
+    g_players[0].x = TO_POS(60);
+    e = &g_enemies[0];
+    enemy_spawn(TO_POS(90), g_players[0].y, ENEMY_TYPE_SHIELD, 0, 1);
+    player_update(&g_players[0], PAD_R, PAD_R);
+    for (f = 0; f < DASH_FRAMES; f++) {
+        player_update(&g_players[0], 0, 0);
+    }
+    CHECK(e->active && e->type == ENEMY_TYPE_WALKER && e->stun > 0, "a dash knocks the plate off (type %u, stun %u)",
+          e->type, e->stun);
+    CHECK(g_players[0].state == PS_ALIVE, "the dash through the enemy does not hurt the player");
+    ex = e->x;
+    for (f = 0; f < SHIELD_STUN - 5; f++) {
+        enemies_update();
+    }
+    CHECK(e->x == ex, "the enemy stands dazed for a moment");
+    for (f = 0; f < 30; f++) {
+        enemies_update();
+    }
+    CHECK(e->x != ex, "then walks on");
+    g_opt.plus = 0;
+
+    /* round 11 introduces it */
+    {
+        uint8_t i, n = 0;
+        for (i = 0; i < level_defs[10].enemy_count; i++) {
+            n = (uint8_t)(n + (level_defs[10].enemies[i].type == ENEMY_TYPE_SHIELD));
+        }
+        CHECK(n >= 1, "round 11 has shield enemies (%u)", n);
+    }
 }
 
 /* Options live in SRAM. */
@@ -2035,7 +2129,6 @@ static void test_dash_rules(void)
     /* round 13 has a tower (columns 15-16) rising from the floor */
     setup_room(12);
     g_opt.plus = 1;
-    g_players[0].energy = ENERGY_MAX;
     g_players[0].x = TO_POS(76);
     player_update(&g_players[0], PAD_R, PAD_R);
     for (f = 0; f < 14; f++) {
@@ -2052,11 +2145,10 @@ static void test_dash_rules(void)
     /* input buffer: pressed while not possible, done when it becomes possible */
     setup_room(0);
     g_opt.plus = 1;
-    g_players[0].energy = 0;
+    g_players[0].dash_cooldown = 3;
     g_players[0].x = TO_POS(60);
     player_update(&g_players[0], PAD_R, PAD_R);
-    CHECK(g_players[0].dash == 0, "no dash without energy");
-    g_players[0].energy = ENERGY_MAX;
+    CHECK(g_players[0].dash == 0, "no dash during the cooldown");
     for (f = 0; f < 3; f++) {
         player_update(&g_players[0], 0, 0);
     }
@@ -2065,7 +2157,6 @@ static void test_dash_rules(void)
     /* single dash key: L and R together = facing direction when no direction is held */
     setup_room(0);
     g_opt.plus = 1;
-    g_players[0].energy = ENERGY_MAX;
     g_players[0].x = TO_POS(120);
     g_players[0].facing_left = 1;
     player_update(&g_players[0], PAD_L | PAD_R, PAD_L | PAD_R);
@@ -2145,6 +2236,8 @@ int main(void)
     test_rescue();
     test_plus_mode();
     test_dash_rules();
+    test_dash_combo();
+    test_shield();
     test_options();
     test_cpu_partner();
     test_round_change_resets();

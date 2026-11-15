@@ -25,6 +25,7 @@ Every enemy is a worker the Boiler has bewitched. A defeated enemy turns back in
 | Type | Name in the story | Job in the factory |
 |---|---|---|
 | Walker | Stoker | Shovels coal |
+| Shield | Riveter | Rivets boiler plates and hides behind one |
 | Thrower | Coal Tosser | Loads the furnaces |
 | Bouncer | Steam Puff | A puff of steam that came to life |
 | Flutter | Soot Moth | Lives in the chimneys |

@@ -33,7 +33,7 @@
 
 /* Names in the file, so a recording survives new switches in the enum. */
 static const char *const switch_names[DBG_COUNT] = {
-    "infinite_lives", "invincible", "hitboxes", "air", "full_energy", "cpu_view", "vacuum_walls"
+    "infinite_lives", "invincible", "hitboxes", "air", "cpu_view", "vacuum_walls"
 };
 
 const char *replay_switch_name(uint8_t sw)
@@ -291,6 +291,9 @@ int replay_load(const char *path, Replay *r, char *err, size_t err_size)
                 r->setup.ending = (int8_t)(a != 0);
             } else if (sscanf(line, "switch %31s %lu", name, &a) == 2) {
                 int sw = switch_by_name(name);
+                if (sw < 0 && strcmp(name, "full_energy") == 0) {
+                    continue;   /* switch of the removed energy bar (before 1.4.0) */
+                }
                 if (sw < 0) {
                     FAIL("%s:%lu: unknown switch '%s'", path, line_no, name);
                 }
@@ -323,6 +326,9 @@ int replay_load(const char *path, Replay *r, char *err, size_t err_size)
                 e.b = (uint16_t)b;
             } else if (strcmp(word, "switch") == 0 && sscanf(line, "%*u switch %31s %lu", name, &a) == 2) {
                 int sw = switch_by_name(name);
+                if (sw < 0 && strcmp(name, "full_energy") == 0) {
+                    continue;   /* switch of the removed energy bar (before 1.4.0) */
+                }
                 if (sw < 0) {
                     FAIL("%s:%lu: unknown switch '%s'", path, line_no, name);
                 }

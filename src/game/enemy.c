@@ -11,6 +11,10 @@
  *  - Hopper: bounces in arcs on a spring, rebounds off walls.
  *  - Spitter: fast walker, weak jumper, spits fireballs.
  *  - Dropper: patrols left and right, drops off edges, shoots straight down.
+ *  - Shield: a slow walker behind a steel plate. It neither jumps up nor
+ *    over gaps. A bubble from the front bursts on the plate; one from behind
+ *    traps it. A dash through it knocks the plate off: it stands dazed for
+ *    a moment and walks on as a plain walker.
  *  All three shooters stop and flash for ENEMY_WINDUP frames before a shot
  *  (internal.h), so a player can see it coming.
  *  - Chaser: appears some time after HURRY UP, is invincible, flies through
@@ -29,6 +33,7 @@
 #define THROW_COOLDOWN  120          /* + random 0..127 */
 #define SPEED_SPITTER   FX(1, 128)
 #define SPEED_DROPPER   FX(0, 192)
+#define SPEED_SHIELD    FX(0, 160)   /* 0.63 px/frame: the plate is heavy */
 #define ANGRY_EXTRA     FX(0, 77)
 #define HOP_SPEED       FX(0, 204)   /* sideways while hopping */
 #define HOP_JUMP        FX(2, 128)   /* + random up to 0.5 */
@@ -79,6 +84,7 @@ static Enemy *alloc_enemy(uint8_t type)
             e->throw_timer = (uint8_t)(THROW_COOLDOWN >> 1);
             e->throw_pose = 0;
             e->vy = 0;
+            e->stun = 0;
             return e;
         }
     }
@@ -161,7 +167,7 @@ void enemies_to_gems(void)
 }
 
 /* Steam Whistle: a frozen enemy touched by a player is defeated. */
-void enemies_defeat_at(uint16_t x, uint16_t y, uint8_t player)
+void enemies_defeat_at(uint16_t x, uint16_t y)
 {
     uint8_t i;
     for (i = 0; i < MAX_ENEMIES; i++) {
@@ -169,8 +175,33 @@ void enemies_defeat_at(uint16_t x, uint16_t y, uint8_t player)
         if (e->active && !e->entering && overlap(x, y, e->x, e->y, 12, 12)) {
             item_spawn_thrown(e->x, e->y, (int8_t)(PX(e->x) < PX(x) ? -1 : 1), GEM_TIER - 1);
             e->active = 0;
-            energy_gain(player, ENERGY_PER_ENEMY);
             sfx(SFX_KILL);
+        }
+    }
+}
+
+/* The plate covers the side the shield enemy faces: a bubble whose left
+ * edge is at bx (8.8) and that is on that side bursts on it. */
+uint8_t enemy_shield_blocks(const Enemy *e, uint16_t bx)
+{
+    if (e->type != ENEMY_TYPE_SHIELD) {
+        return 0;
+    }
+    return (uint8_t)(e->facing_left ? PX(bx) < PX(e->x) : PX(bx) > PX(e->x));
+}
+
+/* A dash through a shield enemy knocks its plate off, from either side. */
+void enemies_dash_hit(uint16_t x, uint16_t y)
+{
+    uint8_t i;
+    for (i = 0; i < MAX_ENEMIES; i++) {
+        Enemy *e = &g_enemies[i];
+        if (e->active && !e->entering && e->type == ENEMY_TYPE_SHIELD && overlap(x, y, e->x, e->y, 14, 14)) {
+            e->type = ENEMY_TYPE_WALKER;
+            e->stun = SHIELD_STUN;
+            e->jump_left = 0;
+            item_spawn(IT_BURST, e->x, e->y, 0);
+            sfx(SFX_TRAP);
         }
     }
 }
@@ -227,7 +258,7 @@ static void step_towards(uint16_t *v, uint8_t target)
 
 uint8_t small_enemy_tile(uint8_t type)
 {
-    if (type >= ENEMY_TYPE_FLUTTER && type <= ENEMY_TYPE_DROPPER) {
+    if (type >= ENEMY_TYPE_FLUTTER && type <= ENEMY_TYPE_SHIELD) {
         return (uint8_t)(SPR_SMALL_ENEMY4 + type - ENEMY_TYPE_FLUTTER);
     }
     return (uint8_t)(SPR_SMALL_ENEMY0 + (type >= 1 && type <= 3 ? type - 1 : 0));
@@ -235,7 +266,8 @@ uint8_t small_enemy_tile(uint8_t type)
 
 static fx8_8 walk_speed(const Enemy *e)
 {
-    fx8_8 base = e->type == ENEMY_TYPE_SPITTER ? SPEED_SPITTER : e->type == ENEMY_TYPE_DROPPER ? SPEED_DROPPER : SPEED;
+    fx8_8 base = e->type == ENEMY_TYPE_SPITTER ? SPEED_SPITTER : e->type == ENEMY_TYPE_DROPPER ? SPEED_DROPPER :
+                 e->type == ENEMY_TYPE_SHIELD ? SPEED_SHIELD : SPEED;
     return (fx8_8)(e->angry ? base + ANGRY_EXTRA : base);
 }
 
@@ -354,7 +386,7 @@ static void think_walker(Enemy *e, uint8_t think_now)
     uint8_t player_below = (uint8_t)(ey < py - 32);
 
     uint8_t can_climb = (uint8_t)(e->type == ENEMY_TYPE_WALKER || e->type == ENEMY_TYPE_THROWER);
-    uint8_t can_gap_jump = (uint8_t)(e->type != ENEMY_TYPE_DROPPER);
+    uint8_t can_gap_jump = (uint8_t)(e->type != ENEMY_TYPE_DROPPER && e->type != ENEMY_TYPE_SHIELD);
 
     if (is_shooter(e->type) && !e->jump_left && try_shoot(e, dir)) {
         return;
@@ -523,6 +555,14 @@ void enemies_update(void)
         if (g_state != GS_PLAY || g_freeze) {
             continue;
         }
+        if (e->stun) {
+            e->stun--;     /* dazed: stands (or drops) where it is */
+            if (!level_on_ground(e->x, e->y)) {
+                (void)level_fall(&e->x, &e->y, FX(1, 0));
+                level_wrap_y(&e->y);
+            }
+            continue;
+        }
         switch (e->type) {
         case ENEMY_TYPE_BOUNCER:
         case ENEMY_TYPE_FLUTTER:
@@ -570,13 +610,16 @@ void enemies_draw(void)
         case ENEMY_TYPE_DROPPER:
             tile = (uint8_t)(SPR_DROPPER0 + ((g_frame >> 4) & 1));
             break;
+        case ENEMY_TYPE_SHIELD:
+            tile = (uint8_t)(SPR_SHIELD0 + ((g_frame >> (fast + 1)) & 1));
+            break;
         default:
             tile = (uint8_t)((e->angry ? SPR_E_ANGRY0 : SPR_E_WALK0) + ((g_frame >> fast) & 1));
             break;
         }
         /* The walker has its own angry graphics; the others are tinted red.
          * Frozen enemies are grey. A shooter winding up flashes yellow. */
-        if (g_freeze) {
+        if (g_freeze || (e->stun && (g_frame & 4))) {
             attr = (uint8_t)(attr | (PAL_GREY << SPR_ATTR_PAL_SHIFT));
         } else if (enemy_shot_in(e) && ((g_frame >> 2) & 1)) {
             attr = (uint8_t)(attr | (PAL_YELLOW << SPR_ATTR_PAL_SHIFT));

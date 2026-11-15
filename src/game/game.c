@@ -202,8 +202,6 @@ static uint8_t any_alive(void)
     return 0;
 }
 
-static void draw_energy(void);
-
 /* --- HUD ------------------------------------------------------------------------
  * Row 0: 1UP, HIGH SCORE, 2UP. Row 1: the three scores. The round number
  * sits on the left wall, the EXTEND letters on the side walls and the spare
@@ -242,7 +240,6 @@ static void draw_hud_values(void)
     }
     text_digits(11, 1, best_score(), 8, PAL_NONE);
     text_number(0, HUD_ROWS, g_round, PAL_YELLOW);
-    draw_energy();
 
     /* EXTEND letters on the side walls: player 1 left, player 2 right. */
     for (i = 0; i < NUM_PLAYERS; i++) {
@@ -478,8 +475,6 @@ static void new_game(uint8_t starter)
         g_players[i].extends_given = 0;
         g_players[i].letters = 0;
         g_players[i].powers = 0;
-        g_players[i].energy = 0;
-        g_players[i].energy_hold = 0;
         played[i] = 0;
     }
     g_count.blown = 0;
@@ -562,7 +557,6 @@ void player_killed(Player *p)
         p->lives--;
     }
     p->powers = 0;   /* power-ups are lost with a life */
-    p->energy = 0;   /* and so is the energy (Plus mode) */
     no_death = 0;    /* no more doors this game */
     enemies_calm_down();
     chaser_reset();
@@ -657,9 +651,6 @@ static void update_play(const uint16_t pad[NUM_PLAYERS], const uint16_t pressed[
     g_level_frames++;
     if (g_freeze) {
         g_freeze--;
-    }
-    if (!clear_timer) {
-        energy_tick();
     }
     for (i = 0; i < NUM_PLAYERS; i++) {
         player_update(&g_players[i], pad[i], pressed[i]);
@@ -974,7 +965,7 @@ static void draw_options(void)
         text_put(6, row, labels[i], pal);
         text_put(21, row, values[i], pal);
     }
-    text_put(3, 21, g_opt.plus ? "PLUS: DASH WITH L/R, ENERGY," : "ARCADE: THE CLASSIC RULES.  ", PAL_GREY);
+    text_put(3, 21, g_opt.plus ? "PLUS: DASH WITH L/R, AIM UP," : "ARCADE: THE CLASSIC RULES.  ", PAL_GREY);
     text_put(3, 22, g_opt.plus ? "PUSH: TOP. VACUUM: RIGHT.   " : "                            ", PAL_GREY);
     text_put(4, 25, "UP/DOWN, LEFT/RIGHT, START", PAL_GREY);
 }
@@ -1020,25 +1011,6 @@ static void update_options(uint16_t pressed)
         return;
     }
     draw_options();
-}
-
-/* Plus mode: energy bars on the bottom wall, between the lives. */
-static void draw_energy(void)
-{
-    uint8_t i, k;
-    for (i = 0; i < NUM_PLAYERS; i++) {
-        const Player *p = &g_players[i];
-        uint8_t col = (uint8_t)(i == 0 ? 7 : 19);
-        if (!g_opt.plus || p->state == PS_OFF) {
-            text_put(col, BG_H - 1, "      ", PAL_NONE);
-            continue;
-        }
-        for (k = 0; k < 6; k++) {
-            uint8_t full = (uint8_t)(p->energy > (k << 4));
-            text_put((uint8_t)(col + k), BG_H - 1, full ? "#" : "-",
-                     (uint8_t)(p->energy >= ENERGY_MAX ? PAL_YELLOW : full ? PAL_CYAN : PAL_GREY));
-        }
-    }
 }
 
 /* --- Story --------------------------------------------------------------------------- */

@@ -28,7 +28,8 @@ enum { AIR_NONE = 0, AIR_UP = 1, AIR_DOWN = 2, AIR_LEFT = 3, AIR_RIGHT = 4 };
 #define ENEMY_TYPE_HOPPER  5   /* bounces in arcs on a spring, rebounds off walls */
 #define ENEMY_TYPE_SPITTER 6   /* fast walker, weak jumper, spits fireballs while running */
 #define ENEMY_TYPE_DROPPER 7   /* patrols left/right, drops off edges, shoots straight down */
-#define ENEMY_TYPE_COUNT   7
+#define ENEMY_TYPE_SHIELD  8   /* slow walker behind a steel plate: bubbles from the front burst; a dash knocks it off */
+#define ENEMY_TYPE_COUNT   8
 #define LEVEL_ENEMY_FACE_LEFT 0x01u
 
 /* What kind of room a level is. */

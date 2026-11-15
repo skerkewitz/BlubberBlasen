@@ -29,7 +29,7 @@ Input format (big endian):
 | 0 | 832 bytes | Static layer, 32 x 26 tiles; 0 = empty, non-zero = solid |
 | 832 | 832 bytes | Airflow; 0 = none, 1 = up, 2 = down, 3 = left, 4 = right |
 | 1664 | int32 | Number of enemies (optional; missing = 0) |
-| then | 4 x int32 each | x, y (tile of the feet), type (1 walker, 2 bouncer, 3 thrower, 4 flutter, 5 hopper, 6 spitter, 7 dropper), looking left (0/1) |
+| then | 4 x int32 each | x, y (tile of the feet), type (1 walker, 2 bouncer, 3 thrower, 4 flutter, 5 hopper, 6 spitter, 7 dropper, 8 shield), looking left (0/1) |
 
 ### Settings file
 

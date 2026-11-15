@@ -11,7 +11,7 @@
 #include <stdint.h>
 
 /* --- Version: major.minor.revision, shown on the title screen -------------- */
-#define GAME_VERSION "1.3.0"
+#define GAME_VERSION "1.4.0"
 
 /* --- Screen --------------------------------------------------------------- */
 #define SCREEN_W 256
@@ -121,10 +121,11 @@ typedef struct {
 enum {
     SFX_JUMP, SFX_SHOOT, SFX_POP, SFX_TRAP, SFX_KILL, SFX_GEM, SFX_DEATH,
     SFX_START, SFX_CLEAR, SFX_HURRY, SFX_GAMEOVER, SFX_MENU, SFX_PAUSE, SFX_EXTRA,
-    SFX_READY, SFX_FULL, SFX_DASH,   /* Plus mode: dash available, bar full, dash */
+    SFX_DASH,                        /* Plus mode: a dash */
     SFX_HELP,                        /* a player in the rescue bubble calls for help */
     SFX_VACUUM,                      /* Plus mode: a vacuum is placed */
-    SFX_COUNT                        /* at most 32: game_sfx() is a 32-bit mask */
+    SFX_MULTIKILL,                   /* the third trapped enemy of one chain pops */
+    SFX_COUNT                       /* at most 32: game_sfx() is a 32-bit mask */
 };
 
 /* --- Music (a track ID; the platform streams the file) --------------------- */
@@ -152,7 +153,6 @@ enum {
     DBG_INVINCIBLE,       /* nothing hurts the players */
     DBG_HITBOXES,         /* platform draws collision boxes (game_debug_boxes) */
     DBG_AIR,              /* platform draws the air currents (game_debug_cell) */
-    DBG_FULL_ENERGY,      /* Plus mode: energy bars stay full */
     DBG_CPU_VIEW,         /* platform draws the CPU partner's danger check (game_debug_cpu_view) */
     DBG_VACUUM_WALLS,     /* Plus mode: walls stop bubbles inside a vacuum (A/B test) */
     DBG_COUNT

@@ -25,7 +25,6 @@
 #define DASH_POP_Y    20          /* ... and in y: a band taller than the body */
 #define DASH_BUFFER   6           /* a dash pressed up to 6 frames too early still happens */
 #define DASH_EXTEND   48          /* how far a dash may run on to get out of a wall */
-#define ENERGY_DRAIN_MASK 3       /* drain 1 every 4 frames */
 #define SHOOT_DELAY   15
 #define SHOOT_DELAY_RATE 7         /* with the rate candy */
 #define SHOOT_POSE    10
@@ -57,35 +56,8 @@ void player_start(Player *p)
     p->dash = 0;
     p->dash_used = 0;
     p->dash_buffer = 0;
-}
-
-/* --- Plus mode energy -------------------------------------------------------- */
-void energy_gain(uint8_t player, uint8_t amount)
-{
-    Player *p = &g_players[player];
-    if (!g_opt.plus || player >= NUM_PLAYERS || p->state == PS_OFF) {
-        return;
-    }
-    p->energy = (uint8_t)(p->energy + amount > ENERGY_MAX ? ENERGY_MAX : p->energy + amount);
-    p->energy_hold = ENERGY_HOLD;
-}
-
-void energy_tick(void)
-{
-    uint8_t i;
-    for (i = 0; i < NUM_PLAYERS; i++) {
-        Player *p = &g_players[i];
-        if (!g_opt.plus || p->state == PS_OFF) {
-            continue;
-        }
-        if (DBG(DBG_FULL_ENERGY)) {
-            p->energy = ENERGY_MAX;
-        } else if (p->energy_hold) {
-            p->energy_hold--;
-        } else if (p->energy && (g_frame & ENERGY_DRAIN_MASK) == 0) {
-            p->energy--;   /* waiting costs energy */
-        }
-    }
+    p->dash_cooldown = 0;
+    p->dash_ready = 0;
 }
 
 /* Dash (design guide "Dash"): a fast burst of about 7 tiles; the player
@@ -94,11 +66,17 @@ void energy_tick(void)
  * bubbles sets them all off. Invulnerable for the whole dash and DASH_GRACE
  * frames after it (the player blinks), long enough to jump clear of an
  * enemy the dash ended next to. Passes through inner walls and platforms;
- * the outer walls stop it. One per jump. A press up to 6 frames too early
- * is kept. */
+ * the outer walls stop it. Free: one per jump, and DASH_COOLDOWN frames
+ * after a dash before the next. A press up to 6 frames too early is kept. */
 uint8_t player_dash_invulnerable(const Player *p)
 {
     return (uint8_t)(p->dash != 0);
+}
+
+/* A dash would start now if the button were pressed. */
+uint8_t player_can_dash(const Player *p)
+{
+    return (uint8_t)(g_opt.plus && p->state == PS_ALIVE && !p->carried && !p->dash && !p->dash_used && !p->dash_cooldown);
 }
 
 /* The body (12 x 16 px) overlaps a solid tile. */
@@ -138,7 +116,7 @@ static uint8_t try_dash(Player *p, uint16_t pad, uint16_t pressed)
         return 0;
     }
     p->dash_buffer--;
-    if (p->dash || p->dash_used || p->energy < DASH_COST) {
+    if (p->dash || p->dash_used || p->dash_cooldown) {
         return 0;   /* kept for a few frames, e.g. until landing */
     }
     p->dash = DASH_FRAMES;
@@ -146,9 +124,7 @@ static uint8_t try_dash(Player *p, uint16_t pad, uint16_t pressed)
     p->dash_buffer = 0;
     p->dash_used = 1;
     p->last_free_x = p->x;
-    if (!DBG(DBG_FULL_ENERGY)) {
-        p->energy = (uint8_t)(p->energy - DASH_COST);
-    }
+    p->dash_ready = 0;
     p->vy = 0;
     sfx(SFX_DASH);
     return 1;
@@ -162,8 +138,11 @@ static void dash_move(Player *p)
     if (!inside_wall(p->x, p->y)) {
         p->last_free_x = p->x;
     }
-    if (--p->dash == 0 && p->invulnerable < DASH_GRACE) {
-        p->invulnerable = DASH_GRACE;
+    if (--p->dash == 0) {
+        p->dash_cooldown = DASH_COOLDOWN;
+        if (p->invulnerable < DASH_GRACE) {
+            p->invulnerable = DASH_GRACE;
+        }
     }
     if (p->dash == 0 && inside_wall(p->x, p->y)) {
         /* ending inside a wall: run on to the next free spot, else back to the last one */
@@ -185,14 +164,16 @@ static void dash_move(Player *p)
     }
 }
 
-/* Plus mode: chimes when a dash becomes available and when the bar is full. */
-static void energy_feedback(Player *p)
+/* Plus mode: counts the cooldown down; the player glows briefly when the
+ * next dash is ready. */
+static void dash_tick(Player *p)
 {
-    uint8_t now = (uint8_t)(!g_opt.plus ? 0 : p->energy >= ENERGY_MAX ? 2 : p->energy >= DASH_COST ? 1 : 0);
-    if (now > p->energy_state) {
-        sfx(now == 2 ? SFX_FULL : SFX_READY);
+    if (p->dash_ready) {
+        p->dash_ready--;
     }
-    p->energy_state = now;
+    if (p->dash_cooldown && --p->dash_cooldown == 0) {
+        p->dash_ready = DASH_READY_GLOW;
+    }
 }
 
 /* --- Rescue bubble (co-op rescue) ------------------------------------------- */
@@ -297,6 +278,8 @@ void player_enter_round(Player *p)
     /* Nothing from the old round carries over: no dash or stun. */
     p->dash = 0;
     p->dash_buffer = 0;
+    p->dash_cooldown = 0;
+    p->dash_ready = 0;
     p->stun = 0;
     p->carried = 0;
     p->state = PS_ENTERING;
@@ -468,7 +451,7 @@ static void shoot(Player *p, uint16_t pad, uint16_t pressed)
     }
 
     /* Plus mode: X (the top face button) blows a push bubble (one at a
-     * time, no energy). */
+     * time, free). */
     if (g_opt.plus && (pressed & PAD_X)) {
         dir = aim(p, pad, &bx, &by);
         if (push_shoot(p->id, bx, by, dir)) {
@@ -570,12 +553,13 @@ void player_update(Player *p, uint16_t pad, uint16_t pressed)
         if (p->on_ground) {
             p->dash_used = 0;
         }
-        energy_feedback(p);
+        dash_tick(p);
         p->trail_pos = (uint8_t)((p->trail_pos + 1) & 7);
         p->trail_x[p->trail_pos] = PX(p->x);
         p->trail_y[p->trail_pos] = PX(p->y);
         if (p->dash || try_dash(p, pad, pressed)) {
             dash_move(p);
+            enemies_dash_hit(p->x, p->y);
         } else {
             walk(p, pad);
             jump_and_fall(p, pad);
@@ -583,7 +567,7 @@ void player_update(Player *p, uint16_t pad, uint16_t pressed)
         shoot(p, pad, pressed);
         touch_bubbles(p, pad);
         if (g_freeze) {
-            enemies_defeat_at(p->x, p->y, p->id);
+            enemies_defeat_at(p->x, p->y);
         }
         if (!safe(p)) {
             uint8_t touch = enemies_touch(p->x, p->y);
@@ -660,11 +644,9 @@ void player_draw(const Player *p)
         if (g_frame & 1) {
             oam_add(p->trail_x[(p->trail_pos - 4) & 7], p->trail_y[(p->trail_pos - 4) & 7], tile, ghost);
         }
-    } else if (p->energy_state && tile < 5) {
-        /* glow outline: yellow = dash available, cycling colours = bar full */
-        static const uint8_t pulse[4] = { PAL_YELLOW, PAL_ORANGE, PAL_PINK, PAL_GREEN };
-        uint8_t pal = p->energy_state == 2 ? pulse[(g_frame >> 2) & 3] : PAL_YELLOW;
+    } else if (p->dash_ready && tile < 5) {
+        /* a short yellow glow: the next dash is ready */
         oam_add(PX(p->x), PX(p->y), (uint8_t)(SPR_AURA0 + tile),
-                (uint8_t)((attr & SPR_ATTR_FLIP_X) | (pal << SPR_ATTR_PAL_SHIFT)));
+                (uint8_t)((attr & SPR_ATTR_FLIP_X) | (PAL_YELLOW << SPR_ATTR_PAL_SHIFT)));
     }
 }
