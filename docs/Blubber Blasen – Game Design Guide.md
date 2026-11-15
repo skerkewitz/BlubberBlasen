@@ -1,309 +1,202 @@
 # Blubber Blasen – Game Design Guide
 
-Nov 13, 2026 · @Stefan
+Blubber Blasen is a single-screen, two-player co-op platformer for a 256 × 224 screen at 60 Hz, built so it can later run on a Super Nintendo. It started as a remake of Taito's arcade *Bubble Bobble* and does not hide that: the bubble loop, the combos, EXTEND and the hundred rounds come from there. What the original does is described in [Bubble Bobble (Arcade) – Game Design Reference Guide](Bubble%20Bobble%20(Arcade)%20–%20Game%20Design%20Reference%20Guide.md).
 
-## Overview
+The game has grown into something of its own. The Plus mode adds a dash, an energy bar, aiming upward, a push bubble and a vacuum, and these change how a round is played: players move bubbles around the room instead of waiting for the air to bring them. This guide describes the game we are building. The [story](story.md) has the world, the characters and the texts.
 
-Blubber Blasen is a single-screen, two-player co-op platformer that reproduces the gameplay of Taito's arcade *Bubble Bobble* (1986). This guide describes the arcade original's mechanics in enough detail to build a first playable version. Names of original characters and items are used only as a reference; Blubber Blasen will use its own art, names, music and levels.
+Numbers in this guide are the values in the code (`src/game/`) at the time of writing. If they disagree, the code is right and this guide needs fixing.
 
-The core loop fits in one sentence: trap every enemy on the screen in a bubble, pop the bubbles to defeat them, collect the food they drop, move to the next round.
+## Modes
 
-**Design pillars of the original**
+**Plus** is the game. Everything in this guide applies to it unless a section says otherwise.
 
-- **One screen, one puzzle.** Every round is a fixed 1-screen layout. The challenge is routing around platforms and air currents, not exploration.
-- **Bubbles are weapon, terrain and transport.** The same object traps enemies, can be stood on and ridden upwards, and carries special effects (water, fire, lightning).
-- **Risk equals reward.** Popping several trapped enemies at once multiplies the score; waiting too long lets them escape angrier.
-- **Co-op first.** Two players share the screen at the same time. The true ending is only reachable in two-player mode.
-- **Hidden systems.** Many items are triggered by invisible counters (bubbles blown, jumps, distance walked). They reward long-term play but are not needed for a first version.
+**Classic** is a switch on the options screen. It turns off the Plus tools (dash, energy, aiming, push bubble, vacuum) and lets fired bubbles pass through inner walls, as in the arcade. The rounds, enemies, items and story stay ours. Classic is close to the original's rules, but it is not the original game: that would also need the original 100 room layouts and the full item system. If we ever want a faithful remake, it is easier to fork this project and build it there than to keep two games in one code base.
 
-**Scope of the original:** 100 rounds plus a boss round, 8 regular enemy types, 3 special bubble types, EXTEND letters, about 70 food items and more than 20 special items.
+The code still calls Classic "Arcade" and starts in it until the options are changed. Both are to be switched over.
+
+Two more options work in both modes:
+
+- **Co-op rescue** (off by default): an enemy that touches a player traps them in a rescue bubble instead of killing them. See Two players.
+- **Player 2: CPU** (off by default): a computer partner plays player 2.
 
 ## Technical frame
 
-The whole game runs on one fixed 256 × 224 screen at about 60 frames per second, which matches the SNES default mode exactly. All timings in this guide are given in seconds or frames at 60 fps.
+| Element | Value |
+| --- | --- |
+| Screen | 256 × 224 at 60 Hz, all timers in frames |
+| Layout | 2 tile rows of HUD at the top, then the room: 32 × 26 tiles of 8 × 8 px |
+| Sprites | 16 × 16 px, hitboxes smaller than the sprite |
+| Object limits | 2 players, 8 enemies, 16 bubbles, 16 items |
+| Rounds | 100 plus a secret room, one screen each, no scrolling during play |
+| Math | 8.8 fixed point, no floats, no heap (SNES port) |
 
-| Element | Original arcade | Recommendation for Blubber Blasen |
-| --- | --- | --- |
-| Resolution | 256 × 224, horizontal | Same (SNES mode 1, 256 × 224) |
-| Frame rate | \~60 Hz | Fixed 60 Hz logic step, all timers in frames |
-| Level grid | Small square wall blocks on a fixed grid, solid side walls | 8 × 8 px tiles; level stored as a 32 × 26 collision grid (verify exact row count in MAME) |
-| HUD | Scores and high score on the top line, lives in the bottom corners | Top tile row for scores, lives drawn as sprites at the bottom |
-| Characters | 16 × 16 px sprites | 16 × 16 px sprites, hitboxes slightly smaller than the sprite |
-| Rounds | 100 + boss, each one screen, no scrolling during play | One data file per round |
+A round is a `.map` file from the level editor (solid tiles, air direction per tile, enemies with position, type and facing) plus a `.txt` settings file: time until Hurry Up, tileset, entry delay per enemy, special bubble type and interval. See [tools/README.md](../tools/README.md).
 
-**Round data needed per level**
-
-- Collision grid: solid blocks, and one-way platforms (players and enemies can jump up through platforms from below and land on top).
-- Openings: holes in the top and bottom border. An object falling through a bottom hole reappears at the top (vertical wrap-around). Rounds with openings are the "open" rounds where special bubbles enter.
-- Air current map: a direction per cell (up, down, left, right) that steers free-floating bubbles. Currents usually converge on one or more gathering points.
-- Enemy list: type, start position, start direction and a spawn delay per enemy (the original allows up to 7 enemies per round).
-- Special bubble source: which special bubble type (if any) the round emits and from which opening.
-- Timer: seconds until "Hurry Up!" for this round.
-- Palette and wall-block graphic for the round.
+Solid tiles are one-way from below: players and enemies jump up through platforms and land on top. The side walls are always solid. Gaps in the bottom row let anything fall through and come back in at the top.
 
 ## Players
 
-Two dragons play at the same time: player 1 starts in the bottom-left corner, player 2 in the bottom-right corner. A single touch from an enemy, an enemy projectile or the Hurry-Up chaser kills them.
+Blubber (player 1, green) starts in the bottom-left corner, Blasi (player 2, cyan) in the bottom-right.
 
-**Controls** (arcade: 2-way joystick + 2 buttons; SNES mapping in brackets)
+**Controls** (SNES layout)
 
-| Input | Action |
-| --- | --- |
-| Left / right (D-pad) | Walk. The dragon also turns to face that way, which sets the bubble direction. |
-| Jump (B) | Fixed-height jump. Left/right steers in the air. |
-| Bubble (Y) | Blow one bubble horizontally in the facing direction. Fire rate is limited (see candy power-ups). |
-| Start | Player 2 joins at any time (arcade: coin + start). |
+| Button | Action | Mode |
+| --- | --- | --- |
+| D-pad left / right | Walk and turn | Both |
+| B | Jump | Both |
+| Y | Blow a bubble; with Up held, blow it upward | Up: Plus |
+| X | Push bubble; with Up held, upward | Plus |
+| A | Vacuum | Plus |
+| L / R | Dash left / right | Plus |
+| Start | Join, continue, pause | Both |
+| Select | Options (title screen) | Both |
 
-**Movement rules**
+**Movement**
 
-- No climbing, no double jump. The only ways up are jumping through one-way platforms from below, bouncing on bubbles, and falling through a bottom opening to wrap to the top.
-- Jumps pass upward through platforms and land on top of them. Falling is slower than in most platformers, and the player keeps air control the whole time.
-- Solid side walls are never passable. Top and bottom borders are passable only where the round has openings.
-- Bubble jumping: holding Jump while landing on a bubble bounces the player upward instead of popping it. Releasing Jump and touching the bubble pops it. This is the key skill for reaching high platforms.
-- Water from a water bubble carries the player along without killing them. Fire from a fire bubble briefly stuns a player who touches it but does not kill them.
+- Walk speed 0.92 px per frame, 1.3 with shoes. A jump is about 42 px high (five tiles); releasing B early cuts it short. Falling is capped at 2 px per frame, and the player steers in the air the whole time.
+- No climbing and no double jump. The ways up are jumping through platforms, bouncing on bubbles and falling through a bottom gap.
+- Landing on a bubble while holding B bounces the player up. Touching a bubble without holding B pops it.
+- Water carries a player along without harm. Fire stuns a player for one second.
 
-**Lives, death and respawn**
+**Lives**
 
-- Default 3 lives (arcade DIP options: 1, 2, 3 or 5).
-- Extra lives: by score at 30,000 and 100,000 (default DIP; other settings 20k/80k, 40k/200k, 50k/250k), and by completing EXTEND (see Special bubbles). Later score thresholds are an open question.
-- On death the player respawns at their start corner, blinking and invulnerable for a short time (about 2–3 s, measure in MAME).
-- When any player loses a life, all angry enemies calm down again and the round timer restarts; the Hurry-Up chaser that hunted the dead player leaves.
+- 3 lives, up to 9. Extra lives at 30,000 and 100,000 points and for a completed EXTEND.
+- After a death the player respawns at their corner and blinks, invulnerable for 2 s. The round goes on.
+- Losing a life calms every angry enemy and restarts the round's Hurry Up timer.
+- When the last player is out, a 9-second countdown lets them continue with Start; the score is kept. Player 2 can join at any time.
 
 ## Bubbles
 
-A bubble is a short-lived object with three phases: shot, float and expiry. Only the shot phase traps enemies; the float phase turns the bubble into a platform and a combo tool.
+A fired bubble flies 4 px per frame for 8 frames (about 32 px), then floats. It traps any enemy it touches while flying. A floating bubble drifts with the room's air at 0.35 px per frame (0.30 with an enemy inside). Floating bubbles push apart when closer than 13 px, so they gather into touching clusters where the air meets.
 
-1. **Shot.** The bubble leaves the dragon's mouth and flies horizontally at high speed for a fixed distance. Any enemy it touches in this phase is trapped. Blowing point-blank into an adjacent enemy traps it immediately. Hitting a wall ends this phase early.
-2. **Float.** The bubble slows down and drifts along the round's air current map. Floating bubbles push each other apart rather than overlapping, so they pile up in clusters at gathering points.
-3. **Expiry.** After a fixed lifetime an empty bubble changes colour, flashes and pops by itself. Candy power-ups extend range, speed and fire rate (see Items).
+An empty bubble lasts 10 s and turns orange and then red before it bursts. A trapped enemy breaks free after 5 s, with the same warning colours, and comes out angry.
 
-**Trapped enemies**
+Popping a bubble pops every bubble within 15 px of it, one link every 5 frames, so a chain is visible as it runs through a cluster. All enemies in one chain form one combo. A popped enemy flies through the room in an arc and lands as food.
 
-- A trapped enemy rides its bubble along the air currents and cannot harm anyone.
-- Its bubble changes colour in stages as a warning (normal, then warmer colours, then flashing). When the timer runs out the enemy breaks free and is angry: faster and pink/red.
-- Tune the escape time per enemy type and difficulty. Measure the original's values in MAME.
+**Walls and aiming (Plus).** A fired bubble stops at walls and platforms and starts floating in front of them. Blown into a wall at point-blank range, it pops at once. Holding Up shoots a bubble or a push bubble straight up. In Classic, fired bubbles pass through inner walls and Up does not aim.
 
-**Popping**
+## The Plus tools
 
-- A player pops a bubble by touching it without holding Jump. Holding Jump on top of a bubble bounces instead.
-- Popping an empty bubble scores 10 points.
-- Chain reaction: a popped bubble also pops every bubble it touches, and so on recursively, in the same frame or over a few frames for visual effect. Every trapped enemy in that chain counts as one combo.
-- A popped enemy flies off in an arc, bounces off walls, lands and turns into a food item (value set by its place in the combo, see Scoring).
+The three tools all answer the same problem: in the arcade, a bubble that drifts out of reach is lost unless the player takes a detour or a risky jump. In Plus the player moves bubbles to where they want the chain.
 
-**Design notes**
+**Push bubble (X).** A small, fast bubble (6 px per frame, about 72 px) that traps nothing. It bursts on the first floating bubble it meets and shoves it, empty or with an enemy inside. A hit on the upper third pushes the bubble down, on the lower third up, in the middle along the push bubble's direction. The shoved bubble slides at 3 px per frame, ignoring the air, slows down and stops at walls. An empty shoved bubble traps the first enemy it slides into. A push bubble shot upward always shoves its target up, through the platform above. A special bubble or letter that gets hit is set off as if touched. The push bubble also destroys enemy shots, and bursts without effect on enemies, players and the boss. One per player at a time, free.
 
-- Air currents are the level designer's main tool. They decide where trapped enemies drift, whether players can collect them, and where combos can be built.
-- Bubbles must be stable as platforms: a bubble a player is bouncing on keeps its float behaviour and is not pushed into the player.
+Play found three uses that later tuning has to keep working:
+
+- Combo shot: a normal bubble followed by a push bubble 3 or more frames later gets shoved on as its flight ends and travels much further. At 1–2 frames the push overtakes the bubble and misses. `test_push_bubble` pins this window.
+- Shot defence: a push can destroy an enemy shot, but with only one push bubble at a time a near enemy still gets you while you deal with a far one.
+- Bubbles through walls: a shoved bubble crosses platforms, so a bubble can be sent past a wall without jumping into it.
+
+**Vacuum (A).** Puts a vacuum where the player is. For 1.5 s the air inside a circle of 5 tiles (40 px) points to its centre, so floating bubbles (empty, trapped, special, letters, and a partner's rescue bubble) gather there, about 1 px per frame at the edge and 3 near the centre. Then the room's air takes over again. The vacuum stays where it was placed, also when pressed mid-jump; pressing again moves it. Bubbles pass through walls on the way in. It moves no enemies or items, pops nothing, and costs no energy. A pulsing blue glow shows exactly the area that pulls (drawn as a colour window, the way the SNES would do it).
+
+**Dash and energy (L / R).** Each player has an energy bar of 96 on the bottom wall. Defeating an enemy gives 16, plus 8 for each further enemy in the same chain. The bar holds for 3 s after a gain and then drains, so it rewards keeping up the attack. Losing a life empties it.
+
+A dash costs 16 energy and moves the player 54 px (about 7 tiles) in 12 frames without turning them around. It pops every bubble it passes through, goes through inner walls and platforms, never ends inside a wall, and keeps the player invulnerable for the dash and half a second after it. One dash per jump. A press up to 6 frames early still counts. The player sprite shows the bar: a yellow glow with spikes when a dash is possible, cycling colours and a chime when the bar is full.
 
 ## Enemies
 
-The original has 7 regular enemy types, introduced every 10 rounds, plus an invincible time-out chaser and one final boss. Blubber Blasen needs its own designs, but the behaviour slots below cover the whole roster.
+Every enemy is a factory worker bewitched by the Grumble Boiler (see the story). There are seven types plus the Hurry Up chaser and the boss.
 
-| Original name (aliases) | First round | Movement | Attack | Behaviour slot for Blubber Blasen |
+| Type | Name in the story | First round | Movement | Attack |
 | --- | --- | --- | --- | --- |
-| Zen-Chan (Bubble Buster, Benzo) | 1 | Walks along platforms, jumps up to the player's level, falls off edges | Contact only | Basic walker |
-| Mighta (Stoner) | 6 | Walks and jumps like Zen-Chan | Stops and throws a rock horizontally | Walker + stop-and-shoot |
-| Monsta (Blubba) | 10 | Flies diagonally, ignores platforms, bounces off walls, floor and ceiling | Contact only | Diagonal bouncer |
-| Pulpul (Hullaballoon) | 20 | Flies freely through platforms, changes direction often | Contact only | Free flyer |
-| Banebou (Coiley) | 30 | Bounces continuously in arcs on a spring, rebounds off walls | Contact only | Bouncer |
-| Hidegons (Incendo) | 40 | Fast walker, weak jumper | Spits fireballs horizontally without stopping | Walker + run-and-shoot |
-| Drunk (Willy Whistle) | 50 | Walks and jumps | Throws bottles horizontally | Walker + thrown projectile |
-| Invader (Super Socket) | 60 | Only left/right, drops off platform edges | Fires lasers straight down | Horizontal patrol + down-shooter |
-| Skel-Monsta (Baron von Blubba) | Any round after time-out | Moves in steps towards a player, passes through walls, speeds up over time | Contact kills | Invincible chaser (see Level flow) |
-| Super Drunk (Grumple Gromit) | 100 | Large, floats around the screen | Throws bottles | Final boss (see Secret rooms and endings) |
+| Walker | Stoker | 1 | Walks, jumps up towards the player, drops off edges | Contact |
+| Thrower | Coal Tosser | 4 | Walks like the walker | Stops and throws a rock |
+| Bouncer | Steam Puff | 6 | Flies diagonally, ignores platforms, bounces off walls | Contact |
+| Flutter | Soot Moth | 21 | Flies through platforms, changes direction often | Contact |
+| Hopper | Spring Fitter | 23 | Bounces in arcs on a spring, rebounds off walls | Contact |
+| Spitter | Furnace Imp | 25 | Fast walker (1.5 px per frame), weak jumper | Spits fireballs |
+| Dropper | Crane Drone | 28 | Patrols left and right, drops off edges | Shoots straight down |
+| Chaser | Soot Cloud | Hurry Up | Comes for its player through walls, faster over time | Contact, invincible |
+| Boss | Grumble Boiler | 100 | Floats around the top of the room | Spits soot |
 
-First-round numbers are for the normal game. In Super mode the pairs Zen-Chan/Hidegons, Mighta/Drunk and Monsta/Pulpul swap places; Banebou stays.
+Rules all enemies share:
 
-**Shared rules**
+- Each enemy enters after its own delay from the round file.
+- An enemy turns angry (red and faster) when it escapes a bubble, when Hurry Up starts, or when it is the last one left.
+- Enemies wrap through bottom gaps like players.
+- Fairness: every enemy that shoots stops and flashes for 30 frames before the shot leaves, and the shot keeps the direction the enemy faced when the wind-up began. No shot comes without warning, even point-blank. Trapping the enemy during the wind-up stops the shot.
 
-- Enemies enter at round start and take up their start positions. Each enemy can have its own spawn delay.
-- Walkers decide to jump or drop based on where the nearest player is. They are the main source of the game's "chase" feeling.
-- Enemies wrap from bottom to top through openings, just like players.
-- An enemy becomes **angry** (pink/red and faster) when it escapes a bubble, when "Hurry Up!" appears, or when it is the last enemy left. All angry enemies calm down when a player loses a life.
-- Projectiles kill players on contact.
-- Fairness rule of Blubber Blasen: every enemy that shoots stops and flashes for half a second (30 frames) before the shot leaves, and the shot keeps the direction the enemy faced when the wind-up began. A shot must never come without warning, even from point-blank range. Bubbling the enemy during the wind-up stops the shot.
+## A round
 
-## Level flow
+1. **Intro.** The new room scrolls in from below, 2 px per frame, and the round number and, every ten rounds, the floor name are shown.
+2. **Play.** The Hurry Up timer runs. It is set per round, from 40 s in round 1 down to 17 s in round 99. After 5 s a waiting power-up appears on a platform, and after 10 s the round's bonus food (500 to 2,000 points). Rounds with a special bubble type send one in through the opening at a fixed interval.
+3. **Hurry Up.** "HURRY UP!" appears and every enemy turns angry. 10 s later a Soot Cloud comes for each living player. Round 100 has no time limit.
+4. **Clear.** When the last enemy is gone, players have 5 s to collect the food.
+5. **Next round.** The next room scrolls in. A completed EXTEND ends the round at once; an umbrella skips 3 rounds.
 
-Every round runs through the same five stages; only EXTEND and umbrella items skip ahead.
+## Special bubbles and EXTEND
 
-1. **Intro.** The previous round scrolls up out of view and the new layout scrolls in. Players are carried to their start corners inside bubbles, enemies take their positions, and the round number is shown.
-2. **Play.** The round timer starts. Each round can produce at most one point (food) item and one special item, which appear in fixed slots a few seconds after the start (which item depends on the hidden counters, see Items). Special bubbles enter through openings in open rounds.
-3. **Hurry Up.** When the timer runs out, "HURRY UP!" flashes, the music speeds up and every enemy turns angry. About 10 seconds later the invincible chaser (Skel-Monsta) appears, one per living player. It moves in steps towards its player, ignores walls and gets faster until the round ends or the player dies. Rounds 94 and 100 have no time limit.
-4. **Clear.** When the last enemy is gone, players get a few seconds to collect the remaining food. Special clear effects trigger here: candy cane or chest bonuses, and the score-digit trick (if the hundreds and tens digits of either score match, all remaining bubbles turn into fruit).
-5. **Transition.** The next round scrolls in. Collecting all six EXTEND letters ends the round immediately and goes to the next one; an umbrella skips 3, 5 or 7 rounds.
+Special bubbles come in through the room's opening, float with the air and set off their effect when a player touches them or hits them with a push bubble. They last 20 s.
 
-**Timer values**
+| Bubble | Effect | Enemies hit |
+| --- | --- | --- |
+| Water | A stream runs down and along the platforms and out through a bottom gap. Carries players without harm | Swept away; all of them count as one combo |
+| Fire | A fireball drops onto the platform below and lights a carpet 4 tiles to each side for 3 s. Stuns players for 1 s | Defeated |
+| Lightning | A bolt flies straight across the room | Defeated; the only thing that hurts the boss |
 
-- The "Hurry Up!" limit is set per round. In the original it ranges from very long down to only a few seconds on some rounds.
-- For a first version, use one default (for example 30 s) plus a per-round override, and tune by playtesting.
-
-**Losing and continuing**
-
-- A dead player respawns in the same round; the round does not restart.
-- When a player has no lives left, the other player continues alone. With 0 players left: game over, continue screen.
-
-## Special bubbles
-
-Special bubbles are not blown by players. They drift in through the openings of open rounds, follow the air currents like normal bubbles and trigger their effect when a player pops them. Players can nudge them with their own bubbles to move them into position.
-
-| Bubble | Effect when popped | Kill reward | Notes |
-| --- | --- | --- | --- |
-| Water | A stream pours out, runs down and along platforms and leaves through a bottom opening | Swept enemies become high-value items; all enemies swept together count as one combo | Carries players along without harming them |
-| Fire | A fireball drops straight down and spreads a short-lived carpet of fire on the platform where it lands | Burned enemies become items | Players who touch the fire are briefly stunned |
-| Lightning | A bolt flies horizontally across the screen, opposite to the popping player's facing direction | Enemies hit become items | The only weapon against the final boss |
-| EXTEND letter (E, X, T, E, N, D) | The letter is added to the popping player's EXTEND display | — | See below |
-| Fireball bubble (very rare) | Gives the player fire breath for 5 rounds instead of bubbles, as long as they don't die | Enemies become 9,000-point diamonds | 1 in 4096 chance per naturally spawned bubble; 100,000 points |
-
-**EXTEND rules**
-
-- Letter bubbles only appear in open rounds.
-- Each player collects their own set of six letters. Completing E-X-T-E-N-D gives that player an extra life and ends the round immediately.
-- How many different letters appear depends on the biggest combo popped in the preceding non-open rounds (and in the current round). In the original: 3 enemies at once = 1 letter type, 4 = 2, 5 = 3, 6 = 4, 7 = 5, 8 = all 6. Combos of 2 or fewer produce none.
-- Collecting the same letter three times spawns a candy cane, which turns into a large bonus item when the round is cleared (see Items).
-
-**Spawn rules for a first version**
-
-- Give each open round a list of special bubble types it emits and an emit interval.
-- Queue EXTEND letters earned by combos and release them in the next open round.
+A chain of three or more enemies earns EXTEND letters: 1 letter for 3 or 4 enemies, 2 for 5 or 6, 3 for 7 or 8. Up to 6 letters wait in a queue and come in one every 4 s through the opening, preferring letters a player still misses. Whoever pops a letter collects it; the letters are shown on the side walls. All six give an extra life and end the round.
 
 ## Items
 
-Items come in two families: point items (food) that only add score, and special items that change the rules. Special items are not random: each one is unlocked by an invisible counter (bubbles blown, jumps, rounds played and so on), and the game places at most one per round in a fixed item slot.
+Defeated enemies land as food, worth 1,000 for the first enemy of a chain and double for each further one, up to 64,000 for the seventh. Food stays 10 s. Every round also puts out one bonus food after 10 s: cherry 500, apple 700, melon 1,000 or cake 2,000. Enemies defeated by an item turn into 8,000-point gems.
 
-**Point items**
+Power-ups are unlocked by hidden counters. When a counter reaches its limit, the power-up waits for the next round and appears on a platform 5 s after the start, for 10 s.
 
-- Food dropped by defeated enemies; its value comes from the combo (see Scoring).
-- One extra food item per round appears in the round's item slot; values range from a few hundred to several thousand points.
-- Large bonus items (big food, big diamonds) appear at round clear after a candy cane or chest was collected.
-
-**Special items**
-
-Thresholds below are from the original. Where four values are given, they apply to the four difficulty settings, easiest first.
-
-| Item | Effect | Unlocked by | Points |
-| --- | --- | --- | --- |
-| Candy (3 colours) | One each: bubbles fly farther / bubbles fly faster / faster fire rate. Kept until death | Blow 35 bubbles / pop 35 bubbles / jump 35 times | 100 |
-| Shoes | Faster running, jumping and falling. Kept until death | Run across the full screen 15 times | 100 |
-| Rings (3 types) | Bonus points per jump (500), per bubble blown (100) or per pixel walked (10) | Eat 3 candies of the matching colour | 1,000 |
-| Umbrella (3 types) | Skip 3, 5 or 7 rounds | Pop 15, 20 or 25 water bubbles | 200 |
-| Cross of water | Floods the screen; enemies become 6,000–7,000-point diamonds | Collect 10/11/12/13 special items | 3,000 |
-| Cross of thunder | Lightning showers the screen; enemies become diamonds | Collect 10/12/14/16 point items | 3,000 |
-| Cross of fire | Player breathes fire for the round; enemies become 9,000-point diamonds | Drown 4/5/6/7 enemies with water | 3,000 |
-| Book / bomb types | Explosion kills every enemy on screen, turning them into diamonds | Pop 10/13/16/19 fire bubbles, or burn 10/12/14/16 enemies with fire | 200–3,000 |
-| Heart | Freezes enemies; touching them turns them into items | Collect 50/55/60/65 enemy-drop foods | — |
-| Necklace | A ball bounces around the screen, turning enemies into 6,000-point diamonds | 15/20/25/30 rounds started | 5,000 |
-| Lanterns | Grant several candy and ring effects at once, or an explosion | Player joins 5 times, collect umbrellas or clocks | 2,000 |
-| Bell | Screen flashes when a powerful special item is about to appear; lasts the whole game | "Hurry Up!" shown 8/10/12/14 times | 1,000 |
-| Potion | Enemies vanish, screen fills with 500-point items for 30 s; collect all for a 100,000 bonus (2P: most items gets 100,000, the other 50,000) | Fall from the bottom of the screen to the top 15+ times | — |
-| Candy cane / chest | At round clear, remaining bubbles turn into food or diamonds plus one large item worth 10,000–80,000 | Three of the same EXTEND letter | 500 / 1,000 |
-
-Sources disagree on a few pairings (for example whether the clock stops enemies or the round timer). Treat this table as a design reference, not as an exact reproduction.
-
-**Recommendation for the first version:** implement candies, shoes, umbrellas and the three crosses with simplified counters. Leave rings, lanterns, bell, potion and the high-score name tricks for later.
-
-## Scoring
-
-Score comes mostly from combos: the n-th enemy defeated in one pop chain is worth 1,000 × 2^(n−1) points, so popping enemies together is worth far more than popping them one by one.
-
-**Combo table** (one chain, value of each enemy's food item)
-
-| Enemies in the chain | Food value of that enemy | Total for the chain |
+| Power-up | Effect | Unlocked by |
 | --- | --- | --- |
-| 1st | 1,000 | 1,000 |
-| 2nd | 2,000 | 3,000 |
-| 3rd | 4,000 | 7,000 |
-| 4th | 8,000 | 15,000 |
-| 5th | 16,000 | 31,000 |
-| 6th | 32,000 | 63,000 |
-| 7th | 64,000 | 127,000 |
+| Pink candy | Bubbles fly farther (14 frames instead of 8) | 35 bubbles blown |
+| Blue candy | Bubbles fly faster (6 px per frame instead of 4) | 35 bubbles popped |
+| Yellow candy | Shoot twice as often (every 7 frames instead of 15) | 35 jumps |
+| Shoes | Run faster (1.3 px per frame) | Walking 15 times across the room |
+| Umbrella | Skip 3 rounds | 5 water bubbles popped |
+| Soap Star | Every enemy turns into a gem | 10 food items collected |
+| Rinse Wave | Three water streams flood the room; every enemy turns into a gem | 6 enemies defeated with water |
+| Steam Whistle | Enemies freeze for 8 s; touching a frozen enemy defeats it | 40 enemies defeated |
+| Fire Glove | Fireballs instead of bubbles for the rest of the round | 4 enemies defeated with fire |
+| Bubble Ring | 100 points per bubble blown | 3 candies collected |
 
-Sources describe the same doubling in two ways: as rising food values per enemy, or as one bonus for the whole chain. Check in MAME whether the arcade awards the points when the food is collected or immediately on the pop.
+Candies and shoes are lost with a life.
 
-**Other score events**
+## Two players
 
-| Event | Points |
-| --- | --- |
-| Pop an empty bubble | 10 |
-| Regular round food item | about 700 |
-| Bonus food items (popcorn, burger and similar) | 500–4,000 |
-| Enemy killed by a special effect (cross, explosion, stars, ball) | 6,000–10,000 diamond |
-| Large item at round clear after candy cane or chest | 10,000–80,000 |
-| Collect every item in a potion round | 100,000 |
-| Fireball bubble pickup | 100,000 |
+Both players share the room, the enemies and the bubbles, and either can pop or bounce on any bubble. Players cannot hurt each other. Score, lives, power-ups, energy and EXTEND letters are per player. A round ends when all enemies are gone, whoever defeated them.
 
-**Score-based extra lives:** 30,000 and 100,000 by default.
+**Co-op rescue** (option). An enemy that touches a player traps them in a rescue bubble for 7 s. It drifts with the air (and a vacuum pulls it), and the partner frees them by touching it, with no life lost. If the time runs out, the player loses a life. Shots, the Soot Cloud and the boss still kill.
 
-## Secret rooms, boss, endings and two-player rules
+**CPU partner** (option). A computer partner plays player 2. It frees the human from rescue bubbles, pops trapped enemies (preferably several at once), hunts enemies and stays near player 1. It looks half a second ahead every frame, trying its own moves (stay, walk, jump, dash, turn and shoot) against where enemies, shots, Soot Clouds and the boss will be. It leaves the food to the human and earns no score. Start on pad 2 takes over from it. A game finished with the CPU partner counts as a two-player game.
 
-The long-term goals are reaching round 100, beating the boss there and seeing the true ending, which needs two players.
+## Floors, secret rooms, boss and endings
 
-**Secret rooms and warps**
+The 100 rounds are ten factory floors of ten rounds each, from the Cellar to the Chimney, with the boss on top (see the story).
 
-- Reaching rounds 20, 30 and 40 without losing a life makes a door appear in that round. It leads to a bonus room full of diamonds with a coded message on the wall.
-- The three messages together hint at how to reach the happy ending and unlock Super mode.
-- Reaching round 50 without losing a life opens a warp to a later round (most sources say round 70).
+If nobody has lost a life, a door appears on the floor in rounds 20, 40, 50 and 60; pressing Up in front of it goes through. Rounds 20, 40 and 60 lead to the secret room, full of gems, which shows one part of the off-switch code. Round 50 leads to round 70.
 
-**Final boss (round 100)**
+Round 100 is the Grumble Boiler, a 32 × 32 px steam kettle with 24 hit points that floats around the top of the room and spits soot. It gets faster below half strength and again when nearly beaten. Bubbles bounce off it. In this round every bubble a player blows is a lightning bubble, and only lightning hurts it. Beaten, it is trapped in a giant bubble; popping it starts the ending. The ending is happy if two players (or one player and the CPU partner) made it, and sad if one did.
 
-- Round 100 has no time limit and a single large boss (Super Drunk) that floats around the screen and throws bottles.
-- From round 100 on, players blow lightning bubbles. Lightning is the only thing that damages the boss; it takes many hits.
-- When defeated, the boss is trapped in a giant bubble. Popping it awards a large bonus and starts the ending.
+## Differences from the original
 
-**Endings**
+| Topic | Bubble Bobble (arcade) | Blubber Blasen |
+| --- | --- | --- |
+| World | Two dragons rescue their girlfriends | Two soap blobs free a bubble factory from the Grumble Boiler |
+| Rounds | The original 100 layouts | Our own 100 rooms |
+| Bubble tools | Bubble and jump only | Plus: push bubble, vacuum, dash, upward aim |
+| Bubbles and walls | Fired bubbles pass through inner walls | Plus: they stop at walls |
+| Energy | – | Plus: energy bar that pays for the dash |
+| Enemy types | 8, introduced every 10 rounds up to round 60 | 7 (no separate bottle thrower), all introduced by round 28 |
+| Enemy shots | Can come without warning | 30-frame wind-up before every shot |
+| Getting caught | Always costs a life | Option: rescue bubble in co-op |
+| Player 2 | Human only | Human or CPU partner |
+| EXTEND letters | Only in open rounds; letter types depend on the biggest combo | In any round; the number of letters depends on each chain |
+| Power-ups | More than 20, with difficulty-dependent limits | 10 with fixed limits |
+| Umbrella | Skips 3, 5 or 7 rounds | Skips 3 |
+| Secret doors | Rounds 20, 30, 40; warp in 50 | Rounds 20, 40, 60; warp in 50 |
+| Boss | Throws bottles; players blow lightning from round 100 on | Spits soot; lightning bubbles in round 100 |
+| Not built | Candy cane, chest, score-digit trick, rings for jumps and walking, necklace, potion, bell, lanterns, clock, book and bombs, the rare fireball bubble, Super mode, difficulty settings | |
 
-- Finishing alone gives a short "bad" ending that tells the player to come back with a friend.
-- Finishing with two players gives the happy ending: the dragons turn back into the human brothers and are reunited with their girlfriends.
-- The ending reveals a code for Super mode: a second run of 100 rounds with different colours and swapped enemy types.
+## Open questions
 
-**Two-player rules**
-
-- Both players share the round, the enemies and the bubbles. Either player can pop or bounce on any bubble.
-- Players cannot hurt each other, but they compete for food and items.
-- Score, lives, power-ups and EXTEND letters are tracked per player.
-- Player 2 can join at any time; a player with no lives left can rejoin with a continue.
-- A round ends when all enemies are gone, no matter which player defeated them.
-
-## First playable version
-
-A first version is complete when one or two players can play 10 original-style rounds with the core bubble loop, 3 enemy types, special bubbles and scoring. Everything else builds on top.
-
-**Scope v1**
-
-- [ ] Fixed 60 Hz loop, 256 × 224 screen, tile collision with one-way platforms and vertical wrap-around
-- [ ] Player: walk, jump, air control, bubble shot, death, respawn with invulnerability, 3 lives
-- [ ] Bubble: shot / float / expiry phases, air current map, bubble-to-bubble pushing, bubble jumping
-- [ ] Trap, escape with angry state, pop, chain reaction, enemy-to-food animation
-- [ ] Enemies: basic walker, diagonal bouncer, walker that throws projectiles
-- [ ] Round flow: intro scroll, play, Hurry Up + invincible chaser, clear, transition
-- [ ] Combo scoring, food items, score-based extra life
-- [ ] Water, fire and lightning bubbles; EXTEND letters with extra life and round skip
-- [ ] Candies, shoes and one umbrella with simple counters
-- [ ] Two players at the same time
-- [ ] Level format plus 10 own rounds
-
-**Later versions**
-
-- Remaining enemy types, all 100 rounds and the boss round
-- Full hidden-counter item system, crosses, potions, bell, rings, lanterns
-- Secret rooms, warps, endings and Super mode
-
-**Open questions to measure in MAME**
-
-- Exact jump height and arc, walk speed, fall speed, bubble range and float speed (frames and pixels)
-- Bubble lifetime and enemy escape time per type and difficulty
-- Per-round Hurry Up timer values
-- Exact row count of the level grid
-- Score thresholds for extra lives after 100,000
-- When combo points are credited: on pop or on food pickup
-
-**Sources**
-
-- [StrategyWiki: Bubble Bobble special items](https://strategywiki.org/wiki/Bubble_Bobble/Special_items) (item effects and unlock conditions)
-- [Bubble Bobble FAQ (lysator.liu.se)](https://www.lysator.liu.se/~/wizkid/arcade/info/bubble.faq) (EXTEND rules, doors, DIP settings, score-digit trick)
-- [Arcade-History: Bubble Bobble](https://www.arcade-history.com/game/343/) (enemy names and first rounds, combo doubling)
-- [Wikipedia: Bubble Bobble](<https://en.wikipedia.org/wiki/Bubble_Bobble_(video_game)>) (angry enemies, overview)
-- [Hardcore Gaming 101: Bubble Bobble (Arcade)](https://www.hardcoregaming101.net/bubble-bobble-arcade/) (time limit, air currents)
-- [ExoticA: Lost in Translation – Bubble Bobble](https://www.exotica.org.uk/wiki/Lost_In_Translation/Bubble_Bobble) (Super mode enemy swaps)
-
-The last four were read via search excerpts only. Original names appear here only as a reference; Blubber Blasen uses its own characters, graphics, music and level layouts.
+- What should a full energy bar mean now that the special shot is gone? It still changes colour and chimes.
+- Is the vacuum too strong? Cooldown, limits or an energy cost are still open.
+- Should walls stop bubbles inside a vacuum? A developer switch (`F12`) lets both be compared in play.
+- The CPU partner dashes but uses neither the push bubble nor the vacuum. Should it?
+- Hit zones of the push bubble: most shots hit bubbles at the same height, so most pushes are sideways. Is that fine?

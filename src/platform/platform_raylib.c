@@ -19,6 +19,10 @@
 #ifdef __EMSCRIPTEN__
 #include <emscripten/emscripten.h>
 #endif
+#ifdef BB_REPLAY
+#include <time.h>
+#include "replay/replay.h"
+#endif
 
 #define WINDOW_SCALE   3
 #define TICK_HZ        60
@@ -41,6 +45,7 @@ static int       sound_loaded[SFX_COUNT];
 static Music     music[MUSIC_COUNT];
 static int       music_loaded[MUSIC_COUNT];
 static int       music_playing = MUSIC_NONE;
+static long      ticks_total;   /* game ticks run so far */
 
 /* Temporary tracks (royalty free, see assets/README.md); swap the files here. */
 static const char *const music_files[MUSIC_COUNT] = {
@@ -493,6 +498,11 @@ static void play_sounds(uint32_t mask)
  *   --invincible, --infinite-lives, --hitboxes, --air, --cpu-view, --full-energy   switch those debug switches on
  *   --plus, --rescue, --cpu2   set those options for this run (not saved)
  *   --options         start on the options screen
+ * Recordings (desktop development builds, see README "Recordings"):
+ *   --replay <file>   play a recording instead of the keyboard
+ *   --jump <tick>     with --replay: run fast to that tick, then pause
+ *   --record          record even with --autoplay (normally off for bot runs)
+ *   --no-record       don't record this run
  */
 #define MAX_SHOTS 16
 static int      opt_mute;
@@ -511,6 +521,9 @@ static int      opt_intro;
 static int      opt_ending = -1;
 static int      opt_switch[DBG_COUNT];
 static int      opt_plus, opt_rescue, opt_cpu2, opt_options, opt_set_options;
+static const char *opt_replay;
+static long     opt_jump = -1;
+static int      opt_record = -1;   /* -1: record unless it's a bot run */
 #endif
 
 static void parse_args(int argc, char **argv)
@@ -565,6 +578,14 @@ static void parse_args(int argc, char **argv)
             opt_cpu2 = opt_set_options = 1;
         } else if (strcmp(argv[i], "--options") == 0) {
             opt_options = 1;
+        } else if (strcmp(argv[i], "--replay") == 0 && i + 1 < argc) {
+            opt_replay = argv[++i];
+        } else if (strcmp(argv[i], "--jump") == 0 && i + 1 < argc) {
+            opt_jump = strtol(argv[++i], NULL, 10);
+        } else if (strcmp(argv[i], "--record") == 0) {
+            opt_record = 1;
+        } else if (strcmp(argv[i], "--no-record") == 0) {
+            opt_record = 0;
 #endif
         }
     }
@@ -602,7 +623,8 @@ static void take_shots(RenderTexture2D fb, long t)
  *   F2 invincible   F3 infinite lives   F4 hitboxes   F5 air currents
  *   F6 full energy  F7 pause / frame step (F8 = one frame)   F9 slow motion
  *   F10 spawn the next item or special bubble next to player 1
- *   F1 CPU partner view: predicted danger positions and the chosen action */
+ *   F1 CPU partner view: predicted danger positions and the chosen action
+ *   Backspace: mark the moment in the recording / jump to the next mark (see below) */
 static int dbg_paused;
 static int dbg_step;
 static int dbg_slow;
@@ -611,10 +633,153 @@ static double dbg_message_until;
 static char dbg_message[64];
 static char cpu_action[48];
 
+static void dbg_say(const char *text)
+{
+    snprintf(dbg_message, sizeof dbg_message, "%s", text);
+    dbg_message_until = GetTime() + 2.0;
+}
+
+/* --- Recordings ---------------------------------------------------------------
+ * Every interactive run is recorded to recordings/<date>-<time>.bbr next to
+ * the executable (src/replay). Backspace marks a moment ("that was weird!");
+ * a recording with marks is kept as ...-marked.bbr, of the others only the
+ * newest KEEP_RECORDINGS stay. --replay plays one back: the keyboard does
+ * nothing then, Backspace jumps to the next mark, F7/F8/F9 pause, step and
+ * slow down as usual. */
+#ifdef BB_REPLAY
+#define KEEP_RECORDINGS 20
+#define MARK_LEAD_IN    180   /* a jump to a mark stops 3 s before it */
+
+static ReplayWriter rec;
+static int          recording;
+static char         rec_path[1024];
+static Replay       play;
+static ReplayPlayer player;
+static int          replaying;
+static long         ff_target = -1;      /* run fast up to this tick, then pause */
+static uint16_t     shown_pad[NUM_PLAYERS];
+static int          desync_said;
+
+static const char *recordings_dir(void)
+{
+    return TextFormat("%srecordings", GetApplicationDirectory());
+}
+
+/* Keeps the marked recordings and the newest KEEP_RECORDINGS others. Names
+ * start with the date, so sorting them sorts by age. */
+static int by_name(const void *a, const void *b)
+{
+    return strcmp(*(char *const *)a, *(char *const *)b);
+}
+
+static void prune_recordings(void)
+{
+    FilePathList list = LoadDirectoryFilesEx(recordings_dir(), ".bbr", false);
+    unsigned int i, plain = 0, seen = 0;
+    qsort(list.paths, list.count, sizeof list.paths[0], by_name);
+    for (i = 0; i < list.count; i++) {
+        plain += strstr(list.paths[i], "-marked") == NULL;
+    }
+    for (i = 0; i < list.count && plain - seen > KEEP_RECORDINGS; i++) {
+        if (strstr(list.paths[i], "-marked") == NULL) {
+            remove(list.paths[i]);
+            seen++;
+        }
+    }
+    UnloadDirectoryFiles(list);
+}
+
+static void record_start(const ReplaySetup *s)
+{
+    char stamp[32];
+    time_t now = time(NULL);
+    strftime(stamp, sizeof stamp, "%Y%m%d-%H%M%S", localtime(&now));
+    MakeDirectory(recordings_dir());
+    prune_recordings();
+    snprintf(rec_path, sizeof rec_path, "%s/%s.bbr", recordings_dir(), stamp);
+    recording = replay_write_begin(&rec, rec_path, s) == 0;
+    if (recording) {
+        TraceLog(LOG_INFO, "RECORD: %s", rec_path);
+    } else {
+        TraceLog(LOG_WARNING, "RECORD: cannot write %s", rec_path);
+    }
+}
+
+static void record_stop(void)
+{
+    if (!recording) {
+        return;
+    }
+    replay_write_end(&rec, (uint32_t)ticks_total);
+    recording = 0;
+    if (rec.marks) {
+        char marked[1040];
+        size_t n = strlen(rec_path) - 4;   /* without ".bbr" */
+        snprintf(marked, sizeof marked, "%.*s-marked.bbr", (int)n, rec_path);
+        if (rename(rec_path, marked) == 0) {
+            snprintf(rec_path, sizeof rec_path, "%s", marked);
+        }
+    }
+    TraceLog(LOG_INFO, "RECORD: %ld ticks, %lu mark(s) in %s", ticks_total, (unsigned long)rec.marks, rec_path);
+}
+
+/* A developer action that changes the game: recorded, or refused while a
+ * recording plays (it would make the replay drift apart). */
+static int dbg_action(uint8_t kind, uint16_t a, uint16_t b)
+{
+    if (replaying) {
+        dbg_say("NOT WHILE REPLAYING");
+        return 0;
+    }
+    if (recording) {
+        replay_write_event(&rec, (uint32_t)ticks_total, kind, a, b);
+    }
+    return 1;
+}
+
+/* Backspace: mark this moment, or (replaying) jump to the next mark. */
+static void mark_key(void)
+{
+    uint32_t i;
+    if (!replaying) {
+        if (recording && dbg_action(RE_MARK, 0, 0)) {
+            snprintf(dbg_message, sizeof dbg_message, "MARKED AT TICK %ld", ticks_total);
+            dbg_message_until = GetTime() + 2.0;
+        }
+        return;
+    }
+    for (i = 0; i < play.count; i++) {
+        long t = (long)play.events[i].tick;
+        if (play.events[i].kind == RE_MARK && t - MARK_LEAD_IN > ticks_total) {
+            ff_target = t - MARK_LEAD_IN;
+            snprintf(dbg_message, sizeof dbg_message, "TO THE MARK AT TICK %ld", t);
+            dbg_message_until = GetTime() + 2.0;
+            return;
+        }
+    }
+    dbg_say("NO MORE MARKS");
+}
+#else
+static int dbg_action(uint8_t kind, uint16_t a, uint16_t b)
+{
+    (void)kind; (void)a; (void)b;
+    return 1;
+}
+#define RE_SWITCH 1
+#define RE_SPAWN  2
+#define RE_CLEAR  3
+#endif
+
 static void dbg_toggle(int sw, const char *name)
 {
-    game_debug_set((uint8_t)sw, (uint8_t)!game_debug_get((uint8_t)sw));
-    snprintf(dbg_message, sizeof dbg_message, "%s %s", name, game_debug_get((uint8_t)sw) ? "ON" : "OFF");
+    uint8_t on = (uint8_t)!game_debug_get((uint8_t)sw);
+    /* switches that only show something aren't part of a recording */
+    int shows_only = sw == DBG_CPU_VIEW || sw == DBG_HITBOXES || sw == DBG_AIR;
+    if (!shows_only && !dbg_action(RE_SWITCH, (uint16_t)sw, on)) {
+        return;
+    }
+    game_debug_set((uint8_t)sw, on);
+    snprintf(dbg_message, sizeof dbg_message, "%s %s", name, on ? "ON" : "OFF");
     dbg_message_until = GetTime() + 2.0;
 }
 
@@ -640,7 +805,12 @@ static void debug_keys(void)
         snprintf(dbg_message, sizeof dbg_message, "SLOW MOTION %s", dbg_slow ? "ON" : "OFF");
         dbg_message_until = GetTime() + 2.0;
     }
-    if (IsKeyPressed(KEY_F10)) {
+#ifdef BB_REPLAY
+    if (IsKeyPressed(KEY_BACKSPACE)) {
+        mark_key();
+    }
+#endif
+    if (IsKeyPressed(KEY_F10) && dbg_action(RE_SPAWN, (uint16_t)dbg_spawn, 0)) {
         game_debug_spawn((uint8_t)dbg_spawn);
         snprintf(dbg_message, sizeof dbg_message, "SPAWN %s", game_debug_spawn_name((uint8_t)dbg_spawn));
         dbg_message_until = GetTime() + 2.0;
@@ -708,6 +878,31 @@ static void debug_status(void)
     if (game_debug_get(DBG_CPU_VIEW)) {
         DrawText(cpu_action, 8, 56, 20, (Color){ 255, 120, 120, 255 });
     }
+#ifdef BB_REPLAY
+    if (replaying) {
+        /* what the players pressed: lit = held */
+        static const struct { uint16_t bit; const char *name; } buttons[] = {
+            { PAD_LEFT, "<" }, { PAD_UP, "^" }, { PAD_DOWN, "v" }, { PAD_RIGHT, ">" },
+            { PAD_B, "JUMP" }, { PAD_Y, "BUBBLE" }, { PAD_X, "PUSH" }, { PAD_A, "VACUUM" },
+            { PAD_L, "L" }, { PAD_R, "R" }, { PAD_START, "START" }, { PAD_SELECT, "SELECT" }
+        };
+        int p, b, y = GetScreenHeight() - 30 * NUM_PLAYERS - 34;
+        snprintf(line, sizeof line, "REPLAY %ld / %lu%s", ticks_total, (unsigned long)play.end_tick,
+                 player.desynced ? TextFormat("   DRIFTED APART AT %lu", (unsigned long)player.desync_tick) : "");
+        DrawText(line, 8, y, 20, player.desynced ? RED : SKYBLUE);
+        for (p = 0; p < NUM_PLAYERS; p++) {
+            int x = 8;
+            y += 30;
+            DrawText(TextFormat("P%d", p + 1), x, y, 20, GRAY);
+            x += 40;
+            for (b = 0; b < (int)(sizeof buttons / sizeof buttons[0]); b++) {
+                int held = (shown_pad[p] & buttons[b].bit) != 0;
+                DrawText(buttons[b].name, x, y, 20, held ? YELLOW : (Color){ 70, 70, 70, 255 });
+                x += MeasureText(buttons[b].name, 20) + 12;
+            }
+        }
+    }
+#endif
 }
 #endif /* BB_DEBUG */
 
@@ -805,40 +1000,150 @@ static void crt_load(void)
 /* --- Main ----------------------------------------------------------------- */
 static RenderTexture2D fb;
 static double accumulator;
-static long   ticks_total;
 static int    game_started;
 
 static void start_game(void)
 {
     sram_load();
+#ifdef BB_REPLAY
+    if (opt_replay) {
+        char err[256];
+        if (replay_load(opt_replay, &play, err, sizeof err) != 0) {
+            TraceLog(LOG_ERROR, "REPLAY: %s", err);
+            exit(1);
+        }
+        if (strcmp(play.setup.version, GAME_VERSION) != 0) {
+            TraceLog(LOG_WARNING, "REPLAY: recorded with %s, this is %s; it may drift apart",
+                     play.setup.version, GAME_VERSION);
+        }
+        replay_play_begin(&player, &play);
+        replaying = 1;
+        if (opt_jump > 0) {
+            ff_target = opt_jump;
+        }
+        {
+            uint32_t i;
+            for (i = 0; i < play.count; i++) {
+                if (play.events[i].kind == RE_MARK) {
+                    TraceLog(LOG_INFO, "REPLAY: mark at tick %lu", (unsigned long)play.events[i].tick);
+                }
+            }
+        }
+        TraceLog(LOG_INFO, "REPLAY: %s, %lu ticks", opt_replay, (unsigned long)play.end_tick);
+        game_started = 1;
+        return;
+    }
+#endif
 #ifdef BB_DEBUG
     if (opt_seed >= 0) {
         SetRandomSeed((unsigned int)opt_seed);
     }
-    game_init((uint16_t)(opt_seed >= 0 ? opt_seed : GetRandomValue(1, 0xFFFF)));
-    game_debug_start_round((uint8_t)(opt_round > 0 && opt_round < 256 ? opt_round : 1));
-    /* bot runs and direct round starts go straight into the game */
-    game_debug_skip_story((uint8_t)(!opt_intro && (opt_autoplay || opt_round != 1 || opt_skip_intro)));
     {
+        uint16_t seed = (uint16_t)(opt_seed >= 0 ? opt_seed : GetRandomValue(1, 0xFFFF));
+        uint8_t round = (uint8_t)(opt_round > 0 && opt_round < 256 ? opt_round : 1);
+        /* bot runs and direct round starts go straight into the game */
+        uint8_t skip = (uint8_t)(!opt_intro && (opt_autoplay || opt_round != 1 || opt_skip_intro));
         int k;
+#ifdef BB_REPLAY
+        /* the start written down, then made from what was written: a
+         * recording starts exactly like the run it recorded */
+        ReplaySetup s;
+        memset(&s, 0, sizeof s);
+        snprintf(s.version, sizeof s.version, "%s", GAME_VERSION);
+        s.seed = seed;
+        memcpy(s.sram, game_sram(), SRAM_SIZE);
+        s.round = round;
+        s.skip_story = skip;
+        s.set_options = (uint8_t)opt_set_options;
+        s.plus = (uint8_t)opt_plus;
+        s.rescue = (uint8_t)opt_rescue;
+        s.cpu2 = (uint8_t)opt_cpu2;
+        s.open_options = (uint8_t)opt_options;
+        s.ending = (int8_t)opt_ending;
+        for (k = 0; k < DBG_COUNT; k++) {
+            s.switches[k] = (uint8_t)opt_switch[k];
+        }
+        replay_apply_setup(&s);
+        if (opt_record == 1 || (opt_record < 0 && !opt_autoplay)) {
+            record_start(&s);
+        }
+#else
+        game_init(seed);
+        game_debug_start_round(round);
+        game_debug_skip_story(skip);
         for (k = 0; k < DBG_COUNT; k++) {
             game_debug_set((uint8_t)k, (uint8_t)opt_switch[k]);
         }
-    }
-    if (opt_set_options) {
-        game_debug_options((uint8_t)opt_plus, (uint8_t)opt_rescue, (uint8_t)opt_cpu2);
-    }
-    if (opt_options) {
-        game_debug_open_options();
-    }
-    if (opt_ending >= 0) {
-        game_debug_show_ending((uint8_t)opt_ending);
+        if (opt_set_options) {
+            game_debug_options((uint8_t)opt_plus, (uint8_t)opt_rescue, (uint8_t)opt_cpu2);
+        }
+        if (opt_options) {
+            game_debug_open_options();
+        }
+        if (opt_ending >= 0) {
+            game_debug_show_ending((uint8_t)opt_ending);
+        }
+#endif
     }
 #else
     game_init((uint16_t)GetRandomValue(1, 0xFFFF));
 #endif
     game_started = 1;
     TraceLog(LOG_INFO, "GAME: started");
+}
+
+/* One game tick with this frame's input. Returns the sounds it asked for. */
+static uint32_t game_step(void)
+{
+    uint16_t pad[NUM_PLAYERS];
+#ifdef BB_REPLAY
+    if (replaying) {
+        if (ticks_total >= (long)play.end_tick) {
+            dbg_paused = opt_quit < 0;
+            dbg_say("END OF THE RECORDING");
+            return 0;
+        }
+        replay_before_tick(&player, (uint32_t)ticks_total, pad);
+        if (player.marked && opt_quit < 0) {   /* scripted runs (--quit) never pause */
+            dbg_paused = 1;
+            snprintf(dbg_message, sizeof dbg_message, "MARK AT TICK %ld (F7 = go on)", ticks_total);
+            dbg_message_until = GetTime() + 4.0;
+        }
+        shown_pad[0] = pad[0];
+        shown_pad[1] = pad[1];
+        game_tick(pad);
+        if (replay_after_tick(&player, (uint32_t)ticks_total) && !desync_said) {
+            desync_said = 1;
+            TraceLog(LOG_WARNING, "REPLAY: drifted apart at tick %ld (the game changed since the recording)", ticks_total);
+        }
+        ticks_total++;
+        return game_sfx();   /* the save RAM stays as it is */
+    }
+#endif
+    pad[0] = (uint16_t)(read_keyboard(0) | read_gamepad(0));
+    pad[1] = (uint16_t)(read_keyboard(1) | read_gamepad(1));
+#ifdef BB_DEBUG
+    if (opt_autoplay) {
+        pad[0] = (uint16_t)(pad[0] | autoplay_pad(ticks_total, 0));
+    }
+    if (opt_autoplay2) {
+        pad[1] = (uint16_t)(pad[1] | autoplay_pad(ticks_total + 60, 1));
+    }
+    if (ticks_total == opt_clear && dbg_action(RE_CLEAR, 0, 0)) {
+        game_debug_clear_round();
+    }
+#endif
+    game_tick(pad);
+#ifdef BB_REPLAY
+    if (recording) {
+        replay_write_tick(&rec, (uint32_t)ticks_total, pad);
+    }
+#endif
+    if (game_sram_dirty()) {
+        sram_save();
+    }
+    ticks_total++;
+    return game_sfx();
 }
 
 /* One rendered frame: 0..MAX_CATCHUP game ticks, then the picture.
@@ -883,29 +1188,27 @@ static int frame(void)
         dbg_step = 0;
     }
 #endif
-    while (accumulator >= tick && ticks < MAX_CATCHUP) {
-        uint16_t pad[NUM_PLAYERS];
-        pad[0] = (uint16_t)(read_keyboard(0) | read_gamepad(0));
-        pad[1] = (uint16_t)(read_keyboard(1) | read_gamepad(1));
-#ifdef BB_DEBUG
-        if (opt_autoplay) {
-            pad[0] = (uint16_t)(pad[0] | autoplay_pad(ticks_total, 0));
+#ifdef BB_REPLAY
+    if (replaying && ff_target > ticks_total) {
+        /* jumping: run without pictures or sound, a limited number per frame */
+        long n = 0;
+        while (ticks_total < ff_target && ticks_total < (long)play.end_tick && n++ < 20000) {
+            game_step();
         }
-        if (opt_autoplay2) {
-            pad[1] = (uint16_t)(pad[1] | autoplay_pad(ticks_total + 60, 1));
+        if (ticks_total >= ff_target || ticks_total >= (long)play.end_tick) {
+            ff_target = -1;
+            if (opt_quit < 0) {
+                dbg_paused = 1;
+                dbg_say("PAUSED (F7 = go on, F8 = next frame)");
+            }
         }
-        if (ticks_total == opt_clear) {
-            game_debug_clear_round();
-        }
+        accumulator = 0.0;
+    }
 #endif
-        game_tick(pad);
-        play_sounds(game_sfx());
-        if (game_sram_dirty()) {
-            sram_save();
-        }
+    while (accumulator >= tick && ticks < MAX_CATCHUP) {
+        play_sounds(game_step());
         accumulator -= tick;
         ticks++;
-        ticks_total++;
     }
     if (ticks == MAX_CATCHUP) {
         accumulator = 0.0;   /* drop time after a long stall */
@@ -930,6 +1233,11 @@ static int frame(void)
     if (opt_quit >= 0 && ticks_total >= opt_quit) {
         return 0;
     }
+#ifdef BB_REPLAY
+    if (opt_quit >= 0 && replaying && ticks_total >= (long)play.end_tick) {
+        return 0;   /* a scripted replay ends with the recording */
+    }
+#endif
 #endif
 
     /* Integer-scale and center in the window. */
@@ -1012,6 +1320,10 @@ int main(int argc, char **argv)
     }
 
     TraceLog(LOG_INFO, "GAME: %ld ticks, %.1f s", ticks_total, GetTime());
+#ifdef BB_REPLAY
+    record_stop();
+    replay_free(&play);
+#endif
     unload_assets();
     if (crt_ready) {
         UnloadShader(crt_shader);

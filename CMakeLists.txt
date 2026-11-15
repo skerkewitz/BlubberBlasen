@@ -59,9 +59,26 @@ else()
     target_compile_options(game PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
+# --- Recordings (src/replay): development builds only, host code ------------------
+if(BB_DEBUG_SWITCHES)
+    add_library(replay STATIC src/replay/replay.c)
+    target_link_libraries(replay PUBLIC game)
+    if(MSVC)
+        target_compile_definitions(replay PUBLIC _CRT_SECURE_NO_WARNINGS)
+        target_compile_options(replay PRIVATE /W4)
+    else()
+        target_compile_options(replay PRIVATE -Wall -Wextra -Wpedantic)
+    endif()
+endif()
+
 # --- Platform layer + executable --------------------------------------------
 add_executable(blubberblasen src/platform/platform_raylib.c)
 target_link_libraries(blubberblasen PRIVATE game raylib)
+if(BB_DEBUG_SWITCHES AND NOT EMSCRIPTEN)
+    # recording every run, --replay (see README, "Recordings")
+    target_link_libraries(blubberblasen PRIVATE replay)
+    target_compile_definitions(blubberblasen PRIVATE BB_REPLAY=1)
+endif()
 if(EMSCRIPTEN)
     # Web: a page with the game, the assets packed into blubberblasen.data at /assets.
     # Level sources are compiled in, so they stay out; so does the unused ambient track.
@@ -105,6 +122,17 @@ if(BB_DEBUG_SWITCHES)
     add_executable(test_game tests/test_game.c)
     target_link_libraries(test_game PRIVATE game)
     add_test(NAME game COMMAND test_game)
+
+    add_executable(test_replay tests/test_replay.c)
+    target_link_libraries(test_replay PRIVATE replay)
+    add_test(NAME replay COMMAND test_replay)
+    # Stored recordings must still play the same game. One fails after a
+    # change to the game's rules: record it again (see README, "Recordings").
+    file(GLOB BB_REPLAYS CONFIGURE_DEPENDS ${PROJECT_SOURCE_DIR}/tests/replays/*.bbr)
+    foreach(rec ${BB_REPLAYS})
+        get_filename_component(rec_name ${rec} NAME_WE)
+        add_test(NAME replay_${rec_name} COMMAND test_replay ${rec})
+    endforeach()
 endif()
 
 # map2c must reject broken settings files, for the right reason: the tests

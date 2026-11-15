@@ -17,6 +17,7 @@ Thumbs.db
 # Runtime files
 *.sav
 shot_*.png
+recordings/
 
 # Local MAME install + ROMs (reference only, never distributed)
 original/

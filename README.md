@@ -58,10 +58,11 @@ BlubberBlasen/
 │   │   ├── hiscore.c text.c
 │   │   ├── fixed.h          #   8.8 fixed-point helpers
 │   │   └── level_data.h     #   level format shared with tools/map2c
-│   └── platform/            # platform_raylib.c: window, input, rendering, audio, 60 Hz tick
+│   ├── platform/            # platform_raylib.c: window, input, rendering, audio, 60 Hz tick
+│   └── replay/              # recordings of games (development builds, PC only; uses stdio and malloc)
 ├── assets/                  # Graphics, sound and level files (see assets/README.md)
 ├── tools/                   # Host tools: map2c (levels -> const C arrays), mapview (room previews); see tools/README.md
-└── tests/                   # Headless tests of the game library
+└── tests/                   # Headless tests of the game library; replays/: stored recordings
 ```
 
 Level data is generated at build time: CMake builds `map2c`, runs it over `assets/levels/*.map` and compiles the result (`build/generated/level_data.c`) into the game library.
@@ -146,6 +147,8 @@ ctest --test-dir build -C Debug --output-on-failure
 
 `tests/test_game.c` runs the game library without a window: score arithmetic, level data checks, a determinism check (same seed and input must give the same frames), a random bot that plays 30 minutes of game time, unit tests for the mechanics, and a soak test in which the CPU partner plays both players for 30 minutes in each mode (it must clear at least 12 rounds with at most 100 lost lives; the output lists the causes of death). `BB_TRACE=600` prints the game state every 600 frames; `BB_DEATHS=1` prints the circumstances of the first CPU deaths in the soak test.
 
+`tests/test_replay.c` records a game, plays the recording back and checks that it gives the same game, and that a changed input or seed is noticed. It also plays every recording in `tests/replays/` (one test each, `replay_<name>`); see *Recordings*.
+
 ### Developer options
 
 ```bash
@@ -167,6 +170,9 @@ blubberblasen --autoplay --seed 7 --shot 300 --shot 900 --quit 1000
 | `--invincible`, `--infinite-lives`, `--hitboxes`, `--air`, `--cpu-view`, `--full-energy` | Switch on those debug switches |
 | `--plus`, `--rescue`, `--cpu2` | Set those options for this run (not saved) |
 | `--options` | Start on the options screen |
+| `--replay <file>` | Play a recording instead of the keyboard (see *Recordings*) |
+| `--jump <tick>` | With `--replay`: run fast to that tick, then pause |
+| `--record`, `--no-record` | Record a bot run too (normally only runs without `--autoplay` are recorded) / don't record this run |
 
 All developer options and debug switches exist only in builds with the CMake option `BB_DEBUG_SWITCHES` (on by default). Public builds configure with `-DBB_DEBUG_SWITCHES=OFF` and contain none of it; the tests need it on.
 
@@ -184,8 +190,20 @@ All developer options and debug switches exist only in builds with the CMake opt
 | `F9` | Slow motion (quarter speed) |
 | `F10` | Spawn the next item or special bubble in front of player 1 |
 | `F12` | Vacuum walls: walls stop bubbles inside a vacuum (to compare with the default pass-through) |
+| `Backspace` | Mark this moment in the recording ("that was weird!"); while replaying: jump to 3 s before the next mark |
 | `--shot <tick>` | Save the framebuffer as `shot_<tick>.png` in the working directory (repeatable) |
 | `--quit <tick>` | Exit after that many game ticks |
+
+### Recordings
+
+The game is deterministic: the same start and the same buttons give the same game. Development builds on the PC use this to record every run, so a bug that has just happened can be watched again, frame by frame.
+
+- Each run writes `recordings/<date>-<time>.bbr` next to the executable. The file holds the start (game version, seed, save RAM, developer options) and then only the buttons of both players when they change, the debug keys that change the game (`F2`, `F3`, `F6`, `F10`, `F12`), and every second a checksum of the picture. That is a few kilobytes per minute, and the file is plain text.
+- Saw something odd? Press `Backspace`. The moment is marked, and the recording is kept as `...-marked.bbr`. Of the unmarked recordings only the newest 20 are kept.
+- `blubberblasen --replay recordings/<file>.bbr` plays it back. The keyboard does nothing then; the window shows the tick and the buttons each player is holding. The game pauses 3 s before and at each mark (`Backspace` jumps to the next one); `F7`, `F8` and `F9` pause, step and slow down as usual, and the switches that only show something (`F1`, `F4`, `F5`) work too. `--jump <tick>` runs fast to a tick first.
+- A recording only fits the game it was made with. After a change to the rules (a speed, a timer, a new mechanic) an old recording drifts apart: the checksums stop matching, and the replay says at which tick. Bug recordings are short-lived anyway. The recordings in `tests/replays/` are tests: when one fails after an intended change, record it again (`--autoplay --record --plus --seed 42 --quit 3000` made `plus_bot_seed42.bbr`) and copy it over, or delete it.
+
+Recordings exist only in development builds (`BB_DEBUG_SWITCHES`) and not in the web build.
 
 ### Minimal `CMakeLists.txt`
 
@@ -287,7 +305,8 @@ grep -rnE 'raylib\.h|\bfloat\b|\bdouble\b|\b(malloc|calloc|realloc|free)\s*\(' s
 
 - ADR-0001: Stage 1 prototype in C99 with raylib behind a thin platform layer (not written yet)
 - ADR-0002: Old-school game loop and data layout, structured like the later SNES version (not written yet)
-- Game Design Guide (arcade mechanics reference for the first playable version)
+- [Game Design Guide](docs/Blubber%20Blasen%20–%20Game%20Design%20Guide.md): the game we are building, Plus and Classic mode, and where it differs from the original
+- [Bubble Bobble (Arcade) – Game Design Reference Guide](docs/Bubble%20Bobble%20(Arcade)%20–%20Game%20Design%20Reference%20Guide.md): how the arcade original works, as reference
 - [Story](docs/story.md): the Blubber Factory, heroes, floors, secret rooms, boss and endings
 
 Project language is **English**: code, comments, commit messages, issues and documentation.
