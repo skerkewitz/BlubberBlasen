@@ -15,7 +15,7 @@ halves, so that real 65816 measurements steer the second half instead of arrivin
 | Step | Goal | Status |
 |---|---|---|
 | 1 | Playable prototype on PC (C99 + raylib) | Done |
-| 2a | Data and limits shaped like the SNES | Next |
+| 2a | Data and limits shaped like the SNES | In progress: debug view done |
 | 3-spike | Game code compiled for the 65816 and measured | Planned |
 | 2b | Fix what the spike found, finish the pseudo SNES layer | Planned |
 | 3-POC | One complete room group running on SNES | Planned |
@@ -28,8 +28,8 @@ can hold. Both need the same groundwork. How the layer is built is decided in AD
 
 What, in this order:
 
-- The Dear ImGui debug view (ADR-0005, point 7): one window with docked panels, desktop debug
-  builds only. It comes first because it helps in stage 1 already and makes the rest of this step
+- Done: the Dear ImGui debug view (ADR-0005, point 7): one window with docked panels, desktop
+  debug builds only (README, *Debug view*). It comes first because it helps in stage 1 already and makes the rest of this step
   easier to check.
 - The platform split into a frontend with SNES-shaped memory and a PVSnesLib-like API, and a
   raylib backend: VRAM (64 KB), CGRAM (256 colours), OAM (128 sprites).

@@ -72,10 +72,15 @@ static uint16_t prev_bx, prev_by;
 static uint16_t predicted_frame = 0xFFFFu;
 #ifdef BB_DEBUG
 static uint8_t  view_action;      /* for the debug view */
+static uint8_t  view_goal;
 #define VIEW_ACTION(a) (view_action = (uint8_t)(a))
+#define VIEW_GOAL(g) (view_goal = (uint8_t)(g))
 #else
 #define VIEW_ACTION(a) ((void)0)
+#define VIEW_GOAL(g) ((void)0)
 #endif
+/* The goals of the priority list (header comment), for the debug view. */
+enum { GOAL_NONE, GOAL_RESCUE, GOAL_POP, GOAL_HUNT, GOAL_LETTER, GOAL_FOOD, GOAL_FOLLOW };
 
 static struct {
     uint16_t pad;           /* buttons held until the next decision */
@@ -357,17 +362,20 @@ static uint16_t decide(Player *p)
     const Item *f;
     /* 1. free the partner */
     if (o->state == PS_RESCUE) {
+        VIEW_GOAL(GOAL_RESCUE);
         return move_to(p, o->x, o->y);
     }
     /* 2. danger: handled every frame in cpu_pad (look-ahead) */
     /* 3. pop trapped enemies */
     b = bubble_to_pop(p);
     if (b) {
+        VIEW_GOAL(GOAL_POP);
         return move_to(p, b->x, b->y);
     }
     /* 4. hunt */
     e = nearest_enemy(p);
     if (e) {
+        VIEW_GOAL(GOAL_HUNT);
         int16_t ex = PX(e->x), mx = PX(p->x);
         if (dist16(PX(e->y), PX(p->y)) < 12) {
             /* same level: approach only to bubble range; facing it, shoot
@@ -390,19 +398,23 @@ static uint16_t decide(Player *p)
     /* 5. a letter it still needs */
     b = letter_to_take(p);
     if (b) {
+        VIEW_GOAL(GOAL_LETTER);
         return move_to(p, b->x, b->y);
     }
     /* 6. food, but leave it for a human partner */
     if (o->state == PS_OFF || o->cpu) {
         f = food_to_take(p);
         if (f) {
+            VIEW_GOAL(GOAL_FOOD);
             return move_to(p, f->x, f->y);
         }
     }
     /* 7. stay near the human */
     if (o->state == PS_ALIVE && dist16(PX(o->x), PX(p->x)) + dist16(PX(o->y), PX(p->y)) > FOLLOW_DIST) {
+        VIEW_GOAL(GOAL_FOLLOW);
         return move_to(p, o->x, o->y);
     }
+    VIEW_GOAL(GOAL_NONE);
     return 0;
 }
 
@@ -649,6 +661,12 @@ uint8_t game_debug_cpu_view(DebugBox *out, uint8_t max, const char **action)
     }
     *action = act_name[view_action];
     return n;
+}
+
+const char *game_debug_cpu_goal(void)
+{
+    static const char *const names[] = { "NOTHING", "FREE PARTNER", "POP TRAPPED", "HUNT", "LETTER", "FOOD", "FOLLOW" };
+    return names[view_goal];
 }
 #endif
 

@@ -34,7 +34,8 @@ Some notes:
 - Runs with `--autoplay` are not recorded unless you add `--record`. `--no-record` switches recording
   off for one run.
 - The debug keys that change the game (F2, F3, F6, F10, F12) are recorded too, so a replay
-  stays correct even if you used them.
+  stays correct even if you used them. So are the same actions in the debug view, and its
+  "Go to round" button.
 - A file is a few kilobytes per minute and plain text, so it can be attached to a bug report or sent
   to someone else.
 
@@ -151,6 +152,7 @@ These work in every development build, while playing and (where noted above) whi
 | `F12` | Vacuum walls: walls stop bubbles inside a vacuum (Plus mode, to compare) |
 | `Backspace` | Mark this moment in the recording; while replaying: jump to the next mark |
 | `Tab` | Retro TV filter on / off (all builds) |
+| `` ` `` (`^` on a German keyboard) | Debug view on / off (opening it pauses the game): the game in a panel, with panels for the switches, the round, all objects and the CPU partner (desktop only; see the README, *Debug view*) |
 
 The top left of the window lists the switches that are on (`DEBUG INV LIVES BOXES ...`), and each key
 shows a short message under it.
@@ -177,6 +179,8 @@ Pass them to `rungame.sh`, `rungame.bat` or `replay.sh`.
 | `--shot <tick>` | Save the picture as `shot_<tick>.png` (repeatable) |
 | `--shot-crt <n>` | Also save each shot through the retro TV filter at n x scale, as `shot_<tick>_crt.png` |
 | `--quit <tick>` | Quit after that many ticks |
+| `--debug-ui` | Start with the debug view |
+| `--ui-shot <tick>` | With the debug view: save the whole window as `ui_shot.png` at that tick |
 | `--mute` | No sound |
 | `--no-crt` | Start without the retro TV filter |
 

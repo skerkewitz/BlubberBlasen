@@ -17,6 +17,7 @@
  *   125 pad 8000 0000
  *   300 switch invincible 0
  *   812 spawn 3
+ *   850 round 12              (debug view: went to round 12)
  *   900 mark
  *   end 5400
  *
@@ -169,6 +170,9 @@ void replay_write_event(ReplayWriter *w, uint32_t tick, uint8_t kind, uint16_t a
         break;
     case RE_CLEAR:
         fprintf(w->f, "%lu clear\n", (unsigned long)tick);
+        break;
+    case RE_ROUND:
+        fprintf(w->f, "%lu round %u\n", (unsigned long)tick, (unsigned)a);
         break;
     case RE_MARK:
         fprintf(w->f, "%lu mark\n", (unsigned long)tick);
@@ -340,6 +344,9 @@ int replay_load(const char *path, Replay *r, char *err, size_t err_size)
                 e.a = (uint16_t)a;
             } else if (strcmp(word, "clear") == 0) {
                 e.kind = RE_CLEAR;
+            } else if (strcmp(word, "round") == 0 && sscanf(line, "%*u round %lu", &a) == 1) {
+                e.kind = RE_ROUND;
+                e.a = (uint16_t)a;
             } else if (strcmp(word, "mark") == 0) {
                 e.kind = RE_MARK;
             } else if (strcmp(word, "check") == 0 && sscanf(line, "%*u check %lx", &a) == 1) {
@@ -392,6 +399,7 @@ void replay_before_tick(ReplayPlayer *p, uint32_t tick, uint16_t pad[NUM_PLAYERS
         case RE_SWITCH: game_debug_set((uint8_t)e->a, (uint8_t)e->b); break;
         case RE_SPAWN:  game_debug_spawn((uint8_t)e->a); break;
         case RE_CLEAR:  game_debug_clear_round(); break;
+        case RE_ROUND:  (void)game_debug_goto_round((uint8_t)e->a); break;
         case RE_MARK:   p->marked = 1; break;
         default: break;
         }

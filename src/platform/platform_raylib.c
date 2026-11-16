@@ -23,6 +23,9 @@
 #include <time.h>
 #include "replay/replay.h"
 #endif
+#ifdef BB_DEBUG_UI
+#include "platform/debug_ui.h"
+#endif
 
 #define WINDOW_SCALE   3
 #define TICK_HZ        60
@@ -559,6 +562,10 @@ static const char *opt_replay;
 static long     opt_jump = -1;
 static int      opt_record = -1;   /* -1: record unless it's a bot run */
 #endif
+#ifdef BB_DEBUG_UI
+static int      opt_debug_ui;      /* --debug-ui: start with the debug view */
+static long     opt_ui_shot = -1;  /* --ui-shot <tick>: save the whole window (debug view) as ui_shot.png */
+#endif
 
 static void parse_args(int argc, char **argv)
 {
@@ -622,6 +629,12 @@ static void parse_args(int argc, char **argv)
             opt_record = 1;
         } else if (strcmp(argv[i], "--no-record") == 0) {
             opt_record = 0;
+#endif
+#ifdef BB_DEBUG_UI
+        } else if (strcmp(argv[i], "--debug-ui") == 0) {
+            opt_debug_ui = 1;
+        } else if (strcmp(argv[i], "--ui-shot") == 0 && i + 1 < argc) {
+            opt_ui_shot = strtol(argv[++i], NULL, 10);
 #endif
         }
     }
@@ -977,6 +990,114 @@ static void debug_status(void)
     }
 #endif
 }
+
+#ifdef BB_DEBUG_UI
+/* --- Debug view (debug_ui.cpp) ------------------------------------------------
+ * The ` key (^ on a German keyboard) switches it on and off; opening it
+ * pauses the game. --debug-ui starts with it (without pausing, so that
+ * scripted runs go on).
+ * Its panels change the game only through these functions, which record
+ * like the F-keys do. */
+static int debug_ui_on;
+static int debug_ui_ready;
+
+static void debug_ui_set(int on)
+{
+    if (on && !debug_ui_ready) {
+        debug_ui_init();
+        debug_ui_ready = 1;
+    }
+    if (on && (GetScreenWidth() < 1280 || GetScreenHeight() < 800)) {
+        MaximizeWindow();   /* room for the panels next to the game */
+    }
+    debug_ui_on = on;
+}
+
+void host_state(DebugHost *out)
+{
+    out->paused = dbg_paused;
+    out->slow = dbg_slow;
+    out->tick = ticks_total;
+    out->replaying = out->recording = out->drifted = 0;
+    out->end_tick = 0;
+#ifdef BB_REPLAY
+    out->replaying = replaying;
+    out->recording = recording;
+    out->end_tick = replaying ? (long)play.end_tick : 0;
+    out->drifted = replaying && player.desynced;
+#endif
+    out->message = GetTime() < dbg_message_until ? dbg_message : "";
+}
+
+void host_set_paused(int on)
+{
+    dbg_paused = on;
+}
+
+void host_step(void)
+{
+    dbg_step = 1;
+}
+
+void host_set_slow(int on)
+{
+    dbg_slow = on;
+}
+
+void host_toggle_switch(int sw)
+{
+    dbg_toggle(sw, "SWITCH");
+}
+
+void host_spawn(int what)
+{
+    if (dbg_action(RE_SPAWN, (uint16_t)what, 0)) {
+        game_debug_spawn((uint8_t)what);
+        snprintf(dbg_message, sizeof dbg_message, "SPAWN %s", game_debug_spawn_name((uint8_t)what));
+        dbg_message_until = GetTime() + 2.0;
+    }
+}
+
+void host_clear_round(void)
+{
+    if (dbg_action(RE_CLEAR, 0, 0)) {
+        game_debug_clear_round();
+        dbg_say("ROUND CLEARED");
+    }
+}
+
+void host_goto_round(int round)
+{
+#ifdef BB_REPLAY
+    if (replaying) {
+        dbg_say("NOT WHILE REPLAYING");
+        return;
+    }
+#endif
+    if (!game_debug_goto_round((uint8_t)round)) {
+        dbg_say("ONLY WHILE A ROUND IS BEING PLAYED");
+        return;
+    }
+#ifdef BB_REPLAY
+    /* recorded after it happened, at the same tick: the replay applies it
+     * before this tick's game_tick, just as here */
+    if (recording) {
+        replay_write_event(&rec, (uint32_t)ticks_total, RE_ROUND, (uint16_t)round, 0);
+    }
+#endif
+    snprintf(dbg_message, sizeof dbg_message, "GO TO ROUND %d", round);
+    dbg_message_until = GetTime() + 2.0;
+}
+
+void host_mark(void)
+{
+#ifdef BB_REPLAY
+    mark_key();
+#else
+    dbg_say("NOT RECORDING");
+#endif
+}
+#endif /* BB_DEBUG_UI */
 #endif /* BB_DEBUG */
 
 /* --- Retro TV look ------------------------------------------------------------
@@ -1446,6 +1567,13 @@ static uint32_t game_step(void)
 #endif
     pad[0] = (uint16_t)(read_keyboard(0) | read_gamepad(0));
     pad[1] = (uint16_t)(read_keyboard(1) | read_gamepad(1));
+#ifdef BB_DEBUG_UI
+    if (debug_ui_on && debug_ui_wants_keyboard()) {
+        /* typing into a debug field: the keys are not the game's */
+        pad[0] = (uint16_t)read_gamepad(0);
+        pad[1] = (uint16_t)read_gamepad(1);
+    }
+#endif
 #ifdef BB_DEBUG
     if (opt_autoplay) {
         pad[0] = (uint16_t)(pad[0] | autoplay_pad(ticks_total, 0));
@@ -1499,6 +1627,14 @@ static int frame(void)
     if (IsKeyPressed(KEY_TAB)) {
         crt_on = !crt_on;
     }
+#ifdef BB_DEBUG_UI
+    if (IsKeyPressed(KEY_GRAVE)) {
+        debug_ui_set(!debug_ui_on);
+        if (debug_ui_on) {
+            dbg_paused = 1;   /* opened to look at something: hold the moment */
+        }
+    }
+#endif
 
     /* Fixed 60 Hz game tick, independent of monitor refresh rate. */
     accumulator += GetFrameTime();
@@ -1566,6 +1702,29 @@ static int frame(void)
 #endif
 #endif
 
+#ifdef BB_DEBUG_UI
+    if (debug_ui_on) {
+        BeginDrawing();
+        ClearBackground((Color){ 30, 30, 34, 255 });
+        debug_ui_draw(fb.texture);
+        if (opt_ui_shot >= 0 && ticks_total >= opt_ui_shot) {
+            /* Read before the buffers swap. Not TakeScreenshot: on a scaled
+             * display it multiplies the size by the scale and reads past
+             * the picture. */
+            Image shot = { 0 };
+            shot.data = rlReadScreenPixels(GetRenderWidth(), GetRenderHeight());
+            shot.width = GetRenderWidth();
+            shot.height = GetRenderHeight();
+            shot.mipmaps = 1;
+            shot.format = PIXELFORMAT_UNCOMPRESSED_R8G8B8A8;
+            ExportImage(shot, "ui_shot.png");
+            UnloadImage(shot);
+            opt_ui_shot = -1;
+        }
+        EndDrawing();
+        return 1;
+    }
+#endif
     /* Integer-scale and center in the window. */
     {
         int sw = GetScreenWidth() / SCREEN_W;
@@ -1629,6 +1788,11 @@ int main(int argc, char **argv)
         start_audio();
     }
 #endif
+#ifdef BB_DEBUG_UI
+    if (opt_debug_ui) {
+        debug_ui_set(1);
+    }
+#endif
 
 #ifdef __EMSCRIPTEN__
     save_mount();
@@ -1648,6 +1812,11 @@ int main(int argc, char **argv)
 #ifdef BB_REPLAY
     record_stop();
     replay_free(&play);
+#endif
+#ifdef BB_DEBUG_UI
+    if (debug_ui_ready) {
+        debug_ui_shutdown();
+    }
 #endif
     unload_assets();
     crt_unload();

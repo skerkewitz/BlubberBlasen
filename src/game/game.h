@@ -186,6 +186,51 @@ uint8_t         game_debug_cpu_view(DebugBox *out, uint8_t max, const char **act
 /* Why players lost lives: 0..7 enemy body by type, 8 shot, 9 chaser, 10 boss, 11 rescue bubble ran out. */
 #define DEBUG_DEATH_CAUSES 12
 const uint16_t *game_debug_death_causes(void);
+/* The goal the CPU partner chose last (priority list in cpu.c), as a name. */
+const char     *game_debug_cpu_goal(void);
+/* Ends the room now and scrolls to that round (1-based), keeping scores and
+ * lives. Only while a round is being played; returns 1 if it did. */
+uint8_t         game_debug_goto_round(uint8_t round);
+
+/* Read-only views for the debug panels (platform debug view). */
+enum { DOBJ_PLAYER, DOBJ_ENEMY, DOBJ_BUBBLE, DOBJ_ITEM, DOBJ_KINDS };
+#define DOBJ_ANGRY       0x01u
+#define DOBJ_TRAPPED     0x02u
+#define DOBJ_ON_GROUND   0x04u
+#define DOBJ_FACING_LEFT 0x08u
+#define DOBJ_CPU         0x10u
+#define DOBJ_STUNNED     0x20u
+#define DOBJ_ENTERING    0x40u   /* enemy walking in, or waiting to (spawn delay) */
+
+typedef struct {
+    uint8_t  kind;      /* DOBJ_* */
+    uint8_t  slot;      /* index in its table */
+    uint8_t  type;      /* enemy type, bubble kind, item kind; players: lives */
+    uint8_t  state;     /* player or bubble state; enemies, items: 0 */
+    uint16_t x, y;      /* 8.8, sprite top-left */
+    int16_t  vx, vy;    /* 8.8 */
+    uint16_t timer;     /* bubble age, item timer, player invulnerability, enemy throw timer */
+    uint8_t  flags;     /* DOBJ_ANGRY ... */
+} DebugObject;
+
+typedef struct {
+    const char *state;      /* name of the game state */
+    uint8_t  round;         /* 1-based */
+    uint16_t round_frames;  /* frames since the round started */
+    uint16_t frame;
+    uint8_t  hurry;
+    uint16_t freeze;        /* Steam Whistle frames left */
+    uint8_t  lives[NUM_PLAYERS];
+    uint8_t  letters[NUM_PLAYERS];   /* BLASEN bits */
+    uint8_t  score[NUM_PLAYERS][8];  /* decimal digits */
+    uint8_t  plus;          /* Plus mode */
+} DebugStatus;
+
+uint8_t         game_debug_objects(DebugObject *out, uint8_t max);   /* returns the count */
+void            game_debug_status(DebugStatus *out);
+/* Names for the numbers in DebugObject: type and state of an object of this kind. */
+const char     *game_debug_type_name(uint8_t kind, uint8_t type);
+const char     *game_debug_state_name(uint8_t kind, uint8_t state);
 #endif
 
 #endif /* BB_GAME_H */

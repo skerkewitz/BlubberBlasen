@@ -1467,6 +1467,17 @@ void game_debug_clear_round(void)
     enemies_clear();
     bubbles_clear();
 }
+
+uint8_t game_debug_goto_round(uint8_t round)
+{
+    if (g_state != GS_PLAY || round < 1 || round - 1 > boss_level) {
+        return 0;
+    }
+    g_level = (uint8_t)(round - 1);
+    g_round = round;
+    begin_transition();
+    return 1;
+}
 #endif /* BB_DEBUG */
 
 const Sprite *game_oam(void)

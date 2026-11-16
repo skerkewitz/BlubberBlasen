@@ -42,6 +42,7 @@ static uint32_t record_run(const char *path)
     ReplayWriter w;
     uint16_t pad[NUM_PLAYERS] = { 0, 0 };
     uint32_t t;
+    uint8_t went = 0;
 
     memset(&s, 0, sizeof s);
     snprintf(s.version, sizeof s.version, "%s", GAME_VERSION);
@@ -66,6 +67,11 @@ static uint32_t record_run(const char *path)
             replay_write_event(&w, t, RE_SPAWN, 10, 0);
             replay_write_event(&w, t, RE_MARK, 0, 0);
         }
+        if (t >= 2500 && !went && game_debug_goto_round(7)) {
+            /* the debug view's round picker: recorded like the other actions */
+            replay_write_event(&w, t, RE_ROUND, 7, 0);
+            went = 1;
+        }
         if (t < 200) {
             pad[0] = (uint16_t)((t % 40) < 2 ? PAD_START : 0);   /* through the title */
         } else if (t % 12 == 0) {
@@ -76,6 +82,7 @@ static uint32_t record_run(const char *path)
         replay_write_tick(&w, t, pad);
     }
     replay_write_end(&w, RUN_TICKS);
+    CHECK(went, "the run never got to go to round 7");
     return replay_hash();
 }
 
@@ -84,7 +91,7 @@ static void test_round_trip(void)
     Replay r;
     char err[256];
     uint32_t end_hash = record_run(TMP_FILE), ticks = 0, desync = 0;
-    uint32_t i, marks = 0, checks = 0;
+    uint32_t i, marks = 0, checks = 0, rounds = 0;
 
     CHECK(replay_load(TMP_FILE, &r, err, sizeof err) == 0, "%s", err);
     CHECK(r.end_tick == RUN_TICKS, "end tick %lu", (unsigned long)r.end_tick);
@@ -94,8 +101,10 @@ static void test_round_trip(void)
     for (i = 0; i < r.count; i++) {
         marks += r.events[i].kind == RE_MARK;
         checks += r.events[i].kind == RE_CHECK;
+        rounds += r.events[i].kind == RE_ROUND && r.events[i].a == 7;
     }
     CHECK(marks == 1, "one mark, got %lu", (unsigned long)marks);
+    CHECK(rounds == 1, "one jump to round 7, got %lu", (unsigned long)rounds);
     CHECK(checks == (RUN_TICKS + REPLAY_CHECK_EVERY - 1) / REPLAY_CHECK_EVERY, "a checksum every %d ticks, got %lu",
           REPLAY_CHECK_EVERY, (unsigned long)checks);
 

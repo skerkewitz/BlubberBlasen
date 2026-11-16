@@ -79,6 +79,36 @@ if(BB_DEBUG_SWITCHES AND NOT EMSCRIPTEN)
     target_link_libraries(blubberblasen PRIVATE replay)
     target_compile_definitions(blubberblasen PRIVATE BB_REPLAY=1)
 endif()
+# --- Debug view (Dear ImGui, ADR-0005): desktop debug builds only -----------------
+# C++ is confined to this one library; the game code stays C99.
+if(BB_DEBUG_SWITCHES AND NOT EMSCRIPTEN)
+    enable_language(CXX)
+    set(CMAKE_CXX_STANDARD 17)
+    FetchContent_Declare(
+        imgui
+        GIT_REPOSITORY https://github.com/ocornut/imgui.git
+        GIT_TAG        v1.92.7-docking
+        GIT_SHALLOW    TRUE
+    )
+    FetchContent_Declare(
+        rlimgui
+        GIT_REPOSITORY https://github.com/raylib-extras/rlImGui.git
+        GIT_TAG        41cc11a2db4b0262d39ba7c27ed3c6aba58b95c5   # branch RL55ImGui19207: raylib 5.5, ImGui 1.92.7
+    )
+    FetchContent_MakeAvailable(imgui rlimgui)   # neither has a CMakeLists.txt: sources only
+    add_library(debug_ui STATIC
+        src/platform/debug_ui.cpp
+        ${imgui_SOURCE_DIR}/imgui.cpp
+        ${imgui_SOURCE_DIR}/imgui_draw.cpp
+        ${imgui_SOURCE_DIR}/imgui_tables.cpp
+        ${imgui_SOURCE_DIR}/imgui_widgets.cpp
+        ${rlimgui_SOURCE_DIR}/rlImGui.cpp)
+    target_include_directories(debug_ui PUBLIC ${imgui_SOURCE_DIR} ${rlimgui_SOURCE_DIR})
+    target_link_libraries(debug_ui PUBLIC game raylib)
+    target_compile_definitions(debug_ui PUBLIC BB_DEBUG_UI=1)
+    target_link_libraries(blubberblasen PRIVATE debug_ui)
+endif()
+
 if(EMSCRIPTEN)
     # Web: a page with the game, the assets packed into blubberblasen.data at /assets.
     # Level sources are compiled in, so they stay out; so does the unused ambient track.

@@ -55,33 +55,45 @@ static uint8_t add_box(DebugBox *out, uint8_t n, uint8_t max, uint16_t x, uint16
     return n;
 }
 
-/* Collision boxes as the game checks them (overlap() sizes, doubled). */
+/* Collision boxes, sized so that a player's box and another object's box
+ * overlap exactly when the game counts a touch between them. overlap(w, h)
+ * compares the distance of two objects with w and h, so each object of a
+ * pair gets its share of that distance: two boxes of width a and b overlap
+ * when the distance is below (a + b) / 2.
+ *   player  10 x 12  enemy body: overlap(10, 12) with an enemy of the same size
+ *   enemy   10 x 12
+ *   bubble  14 x 12  touched by a player: overlap(12, 12) -> (10 + 14) / 2 = 12;
+ *                    trapping an enemy, overlap(12, 12), comes out the same
+ *   item    14 x 12  collected by a player: overlap(12, 12)
+ *   rock     6 x  4  hits a player: overlap(8, 8)
+ *   boss    30 x 28  touches(20) measures centres: 20 - 10/2 = 15, 20 - 12/2 = 14 */
 uint8_t game_debug_boxes(DebugBox *out, uint8_t max)
 {
     uint8_t i, n = 0;
     for (i = 0; i < NUM_PLAYERS; i++) {
         if (g_players[i].state == PS_ALIVE) {
-            n = add_box(out, n, max, g_players[i].x, g_players[i].y, 20, 24, 0);
+            n = add_box(out, n, max, g_players[i].x, g_players[i].y, 10, 12, 0);
         }
     }
     for (i = 0; i < MAX_ENEMIES; i++) {
         if (g_enemies[i].active && !g_enemies[i].spawn_delay) {
-            n = add_box(out, n, max, g_enemies[i].x, g_enemies[i].y, 20, 24, 1);
+            n = add_box(out, n, max, g_enemies[i].x, g_enemies[i].y, 10, 12, 1);
         }
     }
     for (i = 0; i < MAX_BUBBLES; i++) {
         if (g_bubbles[i].state != BS_OFF) {
-            n = add_box(out, n, max, g_bubbles[i].x, g_bubbles[i].y, 24, 24, 2);
+            n = add_box(out, n, max, g_bubbles[i].x, g_bubbles[i].y, 14, 12, 2);
         }
     }
     for (i = 0; i < MAX_ITEMS; i++) {
         if (g_items[i].kind != IT_OFF && g_items[i].kind != IT_POPUP && g_items[i].kind != IT_BURST) {
-            n = add_box(out, n, max, g_items[i].x, g_items[i].y, 16, 16, 3);
+            uint8_t rock = (uint8_t)(g_items[i].kind == IT_ROCK);
+            n = add_box(out, n, max, g_items[i].x, g_items[i].y, (uint8_t)(rock ? 6 : 14), (uint8_t)(rock ? 4 : 12), 3);
         }
     }
     if (boss_fighting()) {
         n = add_box(out, n, max, (uint16_t)(boss_center_x() - TO_POS(8)), (uint16_t)(boss_center_y() - TO_POS(8)),
-                    40, 40, 4);
+                    30, 28, 4);
     }
     return n;
 }
@@ -115,6 +127,145 @@ void game_debug_spawn(uint8_t what)
         bubble_spawn_special((uint8_t)(BK_WATER + what - POWER_COUNT), 0, x, (uint16_t)(y - TO_POS(8)));
     } else if (what < DEBUG_SPAWN_COUNT) {
         bubble_spawn_special(BK_LETTER, (uint8_t)(rng_next() % 6), x, (uint16_t)(y - TO_POS(8)));
+    }
+}
+
+/* --- Views for the debug panels ------------------------------------------------ */
+
+static uint8_t add_object(DebugObject *out, uint8_t n, uint8_t max, const DebugObject *o)
+{
+    if (n < max) {
+        out[n] = *o;
+        n++;
+    }
+    return n;
+}
+
+uint8_t game_debug_objects(DebugObject *out, uint8_t max)
+{
+    DebugObject o;
+    uint8_t i, n = 0;
+
+    for (i = 0; i < NUM_PLAYERS; i++) {
+        const Player *p = &g_players[i];
+        o.kind = DOBJ_PLAYER;
+        o.slot = i;
+        o.type = p->lives;
+        o.state = p->state;
+        o.x = p->x;
+        o.y = p->y;
+        o.vx = p->vx;
+        o.vy = p->vy;
+        o.timer = p->invulnerable;
+        o.flags = (uint8_t)((p->on_ground ? DOBJ_ON_GROUND : 0u) | (p->facing_left ? DOBJ_FACING_LEFT : 0u) |
+                            (p->cpu ? DOBJ_CPU : 0u) | (p->stun ? DOBJ_STUNNED : 0u));
+        n = add_object(out, n, max, &o);
+    }
+    for (i = 0; i < MAX_ENEMIES; i++) {
+        const Enemy *e = &g_enemies[i];
+        if (!e->active) {
+            continue;
+        }
+        o.kind = DOBJ_ENEMY;
+        o.slot = i;
+        o.type = e->type;
+        o.state = 0;
+        o.x = e->x;
+        o.y = e->y;
+        o.vx = 0;
+        o.vy = e->vy;
+        o.timer = e->throw_timer;
+        o.flags = (uint8_t)((e->angry ? DOBJ_ANGRY : 0u) | (e->facing_left ? DOBJ_FACING_LEFT : 0u) |
+                            (e->stun ? DOBJ_STUNNED : 0u) | (e->entering || e->spawn_delay ? DOBJ_ENTERING : 0u));
+        n = add_object(out, n, max, &o);
+    }
+    for (i = 0; i < MAX_BUBBLES; i++) {
+        const Bubble *b = &g_bubbles[i];
+        if (b->state == BS_OFF) {
+            continue;
+        }
+        o.kind = DOBJ_BUBBLE;
+        o.slot = i;
+        o.type = b->kind;
+        o.state = b->state;
+        o.x = b->x;
+        o.y = b->y;
+        o.vx = b->vx;
+        o.vy = b->vy;
+        o.timer = b->age;
+        o.flags = (uint8_t)((b->angry ? DOBJ_ANGRY : 0u) | (b->trapped ? DOBJ_TRAPPED : 0u));
+        n = add_object(out, n, max, &o);
+    }
+    for (i = 0; i < MAX_ITEMS; i++) {
+        const Item *it = &g_items[i];
+        if (it->kind == IT_OFF) {
+            continue;
+        }
+        o.kind = DOBJ_ITEM;
+        o.slot = i;
+        o.type = it->kind;
+        o.state = 0;
+        o.x = it->x;
+        o.y = it->y;
+        o.vx = it->vx;
+        o.vy = it->vy;
+        o.timer = it->timer;
+        o.flags = 0;
+        n = add_object(out, n, max, &o);
+    }
+    return n;
+}
+
+static const char *const state_names[] = {
+    "TITLE", "STORY", "OPTIONS", "TRANSITION", "ROUND INTRO", "PLAY", "ROUND SKIP", "PAUSE",
+    "CONTINUE", "GAME OVER", "ENDING", "NAME ENTRY", "HISCORES"
+};
+
+void game_debug_status(DebugStatus *out)
+{
+    uint8_t i, k;
+    out->state = (uint8_t)g_state < sizeof state_names / sizeof state_names[0] ? state_names[g_state] : "?";
+    out->round = g_round;
+    out->round_frames = g_level_frames;
+    out->frame = g_frame;
+    out->hurry = g_hurry;
+    out->freeze = g_freeze;
+    out->plus = g_opt.plus;
+    for (i = 0; i < NUM_PLAYERS; i++) {
+        out->lives[i] = g_players[i].lives;
+        out->letters[i] = g_players[i].letters;
+        for (k = 0; k < 8; k++) {
+            out->score[i][k] = g_players[i].score[k];
+        }
+    }
+}
+
+static const char *const enemy_names[ENEMY_TYPE_COUNT + 1] = {
+    "?", "WALKER", "BOUNCER", "THROWER", "FLUTTER", "HOPPER", "SPITTER", "DROPPER", "SHIELD"
+};
+static const char *const bubble_kinds[] = { "NORMAL", "WATER", "FIRE", "LIGHTNING", "LETTER" };
+static const char *const item_kinds[] = { "OFF", "THROWN", "FOOD", "BURST", "POPUP", "ROCK", "POWERUP", "BONUS" };
+static const char *const player_states[] = { "OFF", "ALIVE", "DYING", "ENTERING", "RESCUE" };
+static const char *const bubble_states[] = { "OFF", "SHOOT", "FLOAT", "TRAPPED", "POPPING" };
+
+#define PICK(table, i) ((i) < sizeof(table) / sizeof((table)[0]) ? (table)[i] : "?")
+
+const char *game_debug_type_name(uint8_t kind, uint8_t type)
+{
+    switch (kind) {
+    case DOBJ_ENEMY:  return PICK(enemy_names, type);
+    case DOBJ_BUBBLE: return PICK(bubble_kinds, type);
+    case DOBJ_ITEM:   return PICK(item_kinds, type);
+    default:          return "";
+    }
+}
+
+const char *game_debug_state_name(uint8_t kind, uint8_t state)
+{
+    switch (kind) {
+    case DOBJ_PLAYER: return PICK(player_states, state);
+    case DOBJ_BUBBLE: return PICK(bubble_states, state);
+    default:          return "";
     }
 }
 

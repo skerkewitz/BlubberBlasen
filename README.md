@@ -61,6 +61,7 @@ BlubberBlasen/
 │   │   ├── fixed.h          #   8.8 fixed-point helpers
 │   │   └── level_data.h     #   level format shared with tools/map2c
 │   ├── platform/            # platform_raylib.c: window, input, rendering, audio, 60 Hz tick
+│   │                        #   debug_ui.cpp: Dear ImGui debug view (desktop debug builds, the only C++)
 │   └── replay/              # recordings of games (development builds, PC only; uses stdio and malloc)
 ├── assets/                  # Graphics, sound and level files (see assets/README.md)
 ├── tools/                   # Host tools: map2c (levels -> const C arrays), mapview (room previews); see tools/README.md
@@ -177,6 +178,8 @@ blubberblasen --autoplay --seed 7 --shot 300 --shot 900 --quit 1000
 | `--replay <file>` | Play a recording instead of the keyboard (see *Recordings*) |
 | `--jump <tick>` | With `--replay`: run fast to that tick, then pause |
 | `--record`, `--no-record` | Record a bot run too (normally only runs without `--autoplay` are recorded) / don't record this run |
+| `--debug-ui` | Start with the debug view (see *Debug view*) |
+| `--ui-shot <tick>` | With the debug view: save the whole window as `ui_shot.png` at that tick |
 
 All developer options and debug switches exist only in builds with the CMake option `BB_DEBUG_SWITCHES` (on by default). Public builds configure with `-DBB_DEBUG_SWITCHES=OFF` and contain none of it; the tests need it on.
 
@@ -187,7 +190,7 @@ All developer options and debug switches exist only in builds with the CMake opt
 | `F1` | CPU partner view: predicted danger positions (red dots, brighter = sooner) and the action it chose |
 | `F2` | Invincibility |
 | `F3` | Infinite lives |
-| `F4` | Show hitboxes |
+| `F4` | Show hitboxes: a player's box and another object's box overlap exactly when the game counts a touch |
 | `F5` | Show air currents |
 | `F6` | No sticky bubbles: floating bubbles don't cling together (to compare) |
 | `F7` / `F8` | Pause and step one frame at a time / next frame (`Shift`+`F8`: one frame back, `Ctrl`+`Shift`+`F8`: one second back, while replaying) |
@@ -199,13 +202,29 @@ All developer options and debug switches exist only in builds with the CMake opt
 | `--shot-crt <n>` | Also save each shot through the retro TV filter at n x scale, as `shot_<tick>_crt.png` |
 | `--quit <tick>` | Exit after that many game ticks |
 
+### Debug view (development builds, desktop)
+
+`` ` `` (the key left of `1`; `^` on a German keyboard) or `--debug-ui` turns the window into a debug view (opening it with the key pauses the game; `F7` or the Run panel goes on) made with [Dear ImGui](https://github.com/ocornut/imgui): the game is one panel, and docked panels sit around it. The window is maximised when the view opens. Panels can be moved, docked and resized; the layout is kept in `blubberblasen-debug.ini` next to the executable (delete it to get the first layout back). The game keeps running and takes keyboard input as usual, except while you type into a field of a panel.
+
+| Panel | Shows and does |
+|---|---|
+| Game | The 256 x 224 picture, without the retro TV filter |
+| Run | Pause, next frame, slow motion, the tick (and the replay position), mark this moment |
+| Switches | The debug switches of the F-keys as checkboxes |
+| Round | Game state, round, round time, lives, score and BLASEN letters per player; go to a round, clear the round, spawn an item or special bubble |
+| Objects | Players, enemies, bubbles and items with type, state, position, speed, timer and flags |
+| CPU | The CPU partner's goal (free partner, pop, hunt, letter, food, follow) and the action its danger check chose |
+| Deaths | Why lives were lost in this run |
+
+Everything a panel changes in the game is recorded like the debug keys (*Recordings*); "go to round" is written as a `round` line. The view uses Dear ImGui and rlImGui, fetched by CMake. It is C++ and is built only for desktop builds with `BB_DEBUG_SWITCHES`; the game code stays C99 (ADR-0005).
+
 ### Recordings
 
 Step by step, with all debug keys: [docs/DEBUG-REPLAY.md](docs/DEBUG-REPLAY.md).
 
 The game is deterministic: the same start and the same buttons give the same game. Development builds on the PC use this to record every run, so a bug that has just happened can be watched again, frame by frame.
 
-- Each run writes `recordings/<date>-<time>.bbr` next to the executable. The file holds the start (game version, seed, save RAM, developer options) and then only the buttons of both players when they change, the debug keys that change the game (`F2`, `F3`, `F6`, `F10`, `F12`), and every second a checksum of the picture. That is a few kilobytes per minute, and the file is plain text.
+- Each run writes `recordings/<date>-<time>.bbr` next to the executable. The file holds the start (game version, seed, save RAM, developer options) and then only the buttons of both players when they change, the debug keys that change the game (`F2`, `F3`, `F6`, `F10`, `F12`) and the same actions from the debug view (including "go to round"), and every second a checksum of the picture. That is a few kilobytes per minute, and the file is plain text.
 - Saw something odd? Press `Backspace`. The moment is marked, and the recording is kept as `...-marked.bbr`. Of the unmarked recordings only the newest 20 are kept.
 - `blubberblasen --replay recordings/<file>.bbr` plays it back. The keyboard does nothing then; the window shows the tick and the buttons each player is holding. The game pauses 3 s before and at each mark (`Backspace` jumps to the next one); `F7`, `F8` and `F9` pause, step and slow down as usual, `Shift`+`F8` steps one frame back and `Ctrl`+`Shift`+`F8` one second (the replay runs again from the start, fast, to the frame before), and the switches that only show something (`F1`, `F4`, `F5`) work too. `--jump <tick>` runs fast to a tick first.
 - A recording only fits the game it was made with. After a change to the rules (a speed, a timer, a new mechanic) an old recording drifts apart: the checksums stop matching, and the replay says at which tick. Bug recordings are short-lived anyway. The recordings in `tests/replays/` are tests: when one fails after an intended change, record it again (`--autoplay --record --plus --seed 42 --quit 3000` made `plus_bot_seed42.bbr`) and copy it over, or delete it.

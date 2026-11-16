@@ -2590,6 +2590,71 @@ static void test_cpu_letters(void)
     CHECK(!cpu_dashes_right(1), "the CPU partner must not dash through a letter it already has");
 }
 
+/* Debug view: "go to round" jumps from a running round to another one,
+ * keeps score and lives, and refuses outside of play. The object view lists
+ * the players and the round's enemies. */
+/* F4 hitboxes: a player's box and an enemy's box overlap exactly when the
+ * game counts a touch (overlap(10, 12)), checked at the edge on both axes. */
+static int boxes_meet(const DebugBox *a, const DebugBox *b)
+{
+    return a->x < b->x + b->w && b->x < a->x + a->w && a->y < b->y + b->h && b->y < a->y + a->h;
+}
+
+static void test_hitboxes_match_touch(void)
+{
+    static const int8_t offsets[][2] = { { 9, 0 }, { 10, 0 }, { 0, 11 }, { 0, 12 }, { 9, 11 }, { 10, 12 } };
+    DebugBox boxes[32];
+    uint8_t k, n, i;
+
+    start_at_round(1, 0);
+    CHECK(run_until(GS_PLAY, 600), "round 1 did not start");
+    for (k = 0; k < sizeof offsets / sizeof offsets[0]; k++) {
+        const DebugBox *pb = 0, *eb = 0;
+        uint8_t touch;
+        g_enemies[0].x = (uint16_t)(g_players[0].x + TO_POS(offsets[k][0]));
+        g_enemies[0].y = (uint16_t)(g_players[0].y + TO_POS(offsets[k][1]));
+        g_enemies[0].spawn_delay = 0;
+        touch = overlap(g_players[0].x, g_players[0].y, g_enemies[0].x, g_enemies[0].y, 10, 12);
+        n = game_debug_boxes(boxes, 32);
+        for (i = 0; i < n; i++) {
+            if (boxes[i].kind == 0 && !pb) pb = &boxes[i];
+            if (boxes[i].kind == 1 && !eb) eb = &boxes[i];
+        }
+        CHECK(pb && eb, "boxes for player 1 and enemy 0");
+        if (pb && eb) {
+            CHECK(boxes_meet(pb, eb) == touch, "enemy %d,%d px away: touch %u but boxes %s", offsets[k][0], offsets[k][1],
+                  touch, boxes_meet(pb, eb) ? "overlap" : "apart");
+        }
+    }
+}
+
+static void test_debug_goto_round(void)
+{
+    DebugObject objs[64];
+    uint8_t n, i, enemies = 0, players = 0;
+    uint8_t lives;
+
+    start_at_round(3, 0);
+    CHECK(!game_debug_goto_round(12), "go to round must wait until the round is played");
+    CHECK(run_until(GS_PLAY, 600), "round 3 did not start");
+    lives = g_players[0].lives;
+    CHECK(!game_debug_goto_round(0) && !game_debug_goto_round(250), "rounds outside 1..100 are refused");
+    CHECK(game_debug_goto_round(12), "go to round 12 from a running round");
+    CHECK(run_until(GS_PLAY, 900), "round 12 did not start");
+    CHECK(g_round == 12 && g_level == 11, "now in round %u (level %u), wanted 12", g_round, g_level);
+    CHECK(g_players[0].lives == lives, "lives kept: %u, had %u", g_players[0].lives, lives);
+
+    n = game_debug_objects(objs, 64);
+    for (i = 0; i < n; i++) {
+        players += objs[i].kind == DOBJ_PLAYER;
+        enemies += objs[i].kind == DOBJ_ENEMY;
+    }
+    CHECK(players == NUM_PLAYERS, "both player slots listed, got %u", players);
+    CHECK(enemies > 0, "the enemies of round 12 are listed");
+    CHECK(strcmp(game_debug_state_name(DOBJ_PLAYER, objs[0].state), "ALIVE") == 0, "player 1 is %s",
+          game_debug_state_name(DOBJ_PLAYER, objs[0].state));
+}
+
 int main(void)
 {
     game_debug_skip_story(1);
@@ -2648,6 +2713,8 @@ int main(void)
     test_cpu_climbs();
     test_cpu_letters();
     test_debug_switches();
+    test_debug_goto_round();
+    test_hitboxes_match_touch();
     test_cpu_rooms();
     test_determinism_and_play();
 

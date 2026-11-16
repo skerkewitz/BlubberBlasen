@@ -48,7 +48,8 @@ enum {
     RE_SPAWN,      /* a = what (game_debug_spawn) */
     RE_CLEAR,      /* game_debug_clear_round */
     RE_MARK,       /* the player marked this moment */
-    RE_CHECK       /* value = replay_hash() after this tick */
+    RE_CHECK,      /* value = replay_hash() after this tick */
+    RE_ROUND       /* a = round: game_debug_goto_round */
 };
 
 typedef struct {
@@ -79,7 +80,7 @@ typedef struct {
 } ReplayWriter;
 
 int  replay_write_begin(ReplayWriter *w, const char *path, const ReplaySetup *s);   /* 0 = ok */
-/* Before game_tick(tick): a developer action (RE_SWITCH, RE_SPAWN, RE_CLEAR, RE_MARK). */
+/* Before game_tick(tick): a developer action (RE_SWITCH, RE_SPAWN, RE_CLEAR, RE_MARK, RE_ROUND). */
 void replay_write_event(ReplayWriter *w, uint32_t tick, uint8_t kind, uint16_t a, uint16_t b);
 /* After game_tick(tick) ran with these pads. */
 void replay_write_tick(ReplayWriter *w, uint32_t tick, const uint16_t pad[NUM_PLAYERS]);
