@@ -60,6 +60,8 @@ BlubberBlasen/
 │   │   ├── hiscore.c text.c
 │   │   ├── fixed.h          #   8.8 fixed-point helpers
 │   │   └── level_data.h     #   level format shared with tools/map2c
+│   ├── snes/                # pseudo SNES (ADR-0005): VRAM, CGRAM, OAM, registers, HDMA and a software
+│   │                        #   renderer behind PVSnesLib-shaped functions (snes.h); portable C99
 │   ├── platform/            # platform_raylib.c: window, input, rendering, audio, 60 Hz tick
 │   │                        #   debug_ui.cpp: Dear ImGui debug view (desktop debug builds, the only C++)
 │   └── replay/              # recordings of games (development builds, PC only; uses stdio and malloc)
@@ -151,6 +153,8 @@ ctest --test-dir build -C Debug --output-on-failure
 ```
 
 `tests/test_game.c` runs the game library without a window: score arithmetic, level data checks, a determinism check (same seed and input must give the same frames), a random bot that plays 30 minutes of game time, unit tests for the mechanics, and a room test in which the CPU partner plays both players in every round from 1 to 99, in Arcade and in Plus with co-op rescue, with endless lives. A room fails only if no try out of 15 clears it within 3 minutes of game time; each try uses its own seed, because the same seed would play the same game again. Deaths are printed with their causes as information, not checked: they depend on the CPU partner and on chance as much as on the room. Arcade rounds 16 and 34 are skipped: their start pocket can only be left by bouncing on a bubble, which the CPU partner cannot do yet. `BB_TRACE=600` prints the game state every 600 frames; `BB_DEATHS=1` prints the circumstances of the first CPU deaths in Arcade; `BB_ROOMS=1` prints what is left in a room after a try that did not clear it.
+
+`tests/test_snes.c` checks the pseudo SNES (`src/snes`) without a window: it builds small scenes through the PVSnesLib-shaped functions, renders a frame and compares pixels with what the SNES shows: tiles, palettes and flips, scrolling and 32 x 64 maps, the mode 1 layer order, sprites (one line below their y, 9-bit x, the lower number in front), the limits of 32 sprites and 34 sprite tiles per line, colour math in windows (fixed colour, sub screen, add, subtract, half), HDMA tables, brightness and the DMA count.
 
 `tests/test_replay.c` records a game, plays the recording back and checks that it gives the same game, and that a changed input or seed is noticed. It also plays every recording in `tests/replays/` (one test each, `replay_<name>`); see *Recordings*.
 
@@ -308,9 +312,9 @@ Shoot bubbles (Y) at the enemies to trap them, then touch the trapped enemy to d
 
 **CPU partner:** with player 2 set to CPU, a computer partner plays player 2. It frees you from rescue bubbles, avoids danger, pops trapped enemies (preferably several at once), hunts enemies, fetches BLASEN letters it still needs (and doesn't dash through ones it has) and stays near you. To avoid danger it looks ahead every frame: it predicts where enemies, shots, storm clouds and the boss will be over the next half second, tries out its own moves (stay, walk, jump, dash, turn and shoot) and only follows its goal if that stays safe; it leaves the food to you and earns no score. Press Start on controller 2 to take over from it; once it has lost its last life, Start on controller 2 lets a human join in its place. A game finished with the CPU partner counts as a two-player game.
 
-## Coding rules for `src/game/`
+## Coding rules for `src/game/` and `src/snes/`
 
-These rules keep the code portable to the 65816. There is no CI yet, so nothing enforces them automatically: run the check below before committing.
+These rules keep the code portable to the 65816 (`src/snes` is replaced by PVSnesLib on the console, but follows the same rules so the PC version behaves like it). There is no CI yet, so nothing enforces them automatically: run the check below before committing.
 
 1. No `#include <raylib.h>` (or any platform header).
 2. No `float` or `double`.
@@ -322,7 +326,7 @@ These rules keep the code portable to the 65816. There is no CI yet, so nothing 
 Quick local check:
 
 ```bash
-grep -rnE 'raylib\.h|\bfloat\b|\bdouble\b|\b(malloc|calloc|realloc|free)\s*\(' src/game/ \
+grep -rnE 'raylib\.h|\bfloat\b|\bdouble\b|\b(malloc|calloc|realloc|free)\s*\(' src/game/ src/snes/ \
   && echo "Rule violation found" || echo "OK"
 ```
 

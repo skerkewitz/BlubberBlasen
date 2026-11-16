@@ -39,6 +39,17 @@ add_custom_command(
     VERBATIM
 )
 
+# --- Pseudo SNES (ADR-0005): memories, registers, software renderer ----------
+# Portable C99 like the game code; on the console PVSnesLib takes its place.
+add_library(snes STATIC src/snes/ppu.c src/snes/render.c)
+target_include_directories(snes PUBLIC src)
+set_target_properties(snes PROPERTIES C_EXTENSIONS OFF)
+if(MSVC)
+    target_compile_options(snes PRIVATE /W4)
+else()
+    target_compile_options(snes PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+
 # --- Portable game code: must not depend on raylib ---------------------------
 file(GLOB_RECURSE GAME_SOURCES CONFIGURE_DEPENDS src/game/*.c)
 add_library(game STATIC ${GAME_SOURCES} ${LEVEL_DATA_C})
@@ -152,6 +163,10 @@ if(BB_DEBUG_SWITCHES)
     add_executable(test_game tests/test_game.c)
     target_link_libraries(test_game PRIVATE game)
     add_test(NAME game COMMAND test_game)
+
+    add_executable(test_snes tests/test_snes.c)
+    target_link_libraries(test_snes PRIVATE snes)
+    add_test(NAME snes COMMAND test_snes)
 
     add_executable(test_replay tests/test_replay.c)
     target_link_libraries(test_replay PRIVATE replay)
