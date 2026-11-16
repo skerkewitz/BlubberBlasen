@@ -9,6 +9,11 @@
  *   Objects   players, enemies, bubbles and items with their state
  *   CPU       the CPU partner's goal and chosen action
  *   Deaths    why lives were lost in this run
+ *   Video     the pseudo SNES: sprites and sprite tiles per line (limits 32
+ *             and 34), lines that lost sprites, DMA bytes per frame
+ *   VRAM      the tiles in video memory, in a palette of your choice
+ *   Palettes  the 256 colours of CGRAM
+ *   OAM       the sprites as the SNES holds them
  * The layout is set up on the first start; Dear ImGui then keeps it in
  * blubberblasen-debug.ini next to the program.
  */
@@ -24,6 +29,7 @@
 
 extern "C" {
 #include "game/game.h"
+#include "snes/snes.h"
 }
 
 static char ini_path[1024];
@@ -77,6 +83,10 @@ static void first_layout(ImGuiID dock)
     ImGui::DockBuilderDockWindow("Objects", right_bottom);
     ImGui::DockBuilderDockWindow("CPU", right_bottom);
     ImGui::DockBuilderDockWindow("Deaths", right_bottom);
+    ImGui::DockBuilderDockWindow("Video", right_top);
+    ImGui::DockBuilderDockWindow("VRAM", right_bottom);
+    ImGui::DockBuilderDockWindow("Palettes", right_bottom);
+    ImGui::DockBuilderDockWindow("OAM", right_bottom);
     ImGui::DockBuilderFinish(dock);
 }
 
@@ -326,6 +336,165 @@ static void panel_deaths(void)
     ImGui::End();
 }
 
+/* --- The pseudo SNES ------------------------------------------------------------ */
+static uint32_t rgba(uint16_t c)
+{
+    uint32_t r = c & 31, g = (c >> 5) & 31, b = (c >> 10) & 31;
+    return 0xFF000000u | ((b << 3 | b >> 2) << 16) | ((g << 3 | g >> 2) << 8) | (r << 3 | r >> 2);
+}
+
+static ImVec4 imcolor(uint16_t c)
+{
+    return ImVec4((c & 31) / 31.0f, ((c >> 5) & 31) / 31.0f, ((c >> 10) & 31) / 31.0f, 1.0f);
+}
+
+static void panel_video(void)
+{
+    if (ImGui::Begin("Video")) {
+        SnesStats st = snes_stats();
+        ImGui::Text("Busiest line: %u sprites (limit 32), %u sprite tiles (limit 34)", (unsigned)st.most_sprites,
+                    (unsigned)st.most_tiles);
+        if (st.range_over_lines || st.time_over_lines) {
+            ImGui::TextColored(ImVec4(1, 0.4f, 0.4f, 1), "Lines that lost sprites: %u (too many sprites), %u (too many tiles)",
+                               (unsigned)st.range_over_lines, (unsigned)st.time_over_lines);
+        } else {
+            ImGui::TextDisabled("No line lost sprites in this frame.");
+        }
+        ImGui::Text("DMA last frame: %u bytes (the SNES manages about 5,000 to 6,000 per vertical blank)",
+                    (unsigned)st.dma_bytes);
+        ImGui::Text("Brightness %u%s, BG mode %u", snes_reg(PPU_INIDISP) & 15, snes_reg(PPU_INIDISP) & 0x80 ? " (forced blank)" : "",
+                    snes_reg(PPU_BGMODE) & 7);
+    }
+    ImGui::End();
+}
+
+/* VRAM tiles as a picture: 16 tiles per row, in one palette. */
+static void panel_vram(void)
+{
+    static const struct { const char *name; uint16_t word; int bpp; int tiles; int base_pal; } regions[] = {
+        { "BG1 tiles (room, title) at 0x1000", 0x1000, 4, 512, 0 },
+        { "BG3 tiles (font) at 0x3000", 0x3000, 2, 64, 0 },
+        { "Sprite tiles at 0x4000", 0x4000, 4, 512, 128 },
+    };
+    static int region = 2, pal = 0, zoom = 2;
+    static Texture2D tex;
+    static uint32_t pixels[128 * 256];
+    if (ImGui::Begin("VRAM")) {
+        const uint16_t *vram = snes_vram(), *cg = snes_cgram();
+        int t, x, y, rows;
+        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 18);
+        if (ImGui::BeginCombo("##region", regions[region].name)) {
+            for (t = 0; t < 3; t++) {
+                if (ImGui::Selectable(regions[t].name, t == region)) region = t;
+            }
+            ImGui::EndCombo();
+        }
+        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 8);
+        ImGui::SliderInt("palette", &pal, 0, 7);
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 6);
+        ImGui::SliderInt("zoom", &zoom, 1, 4);
+        rows = regions[region].tiles / 16;
+        for (t = 0; t < regions[region].tiles; t++) {
+            int bpp = regions[region].bpp;
+            uint16_t addr = (uint16_t)(regions[region].word + t * bpp * 4);
+            for (y = 0; y < 8; y++) {
+                uint16_t w0 = vram[(addr + y) & 0x7FFF], w1 = bpp == 4 ? vram[(addr + 8 + y) & 0x7FFF] : 0;
+                for (x = 0; x < 8; x++) {
+                    int bit = 7 - x, c = ((w0 >> bit) & 1) | (((w0 >> (8 + bit)) & 1) << 1) | (((w1 >> bit) & 1) << 2) |
+                                         (((w1 >> (8 + bit)) & 1) << 3);
+                    uint16_t col = cg[(regions[region].base_pal + pal * (bpp == 4 ? 16 : 4) + c) & 255];
+                    pixels[((t / 16) * 8 + y) * 128 + (t % 16) * 8 + x] = c ? rgba(col) : 0xFF302830u;
+                }
+            }
+        }
+        if (tex.id == 0) {
+            Image img = GenImageColor(128, 256, BLACK);
+            tex = LoadTextureFromImage(img);
+            UnloadImage(img);
+            SetTextureFilter(tex, TEXTURE_FILTER_POINT);
+        }
+        UpdateTexture(tex, pixels);
+        {
+            ImVec2 pos = ImGui::GetCursorScreenPos();
+            float h = (float)(rows * 8) / 256.0f;
+            ImGui::Image((ImTextureID)(uintptr_t)tex.id, ImVec2(128.0f * zoom, rows * 8.0f * zoom), ImVec2(0, 0), ImVec2(1, h));
+            if (ImGui::IsItemHovered()) {
+                ImVec2 m = ImGui::GetIO().MousePos;
+                int tx = (int)((m.x - pos.x) / (8 * zoom)), ty = (int)((m.y - pos.y) / (8 * zoom));
+                ImGui::SetTooltip("tile %d (VRAM 0x%04X)", ty * 16 + tx,
+                                  regions[region].word + (ty * 16 + tx) * regions[region].bpp * 4);
+            }
+        }
+    }
+    ImGui::End();
+}
+
+static void panel_palettes(void)
+{
+    if (ImGui::Begin("Palettes")) {
+        const uint16_t *cg = snes_cgram();
+        int i;
+        ImGui::TextDisabled("Rows 0..7: background (BG3 text uses 0..1 in fours), rows 8..15: sprite palettes 0..7");
+        for (i = 0; i < 256; i++) {
+            char id[16];
+            if (i % 16) ImGui::SameLine(0, 2);
+            else ImGui::Text("%2d", i / 16), ImGui::SameLine();
+            snprintf(id, sizeof id, "##c%d", i);
+            ImGui::ColorButton(id, imcolor(cg[i]), ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoBorder,
+                               ImVec2(ImGui::GetFontSize(), ImGui::GetFontSize()));
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("CGRAM %d (row %d, colour %d): $%04X = %d, %d, %d", i, i / 16, i % 16, cg[i], cg[i] & 31,
+                                  (cg[i] >> 5) & 31, (cg[i] >> 10) & 31);
+            }
+        }
+    }
+    ImGui::End();
+}
+
+static void panel_oam(void)
+{
+    if (ImGui::Begin("OAM")) {
+        const uint8_t *o = snes_oam();
+        int i, shown = 0;
+        static bool hidden;
+        ImGui::Checkbox("Also hidden sprites", &hidden);
+        if (ImGui::BeginTable("oam", 8, ImGuiTableFlags_RowBg | ImGuiTableFlags_Borders | ImGuiTableFlags_SizingFixedFit |
+                                            ImGuiTableFlags_ScrollY)) {
+            ImGui::TableSetupScrollFreeze(0, 1);
+            ImGui::TableSetupColumn("#");
+            ImGui::TableSetupColumn("x");
+            ImGui::TableSetupColumn("y");
+            ImGui::TableSetupColumn("tile");
+            ImGui::TableSetupColumn("palette");
+            ImGui::TableSetupColumn("priority");
+            ImGui::TableSetupColumn("flip");
+            ImGui::TableSetupColumn("size");
+            ImGui::TableHeadersRow();
+            for (i = 0; i < 128; i++) {
+                const uint8_t *e = o + i * 4;
+                int hi = (o[512 + i / 4] >> ((i % 4) * 2)) & 3;
+                int x = e[0] | ((hi & 1) << 8);
+                if (x >= 256) x -= 512;
+                if (!hidden && e[1] >= 224 && e[1] < 240) continue;
+                shown++;
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn(); ImGui::Text("%d", i);
+                ImGui::TableNextColumn(); ImGui::Text("%d", x);
+                ImGui::TableNextColumn(); ImGui::Text("%d", e[1]);
+                ImGui::TableNextColumn(); ImGui::Text("%d", e[2] | ((e[3] & 1) << 8));
+                ImGui::TableNextColumn(); ImGui::Text("%d", (e[3] >> 1) & 7);
+                ImGui::TableNextColumn(); ImGui::Text("%d", (e[3] >> 4) & 3);
+                ImGui::TableNextColumn(); ImGui::Text("%s%s", e[3] & 0x40 ? "x" : "", e[3] & 0x80 ? "y" : "");
+                ImGui::TableNextColumn(); ImGui::Text("%s", hi & 2 ? "large" : "small");
+            }
+            ImGui::EndTable();
+        }
+        (void)shown;
+    }
+    ImGui::End();
+}
+
 /* Shows this window's tab in its dock node. */
 static void select_tab(const char *name)
 {
@@ -361,6 +530,10 @@ void debug_ui_draw(Texture2D game)
     panel_objects();
     panel_cpu();
     panel_deaths();
+    panel_video();
+    panel_vram();
+    panel_palettes();
+    panel_oam();
     if (pick_tabs && --pick_tabs == 0) {
         /* the tabs shown at first; the windows are docked by now */
         select_tab("Round");

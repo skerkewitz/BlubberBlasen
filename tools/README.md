@@ -81,6 +81,21 @@ It converts and checks, it does not repair: a colour off the SNES grid, a palett
 
 PNGs are read by `tools/common/pngread.c` (8-bit RGB, RGBA or palette, not interlaced), which has its own small inflate.
 
+## int16check
+
+Checks that the game code is correct with a 16-bit `int`, as on the 65816 (README, coding rule 7). A script, not a build tool: it needs Emscripten (its clang, `emcc` and Node.js) and Python 3, so it runs in Linux or WSL, after a web build whose generated data it uses.
+
+```
+tools/int16check/int16check.sh [build-web]
+```
+
+1. Compiles every file of `src/game` for MSP430, a CPU whose `int` has 16 bits, with `-Werror -Wconversion -Wsign-conversion`, with and without `BB_DEBUG`.
+2. `instrument.py` preprocesses each file (so macros like `PX()` become plain code), asks clang for the syntax tree with a 16-bit `int`, and finds every expression computed in `int` whose result is then compared, shifted right, divided or widened to 32 bits: there a 16-bit `int` can give another result than the PC. Each is wrapped in a probe (`probe.c`) that records its values. `stub/stdint.h` gives both compilers the same type sizes.
+3. Builds the game tests (`tests/test_game.c`) with the probes for WebAssembly and runs them with Node.js.
+4. `report.py` fails if any expression left the range of a 16-bit `int`, with its file, line and values, and lists the expressions the tests never reached, to be checked by hand.
+
+On 2026-11-16: 115 such expressions, 109 reached by the tests, none out of range; the 6 unreached ones are constants, menu indices and a position plus 8 pixels, all safe by hand.
+
 ## mapview
 
 Renders rooms into one PNG contact sheet, for reviewing levels without starting the game.

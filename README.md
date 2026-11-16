@@ -25,7 +25,7 @@ The game has a version number `major.minor.revision`. It is set in one place, `G
 ## Architecture in short
 
 - **Language:** C99.
-- **Platform layer:** raylib, used **only** in `src/platform/`. Game code never includes `raylib.h` (ADR-0001, not written yet).
+- **Platform layer:** raylib, used **only** in `src/platform/`. Game code never includes `raylib.h` ([ADR-0001](docs/adr/0001-c99-with-a-thin-platform-layer.md)).
 - **SNES-shaped interface** between game and platform:
   - Input: one 16-bit button word per player per frame (SNES joypad bit layout).
   - Output: the game describes each frame as a sprite list (16 × 16 cells with logical palettes), two colour windows (a left and right edge per scanline with a colour inside) and two 8 × 8 tilemaps: layer 0 (room or title, 32 × 64 tiles, scrolls vertically, only shown below the HUD) and layer 1 (text, fixed). `src/game/video.c` turns that into what the SNES needs, through PVSnesLib-shaped functions: OAM entries, VRAM map rows, palettes, HDMA tables for the windows and colour math. The pseudo SNES (`src/snes`) renders the 256 × 224 picture from it; the platform scales it to the window (ADR-0005).
@@ -33,7 +33,7 @@ The game has a version number `major.minor.revision`. It is set in one place, `G
   - Audio: sound effects requested by ID (one bit per effect per tick) and one music track ID; the platform streams the track.
   - Save RAM: 128 bytes (high score table in the first 64, options from byte 64) that the platform keeps in a file, like a battery-backed cartridge.
   - Time: the game is ticked exactly once per frame at 60 Hz.
-- **Old-school game loop** (ADR-0002, not written yet):
+- **Old-school game loop** ([ADR-0002](docs/adr/0002-old-school-game-loop-and-data.md)):
   - One main loop, top-level state machine (`enum` + `switch`).
   - Fixed-size, statically allocated object tables (`players[2]`, `enemies[8]`, ...). No ECS, no heap objects.
   - Fixed-point math only (e.g. 8.8 in `int16_t`). No `float`/`double`, no `malloc`/`free` in game code.
@@ -222,6 +222,10 @@ All developer options and debug switches exist only in builds with the CMake opt
 | Objects | Players, enemies, bubbles and items with type, state, position, speed, timer and flags |
 | CPU | The CPU partner's goal (free partner, pop, hunt, letter, food, follow) and the action its danger check chose |
 | Deaths | Why lives were lost in this run |
+| Video | The pseudo SNES: sprites and sprite tiles on the busiest line (the SNES draws at most 32 and 34), lines that lost sprites, DMA bytes of the last frame |
+| VRAM | The tiles in video memory (room and title, font, sprites), in a palette you choose; hover shows the tile number and address |
+| Palettes | The 256 colours of CGRAM; hover shows the 15-bit value |
+| OAM | The sprites as the SNES holds them: position, tile, palette, priority, flips, size |
 
 Everything a panel changes in the game is recorded like the debug keys (*Recordings*); "go to round" is written as a `round` line. The view uses Dear ImGui and rlImGui, fetched by CMake. It is C++ and is built only for desktop builds with `BB_DEBUG_SWITCHES`; the game code stays C99 (ADR-0005).
 
@@ -325,6 +329,7 @@ These rules keep the code portable to the 65816 (`src/snes` is replaced by PVSne
 4. Prefer `int8_t`/`uint8_t`/`int16_t`/`uint16_t`; avoid 32-bit math, multiplication and division in hot paths (use shifts and lookup tables).
 5. All game state is static; keep an eye on the RAM budget.
 6. Timers count frames, never wall-clock time.
+7. The code must be correct with a 16-bit `int`, as on the 65816: no `int` variables, no constants over 32,767, and no arithmetic whose `int` result could leave the 16-bit range before it is compared, shifted right, divided or widened (cast to 32 bits first).
 
 Quick local check:
 
@@ -333,10 +338,12 @@ grep -rnE 'raylib\.h|\bfloat\b|\bdouble\b|\b(malloc|calloc|realloc|free)\s*\(' s
   && echo "Rule violation found" || echo "OK"
 ```
 
+Rule 7 is checked by `tools/int16check/int16check.sh` (Linux or WSL, after a web build; see `tools/README.md`): it compiles `src/game` for a CPU with a 16-bit `int` with all warnings as errors, then runs the game tests with every risky expression measured, and fails if one ever leaves the 16-bit range. Run it after changing game arithmetic.
+
 ## Documentation
 
-- ADR-0001: Stage 1 prototype in C99 with raylib behind a thin platform layer (not written yet)
-- ADR-0002: Old-school game loop and data layout, structured like the later SNES version (not written yet)
+- [ADR-0001](docs/adr/0001-c99-with-a-thin-platform-layer.md): the game in C99, with raylib behind a thin platform layer
+- [ADR-0002](docs/adr/0002-old-school-game-loop-and-data.md): an old-school game loop and data layout, as a SNES game has
 - [ADR-0003](docs/adr/0003-multikills-and-blasen.md): multikills and BLASEN letters as a bonus
 - [ADR-0004](docs/adr/0004-16-bit-look-with-snes-limits.md): a 16-bit look, held to SNES limits from stage 1
 - [ADR-0005](docs/adr/0005-stage-2-snes-compatibility-layer.md): stage 2 as a SNES compatibility layer, with a Dear ImGui debug view

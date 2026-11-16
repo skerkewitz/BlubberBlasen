@@ -110,7 +110,7 @@ typedef struct {
 #define BG_PAL_SHIFT   10
 #define BG_FLIP_X      0x4000u
 #define BG_FLIP_Y      0x8000u
-#define BG_ENTRY(tile, pal) ((uint16_t)((tile) | ((pal) << BG_PAL_SHIFT)))
+#define BG_ENTRY(tile, pal) ((uint16_t)((tile) | ((uint16_t)(pal) << BG_PAL_SHIFT)))
 
 /* The game's tile numbers in the tilemaps (8x8 tiles). video.c translates
  * them to the tiles it loaded into VRAM (font, the pages' tilesets, the logo). */

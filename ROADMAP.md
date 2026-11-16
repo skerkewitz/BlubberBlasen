@@ -15,7 +15,7 @@ halves, so that real 65816 measurements steer the second half instead of arrivin
 | Step | Goal | Status |
 |---|---|---|
 | 1 | Playable prototype on PC (C99 + raylib) | Done |
-| 2a | Data and limits shaped like the SNES | In progress: the game draws through the pseudo SNES; viewers, the 16-bit `int` check and two ADRs remain |
+| 2a | Data and limits shaped like the SNES | Done (2026-11-16) |
 | 3-spike | Game code compiled for the 65816 and measured | Planned |
 | 2b | Fix what the spike found, finish the pseudo SNES layer | Planned |
 | 3-POC | One complete room group running on SNES | Planned |
@@ -42,9 +42,11 @@ What, in this order:
   draws the picture line by line from that memory, with
   three background layers as in mode 1 (walls and platforms, background, HUD and text) and the
   sprite limits of 32 sprites and 272 px per line, so that overflows are visible on the PC.
-- VRAM, palette and OAM viewers as debug panels.
-- A check that the game code is correct with a 16-bit `int`, which is what 65816 compilers use.
-  Every place that relies on a 32-bit `int` is found and fixed.
+- Done: VRAM, palette and OAM viewers as debug panels, with the sprite-limit counts and the DMA
+  bytes per frame.
+- Done: a check that the game code is correct with a 16-bit `int`, which is what 65816 compilers
+  use (`tools/int16check`). It found no place that relies on a 32-bit `int`. It runs in Linux or
+  WSL next to the web build, not in the Windows CTest run.
 
 Done when the PC version draws everything through the new layer and the game code no longer
 knows about PNGs or tints, the art checker passes on
