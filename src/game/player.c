@@ -85,30 +85,16 @@ static uint8_t inside_wall(uint16_t x, uint16_t y)
     return (uint8_t)(level_solid_px(l, t) || level_solid_px(r, t) || level_solid_px(l, b) || level_solid_px(r, b));
 }
 
-/* L or R; both together (the keyboard's single dash key) mean: the held
- * direction, or the facing direction if none is held. */
-static int8_t dash_direction(const Player *p, uint16_t pad, uint16_t pressed)
-{
-    if ((pressed & (PAD_L | PAD_R)) == (PAD_L | PAD_R)) {
-        if (pad & PAD_LEFT) {
-            return -1;
-        }
-        if (pad & PAD_RIGHT) {
-            return 1;
-        }
-        return (int8_t)(p->facing_left ? -1 : 1);
-    }
-    return (int8_t)((pressed & PAD_L) ? -1 : 1);
-}
-
-static uint8_t try_dash(Player *p, uint16_t pad, uint16_t pressed)
+static uint8_t try_dash(Player *p, uint16_t pressed)
 {
     if (!g_opt.plus || p->carried) {
         return 0;
     }
-    if (pressed & (PAD_L | PAD_R)) {
+    /* L dashes left, R dashes right, whatever the D-pad holds and whichever
+     * way the player faces. Both in the same frame say nothing. */
+    if ((pressed & (PAD_L | PAD_R)) == PAD_L || (pressed & (PAD_L | PAD_R)) == PAD_R) {
         p->dash_buffer = DASH_BUFFER;
-        p->dash_buffer_dir = dash_direction(p, pad, pressed);
+        p->dash_buffer_dir = (int8_t)((pressed & PAD_L) ? -1 : 1);
     }
     if (!p->dash_buffer) {
         return 0;
@@ -555,7 +541,7 @@ void player_update(Player *p, uint16_t pad, uint16_t pressed)
         p->trail_pos = (uint8_t)((p->trail_pos + 1) & 7);
         p->trail_x[p->trail_pos] = PX(p->x);
         p->trail_y[p->trail_pos] = PX(p->y);
-        if (p->dash || try_dash(p, pad, pressed)) {
+        if (p->dash || try_dash(p, pressed)) {
             dash_move(p);
             enemies_dash_hit(p->x, p->y);
         } else {

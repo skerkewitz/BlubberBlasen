@@ -2134,7 +2134,7 @@ static void test_debug_switches(void)
 }
 
 /* Dash details: through inner walls (never ending inside one), the input
- * buffer and the single dash key. */
+ * buffer, and L / R as fixed directions. */
 static void test_dash_rules(void)
 {
     int f;
@@ -2168,14 +2168,22 @@ static void test_dash_rules(void)
     }
     CHECK(g_players[0].dash > 0, "a dash pressed a few frames early should still happen");
 
-    /* single dash key: L and R together = facing direction when no direction is held */
+    /* R dashes right while walking left and facing left, and keeps the facing */
     setup_room(0);
     g_opt.plus = 1;
     g_players[0].x = TO_POS(120);
     g_players[0].facing_left = 1;
-    player_update(&g_players[0], PAD_L | PAD_R, PAD_L | PAD_R);
-    CHECK(g_players[0].dash > 0 && g_players[0].dash_dir < 0, "the dash key dashes the way the player faces");
+    player_update(&g_players[0], PAD_LEFT | PAD_R, PAD_R);
+    CHECK(g_players[0].dash > 0 && g_players[0].dash_dir > 0, "R dashes right whatever the D-pad holds");
     CHECK(g_players[0].facing_left == 1, "and keeps the facing");
+
+    /* L dashes left while holding right */
+    setup_room(0);
+    g_opt.plus = 1;
+    g_players[0].x = TO_POS(120);
+    g_players[0].facing_left = 0;
+    player_update(&g_players[0], PAD_RIGHT | PAD_L, PAD_L);
+    CHECK(g_players[0].dash > 0 && g_players[0].dash_dir < 0, "L dashes left whatever the D-pad holds");
     g_opt.plus = 0;
 }
 

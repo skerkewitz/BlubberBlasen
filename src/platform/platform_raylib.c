@@ -337,9 +337,8 @@ static uint16_t read_keyboard(int player)
         if (IsKeyDown(KEY_U))            pad |= PAD_A;   /* vacuum (Plus) */
         if (IsKeyDown(KEY_H))            pad |= PAD_X;   /* push bubble (Plus) */
         if (IsKeyDown(KEY_V))            pad |= PAD_X;
-        if (IsKeyDown(KEY_Q))            pad |= PAD_L;
-        if (IsKeyDown(KEY_E))            pad |= PAD_R;
-        if (IsKeyDown(KEY_L))            pad |= PAD_L | PAD_R;   /* dash: held direction or facing */
+        if (IsKeyDown(KEY_Q))            pad |= PAD_L;   /* dash left (Plus)  */
+        if (IsKeyDown(KEY_E))            pad |= PAD_R;   /* dash right (Plus) */
         if (IsKeyDown(KEY_ENTER))        pad |= PAD_START;
         /* Either Shift: the browser build (Emscripten's GLFW) reports both as Left Shift. */
         if (IsKeyDown(KEY_RIGHT_SHIFT) || IsKeyDown(KEY_LEFT_SHIFT)) pad |= PAD_SELECT;
@@ -352,7 +351,8 @@ static uint16_t read_keyboard(int player)
         if (IsKeyDown(KEY_COMMA))        pad |= PAD_Y;   /* bubble */
         if (IsKeyDown(KEY_M))            pad |= PAD_X;   /* push bubble (Plus) */
         if (IsKeyDown(KEY_N))            pad |= PAD_A;   /* vacuum (Plus) */
-        if (IsKeyDown(KEY_SLASH))        pad |= PAD_L | PAD_R;   /* dash: held direction or facing */
+        if (IsKeyDown(KEY_L))            pad |= PAD_L;   /* dash left (Plus)  */
+        if (IsKeyDown(KEY_SLASH))        pad |= PAD_R;   /* dash right (Plus) */
         if (IsKeyDown(KEY_RIGHT_CONTROL)) pad |= PAD_START;
     }
     return pad;
@@ -375,10 +375,9 @@ static uint16_t read_gamepad(int index)
     if (IsGamepadButtonDown(index, GAMEPAD_BUTTON_RIGHT_FACE_LEFT))  pad |= PAD_Y;
     if (IsGamepadButtonDown(index, GAMEPAD_BUTTON_RIGHT_FACE_RIGHT)) pad |= PAD_A;
     if (IsGamepadButtonDown(index, GAMEPAD_BUTTON_RIGHT_FACE_UP))    pad |= PAD_X;
-    /* Both shoulder buttons (LB, RB) are the dash key: the held direction,
-     * else the facing one (like L on the keyboard). */
-    if (IsGamepadButtonDown(index, GAMEPAD_BUTTON_LEFT_TRIGGER_1))   pad |= PAD_L | PAD_R;
-    if (IsGamepadButtonDown(index, GAMEPAD_BUTTON_RIGHT_TRIGGER_1))  pad |= PAD_L | PAD_R;
+    /* The shoulder buttons are the SNES L and R: LB dashes left, RB right. */
+    if (IsGamepadButtonDown(index, GAMEPAD_BUTTON_LEFT_TRIGGER_1))   pad |= PAD_L;
+    if (IsGamepadButtonDown(index, GAMEPAD_BUTTON_RIGHT_TRIGGER_1))  pad |= PAD_R;
     if (IsGamepadButtonDown(index, GAMEPAD_BUTTON_MIDDLE_LEFT))      pad |= PAD_SELECT;
     if (IsGamepadButtonDown(index, GAMEPAD_BUTTON_MIDDLE_RIGHT))     pad |= PAD_START;
 
