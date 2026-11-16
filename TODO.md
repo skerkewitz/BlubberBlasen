@@ -23,9 +23,9 @@ come first.
   group's theme, and the rooms are reordered or rebuilt to match.
 
 - **A boss for every group.**
-  Now: there is one boss, the Grumble Boiler in round 100.
+  Now: there is one boss, Duke Grumble in round 100.
   Done when each group ends in a boss round, and each boss is beaten with the mechanic its group
-  taught (as the Boiler already needs lightning bubbles). The Grumble Boiler stays the last one.
+  taught (as the Duke already needs lightning bubbles). Duke Grumble stays the last one.
   Each boss has a test that beats it with scripted input, like the existing boss test.
 
 - **Restart after a beaten boss.**
@@ -79,7 +79,7 @@ come first.
   background, one enemy and the boss) before the other groups are started.
 
 - **Player and enemy sprites.**
-  Now: Blubber, Blasi, all eight enemies, the Soot Cloud and the boss are placeholder art drawn
+  Now: Mint, Neela, all eight enemies, Lord Smog and the boss are placeholder art drawn
   by a script (`assets/README.md`, "Where the files come from").
   Done when every character has its own drawn walk, jump, shoot, trapped and defeat frames in
   `sprites.png` within the style sheet, the provenance table lists them as our own work, and
@@ -101,7 +101,7 @@ come first.
   Now: the Blubber Blasen logo from the Java version, scaled to half size, above plain text
   ("SELECT: OPTIONS" and so on) on an empty background. It does not show the heroes, the town
   or the factory, and it does not move.
-  Done when the title screen has a composed picture (logo, Blubber and Blasi, a hint of the
+  Done when the title screen has a composed picture (logo, Mint and Neela, a hint of the
   factory), some movement (rising bubbles, blinking "PRESS START"), and a layout we both like.
   It has to fit the SNES limits: 256 × 224, 8 × 8 tiles, the BG layers and sprites.
 
@@ -134,15 +134,20 @@ come first.
 - **A better intro.**
   Now: the intro is three pages of text (`docs/story.md`, "Intro text") with a few sprites, up to
   6 s each. It tells the story but shows none of it.
-  Done when the intro shows Blasenhausen as a bright town that runs on bubbles, then the Grumble
-  Boiler taking over the factory and the town going grey, then Blubber and Blasi escaping. It
+  Done when the intro shows Blasenhausen as a bright town that runs on bubbles, then
+  Duke Grumble taking over the factory and the town going grey, then Mint and Neela escaping. It
   needs the town and factory art for that, stays skippable with Start, and `docs/story.md`
   describes the new scenes. The scene code is shared with the cut scenes between groups.
 
-- **Final character names.**
-  Now: Blubber and Blasi (and the enemy names in `docs/story.md`) are working names.
-  Done when the names are decided and used everywhere: story, intro, endings, BLASEN message
-  ("BLUBBER GETS AN EXTRA LIFE"), README, design guide, ADRs and the game code's text strings.
+- **Use the final character names everywhere.**
+  Decided 2026-11-16 (see `docs/story.md`): heroes **Mint** (player 1, green) and **Neela** (player 2,
+  blue, Mint's girlfriend); enemies Grumber, Riveter, Clinker, Pinger, Soot Moth, Boing, Cinder,
+  Hoist; Hurry Up chaser **Lord Smog**; final boss **Duke Grumble**. Player 2 stays blue; angry enemies
+  stay red. The Cinder is now red-purple, the Pinger yellow and the Boing orange (done in
+  `sprites.png`), so no enemy is red when calm and none is green or blue like the heroes.
+  Now: only `docs/story.md` uses them. The code, the BLASEN message ("BLUBBER GETS AN EXTRA LIFE"),
+  README, design guide and ADRs still use Blubber, Blasi, the old enemy names and the Grumble Boiler.
+  Done when the new names are used everywhere, including the game code's text strings.
 
 - **How-to-play screen.**
   Now: nothing in the game explains the mechanics. New players have to find out by themselves
