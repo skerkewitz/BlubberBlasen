@@ -273,6 +273,7 @@ static void enter_title(void)
             g_bg0[(r << 5) + c] = (uint16_t)(CHR_TITLE_BASE + (r << 5) + c);
         }
     }
+    video_title();   /* the rows are marked by bg_clear */
     text_put(8, 25, "HI", PAL_RED);
     text_digits(11, 25, hiscore_best(), 8, PAL_NONE);
     text_put(9, 26, "SELECT: OPTIONS", PAL_GREY);
@@ -1215,6 +1216,9 @@ static void build_oam(void)
 {
     uint8_t i;
     oam_count = 0;
+    for (i = 0; i < NUM_PLAYERS; i++) {
+        g_player_tint[i] = PAL_NONE;   /* player_draw sets it while a player flashes */
+    }
 
     if (g_state == GS_TRANSITION || g_state == GS_ROUND_INTRO || g_state == GS_PLAY || g_state == GS_PAUSE ||
         g_state == GS_ROUND_SKIP || g_state == GS_CONTINUE || g_state == GS_GAME_OVER) {
@@ -1254,6 +1258,7 @@ void game_init(uint16_t seed)
 {
     uint8_t i;
 
+    video_init();
     rng = seed ? seed : 0xACE1u;
     g_frame = 0;
     g_freeze = 0;
@@ -1422,6 +1427,7 @@ void game_tick(const uint16_t real_pad[NUM_PLAYERS])
     state_timer++;
     build_oam();
     build_windows();
+    video_frame(oam, windows);
 }
 
 

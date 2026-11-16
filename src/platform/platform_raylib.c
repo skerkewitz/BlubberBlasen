@@ -1,11 +1,11 @@
 /*
- * Platform layer for stage 1 (PC). The ONLY module allowed to use raylib.
+ * Platform layer (PC). The ONLY module allowed to use raylib.
  * Responsibilities: window, input -> SNES joypad word, fixed 60 Hz tick,
- * loading the 24-bit PNGs into "VRAM", rendering two tilemaps and the
- * sprite table into a 256x224 framebuffer, integer scaling, sound effects,
- * and keeping the save RAM in a file.
- *
- * Graphics convention for stage 1: 24-bit PNG, colour (255,0,255) is transparent.
+ * showing the picture of the pseudo SNES (src/snes renders it from what the
+ * game put into VRAM, CGRAM and OAM; ADR-0005), integer scaling, the retro
+ * TV filter, sound effects and music, and keeping the save RAM in a file.
+ * Graphics are compiled into the game (tools/gfx2c); only sounds and music
+ * are loaded from assets/.
  */
 
 #include <stdio.h>
@@ -15,6 +15,7 @@
 #include "raylib.h"
 #include "rlgl.h"       /* rlGetShaderIdDefault: detect a failed shader compile */
 #include "game/game.h"
+#include "snes/snes.h"
 
 #ifdef __EMSCRIPTEN__
 #include <emscripten/emscripten.h>
@@ -31,8 +32,6 @@
 #define TICK_HZ        60
 #define MAX_CATCHUP    4      /* max game ticks per rendered frame */
 #define STICK_DEADZONE 0.5f
-#define TILE           8
-#define CHR_COLS       32
 #define SAVE_FILE      "blubberblasen.sav"
 
 #ifndef BB_ASSET_DIR
@@ -40,9 +39,9 @@
 #endif
 
 static char      asset_root[1024];
-static Texture2D chr_bg;       /* 8x8 background tiles */
-static Texture2D chr_sprites;  /* 16x16 sprite cells   */
-static Texture2D chr_sprites_p2;  /* the same, player colours swapped (sprite palette PAL_P2) */
+static Texture2D snes_tex;     /* the pseudo SNES picture, 256 x 224 */
+static u16       snes_frame[SNES_W * SNES_H];
+static uint32_t  snes_rgba[SNES_W * SNES_H];
 static Sound     sounds[SFX_COUNT];
 static int       sound_loaded[SFX_COUNT];
 static Music     music[MUSIC_COUNT];
@@ -64,18 +63,6 @@ static const char *const sfx_files[SFX_COUNT] = {
     "dash", "UhHelpMe", "vacuum", "multikill"
 };
 
-/* Tints for the 8 "palettes" of stage 1. */
-static const Color palette[8] = {
-    { 255, 255, 255, 255 },   /* PAL_NONE   */
-    { 255,  80,  80, 255 },   /* PAL_RED    */
-    { 110, 255, 110, 255 },   /* PAL_GREEN  */
-    { 110, 220, 255, 255 },   /* PAL_CYAN   */
-    { 255, 230,  80, 255 },   /* PAL_YELLOW */
-    { 255, 130, 210, 255 },   /* PAL_PINK   */
-    { 255, 160,  60, 255 },   /* PAL_ORANGE */
-    { 150, 150, 150, 255 },   /* PAL_GREY   */
-};
-
 /* --- Assets --------------------------------------------------------------- */
 static void find_asset_root(void)
 {
@@ -93,84 +80,18 @@ static const char *asset_path(const char *rel)
     return TextFormat("%s/%s", asset_root, rel);
 }
 
-/* Load a PNG as RGBA with the magenta colour key turned transparent.
- * A missing file gives a transparent image of the given size. */
-static Image load_keyed_image(const char *rel, int fallback_w, int fallback_h)
-{
-    const char *path = asset_path(rel);
-    Image img;
-
-    if (!FileExists(path)) {
-        TraceLog(LOG_WARNING, "ASSETS: missing %s", path);
-        return GenImageColor(fallback_w, fallback_h, BLANK);
-    }
-    img = LoadImage(path);
-    ImageFormat(&img, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8);
-    ImageColorReplace(&img, (Color){ 255, 0, 255, 255 }, BLANK);
-    return img;
-}
-
-/* Copy one 8x8 tile from src into the CHR image at tile index dst_tile. */
-static void put_tile(Image *chr, const Image *src, int sx, int sy, int dst_tile)
-{
-    Rectangle s = { (float)sx, (float)sy, TILE, TILE };
-    Rectangle d = { (float)((dst_tile % CHR_COLS) * TILE), (float)((dst_tile / CHR_COLS) * TILE), TILE, TILE };
-    ImageDraw(chr, *src, s, d, WHITE);
-}
-
-/* Build the background "VRAM": font, tilesets and title logo in one texture,
- * at the tile numbers given by the CHR_* constants in game.h. */
-static Texture2D build_bg_chr(void)
-{
-    Image chr = GenImageColor(CHR_COLS * TILE, CHR_COLS * TILE, BLANK);
-    Image img;
-    Texture2D tex;
-    unsigned n;
-
-    img = load_keyed_image("gfx/font.png", 256, 16);
-    ImageDraw(&chr, img, (Rectangle){ 0, 0, (float)img.width, (float)img.height },
-              (Rectangle){ 0, 0, (float)img.width, (float)img.height }, WHITE);
-    UnloadImage(img);
-
-    for (n = 0; n < CHR_TILESET_COUNT; n++) {
-        int k;
-        img = load_keyed_image(TextFormat("gfx/tileset%02u.png", n + 1), 48, 24);
-        for (k = 0; k < 18 && k < (int)CHR_TILESET_STRIDE; k++) {
-            put_tile(&chr, &img, (k % 6) * TILE, (k / 6) * TILE, (int)(CHR_TILESET_BASE + n * CHR_TILESET_STRIDE) + k);
-        }
-        UnloadImage(img);
-    }
-
-    img = load_keyed_image("gfx/title.png", 256, 176);
-    ImageDraw(&chr, img, (Rectangle){ 0, 0, (float)img.width, (float)img.height },
-              (Rectangle){ 0, (float)((CHR_TITLE_BASE / CHR_COLS) * TILE), (float)img.width, (float)img.height }, WHITE);
-    UnloadImage(img);
-
-    tex = LoadTextureFromImage(chr);
-    UnloadImage(chr);
-    return tex;
-}
-
 static void load_assets(void)
 {
-    Image img;
     int i;
 
     find_asset_root();
-    chr_bg = build_bg_chr();
-    img = load_keyed_image("gfx/sprites.png", 256, 256);
-    chr_sprites = LoadTextureFromImage(img);
-    /* Player 2: the player's green ramp becomes a blue one (a palette swap,
-     * as on the SNES; only player cells are drawn with PAL_P2). */
+    snes_reset();   /* power on; game_init sets the picture up */
     {
-        static const Color from[4] = { { 16, 64, 24, 255 }, { 32, 140, 56, 255 }, { 64, 200, 80, 255 }, { 150, 240, 150, 255 } };
-        static const Color to[4]   = { { 16, 32, 88, 255 }, { 40, 80, 190, 255 }, { 70, 130, 240, 255 }, { 160, 200, 255, 255 } };
-        for (i = 0; i < 4; i++) {
-            ImageColorReplace(&img, from[i], to[i]);
-        }
-        chr_sprites_p2 = LoadTextureFromImage(img);
+        Image img = GenImageColor(SNES_W, SNES_H, BLACK);
+        snes_tex = LoadTextureFromImage(img);
+        UnloadImage(img);
+        SetTextureFilter(snes_tex, TEXTURE_FILTER_POINT);
     }
-    UnloadImage(img);
     for (i = 0; i < SFX_COUNT; i++) {
         sound_loaded[i] = 0;
     }
@@ -246,9 +167,7 @@ static void unload_assets(void)
             UnloadSound(sounds[i]);
         }
     }
-    UnloadTexture(chr_sprites);
-    UnloadTexture(chr_sprites_p2);
-    UnloadTexture(chr_bg);
+    UnloadTexture(snes_tex);
 }
 
 /* --- Save RAM -----------------------------------------------------------------
@@ -395,114 +314,18 @@ static uint16_t read_gamepad(int index)
 }
 
 /* --- Rendering ------------------------------------------------------------ */
-static void draw_cell(Texture2D tex, int index, int size, int x, int y, int flip_x, int flip_y, Color tint)
-{
-    int cols = tex.width / size;
-    Rectangle src;
-    src.x = (float)((index % cols) * size);
-    src.y = (float)((index / cols) * size);
-    src.width  = (float)(flip_x ? -size : size);
-    src.height = (float)(flip_y ? -size : size);
-    DrawTextureRec(tex, src, (Vector2){ (float)x, (float)y }, tint);
-}
-
-/* Draw a tilemap of `rows` rows, vertically scrolled by scroll_y pixels
- * (wrapping around), only below screen line window_top. */
-static void draw_bg(const uint16_t *map, int rows, int scroll_y, int window_top)
-{
-    int r, c;
-    int first_row = scroll_y / TILE;
-    int fine = scroll_y % TILE;
-
-    BeginScissorMode(0, window_top, SCREEN_W, SCREEN_H - window_top);
-    for (r = 0; r <= BG_H; r++) {
-        const uint16_t *line = &map[((first_row + r) % rows) * BG_W];
-        int y = r * TILE - fine;
-        for (c = 0; c < BG_W; c++) {
-            uint16_t e = line[c];
-            int tile = e & BG_TILE_MASK;
-            if (tile == 0) {
-                continue;
-            }
-            draw_cell(chr_bg, tile, TILE, c * TILE, y,
-                      (e & BG_FLIP_X) != 0, (e & BG_FLIP_Y) != 0, palette[(e >> BG_PAL_SHIFT) & 7]);
-        }
-    }
-    EndScissorMode();
-}
-
-/* Fill a window's span on every scanline with colour c in the current blend mode. */
-static void draw_window_spans(const ColorWindow *w, Color c)
-{
-    int y;
-    for (y = 0; y < SCREEN_H; y++) {
-        if (w->left[y] <= w->right[y]) {
-            DrawRectangle(w->left[y], y, w->right[y] - w->left[y] + 1, 1, c);
-        }
-    }
-}
-
-/* SNES colour math in windows: inside each window's span on every scanline
- * the window's colour is added to or subtracted from what layer 0 and the
- * backdrop drew (clamped), optionally halved (see ColorWindow in game.h).
- * Halving goes first and the colour is halved with it:
- * (bg +- c) / 2 = bg / 2 +- c / 2. Called between layer 0 and the sprites,
- * so sprites stay untouched. */
-static void draw_windows(const ColorWindow *w)
+/* The pseudo SNES draws the picture (BGR 5:5:5); here it becomes a texture.
+ * 5 to 8 bits like the SNES DAC: v << 3 | v >> 2. */
+static void draw_snes_picture(void)
 {
     int i;
-    for (i = 0; i < NUM_WINDOWS; i++) {
-        uint8_t r = w[i].add_r, g = w[i].add_g, b = w[i].add_b;
-        uint8_t half = (uint8_t)((w[i].math & CMATH_HALF) != 0);
-        Color c;
-        if (!r && !g && !b && !half) {
-            continue;
-        }
-        if (half) {
-            /* framebuffer * (1 - 128/255); alpha stays at 255, unlike BLEND_ALPHA */
-            rlSetBlendFactorsSeparate(RL_ZERO, RL_ONE_MINUS_SRC_ALPHA, RL_ZERO, RL_ONE, RL_FUNC_ADD, RL_FUNC_ADD);
-            BeginBlendMode(BLEND_CUSTOM_SEPARATE);
-            draw_window_spans(&w[i], (Color){ 0, 0, 0, 128 });
-            EndBlendMode();
-            r >>= 1;
-            g >>= 1;
-            b >>= 1;
-            if (!r && !g && !b) {
-                continue;
-            }
-        }
-        /* 5-bit to 8-bit like the SNES DAC: v << 3 | v >> 2 */
-        c.r = (unsigned char)((r << 3) | (r >> 2));
-        c.g = (unsigned char)((g << 3) | (g >> 2));
-        c.b = (unsigned char)((b << 3) | (b >> 2));
-        c.a = 255;
-        if (w[i].math & CMATH_SUB) {
-            /* framebuffer - colour (raylib's BLEND_SUBTRACT_COLORS is the other
-             * way round); alpha stays, or the frame would turn transparent here */
-            rlSetBlendFactorsSeparate(RL_ONE, RL_ONE, RL_ZERO, RL_ONE, RL_FUNC_REVERSE_SUBTRACT, RL_FUNC_ADD);
-            BeginBlendMode(BLEND_CUSTOM_SEPARATE);
-        } else {
-            BeginBlendMode(BLEND_ADDITIVE);
-        }
-        draw_window_spans(&w[i], c);
-        EndBlendMode();
+    snes_render(snes_frame);
+    for (i = 0; i < SNES_W * SNES_H; i++) {
+        uint32_t c = snes_frame[i], r = c & 31, g = (c >> 5) & 31, b = (c >> 10) & 31;
+        snes_rgba[i] = 0xFF000000u | ((b << 3 | b >> 2) << 16) | ((g << 3 | g >> 2) << 8) | (r << 3 | r >> 2);
     }
-}
-
-static void draw_sprites(const Sprite *oam)
-{
-    int i;
-    /* Lower index = higher priority on SNES, so draw back-to-front. */
-    for (i = MAX_SPRITES - 1; i >= 0; i--) {
-        const Sprite *s = &oam[i];
-        if (s->y >= SCREEN_H) {
-            continue;
-        }
-        int pal = (s->attr & SPR_ATTR_PAL_MASK) >> SPR_ATTR_PAL_SHIFT;
-        draw_cell(pal == PAL_P2 ? chr_sprites_p2 : chr_sprites, s->tile, SPRITE_SIZE, s->x, s->y,
-                  (s->attr & SPR_ATTR_FLIP_X) != 0, (s->attr & SPR_ATTR_FLIP_Y) != 0,
-                  pal == PAL_P2 ? WHITE : palette[pal]);
-    }
+    UpdateTexture(snes_tex, snes_rgba);
+    DrawTexture(snes_tex, 0, 0, WHITE);
 }
 
 static void play_sounds(uint32_t mask)
@@ -1557,6 +1380,7 @@ static uint32_t game_step(void)
         shown_pad[0] = pad[0];
         shown_pad[1] = pad[1];
         game_tick(pad);
+        snes_vblank();   /* the frame is done: OAM shadow to OAM */
         if (replay_after_tick(&player, (uint32_t)ticks_total) && !desync_said) {
             desync_said = 1;
             TraceLog(LOG_WARNING, "REPLAY: drifted apart at tick %ld (the game changed since the recording)", ticks_total);
@@ -1586,6 +1410,7 @@ static uint32_t game_step(void)
     }
 #endif
     game_tick(pad);
+    snes_vblank();   /* the frame is done: OAM shadow to OAM */
 #ifdef BB_REPLAY
     if (recording) {
         replay_write_tick(&rec, (uint32_t)ticks_total, pad);
@@ -1680,10 +1505,7 @@ static int frame(void)
     /* Render into the 256x224 "SNES" framebuffer. */
     BeginTextureMode(fb);
     ClearBackground(BLACK);
-    draw_bg(game_bg(0), BG0_ROWS, game_bg_scroll_y(), game_bg_window_top());
-    draw_windows(game_windows());
-    draw_sprites(game_oam());
-    draw_bg(game_bg(1), BG_H, 0, 0);
+    draw_snes_picture();
 #ifdef BB_DEBUG
     debug_overlays();
 #endif

@@ -18,6 +18,7 @@ void bg_clear(uint8_t layer)
             g_bg1[i] = 0;
         }
     }
+    bg_mark_all(layer);
 }
 
 static uint16_t char_tile(char c)
@@ -35,6 +36,7 @@ static uint16_t char_tile(char c)
 void text_put(uint8_t col, uint8_t row, const char *s, uint8_t pal)
 {
     uint16_t *dst = &g_bg1[((uint16_t)row << 5) + col];
+    bg_mark_row(1, row);
     while (*s && col < BG_W) {
         uint16_t t = char_tile(*s++);
         *dst++ = t ? BG_ENTRY(t, pal) : 0u;
@@ -46,6 +48,7 @@ void text_clear_row(uint8_t row)
 {
     uint16_t *dst = &g_bg1[(uint16_t)row << 5];
     uint8_t i;
+    bg_mark_row(1, row);
     for (i = 0; i < BG_W; i++) {
         dst[i] = 0;
     }
@@ -58,6 +61,7 @@ void text_digits(uint8_t col, uint8_t row, const uint8_t *digits, uint8_t n, uin
     uint8_t leading = 1;
     uint8_t i;
 
+    bg_mark_row(1, row);
     for (i = 0; i < n; i++) {
         uint8_t d = digits[i];
         if (d != 0 || i == n - 1) {

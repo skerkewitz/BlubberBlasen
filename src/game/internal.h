@@ -301,6 +301,19 @@ uint8_t  level_gap_ahead(uint16_t x, uint16_t y, int8_t dir);
 void     level_opening(uint16_t *x, uint16_t *y);  /* where special bubbles enter */
 uint8_t  level_can_gap_jump(uint16_t x, uint16_t y, int8_t dir);
 
+/* --- video.c: the frame on the (pseudo) SNES --------------------------------- */
+void     video_init(void);
+void     video_frame(const Sprite *oam, const ColorWindow *windows);   /* once per tick */
+void     video_tileset(uint8_t page, uint8_t tileset);   /* level_load: the page's room tiles */
+void     video_title(void);                              /* the title logo's tiles */
+void     bg_mark_row(uint8_t layer, uint8_t row);        /* a map row changed: copy it to VRAM */
+void     bg_mark_all(uint8_t layer);
+extern uint8_t g_player_tint[NUM_PLAYERS];   /* PAL_NONE, PAL_YELLOW, PAL_ORANGE: a player's flash */
+#ifdef BB_DEBUG
+extern uint16_t g_video_missing;             /* sprites drawn whose cell is not in the sprite sheet */
+uint16_t video_check_maps(void);             /* VRAM map entries that differ from g_bg0 / g_bg1 */
+#endif
+
 /* --- text.c ----------------------------------------------------------------- */
 void     bg_clear(uint8_t layer);
 void     text_put(uint8_t col, uint8_t row, const char *s, uint8_t pal);

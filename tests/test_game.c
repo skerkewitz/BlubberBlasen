@@ -13,6 +13,8 @@
 #include <string.h>
 
 #include "game/internal.h"
+#include "gfx_data.h"
+#include "snes/snes.h"
 
 static int failures;
 static unsigned long trace;   /* BB_TRACE=<n>: print state every n frames */
@@ -2628,6 +2630,163 @@ static void test_hitboxes_match_touch(void)
     }
 }
 
+/* --- The picture on the pseudo SNES (src/game/video.c) ------------------------------ */
+static u16 pic_a[SNES_W * SNES_H], pic_b[SNES_W * SNES_H];
+
+static u16 math_pixel(u16 c, uint8_t r, uint8_t g, uint8_t b, uint8_t sub, uint8_t half)
+{
+    int ch[3], add[3], k;
+    ch[0] = c & 31; ch[1] = (c >> 5) & 31; ch[2] = (c >> 10) & 31;
+    add[0] = r; add[1] = g; add[2] = b;
+    for (k = 0; k < 3; k++) {
+        int v = sub ? ch[k] - add[k] : ch[k] + add[k];
+        if (v < 0) v = 0;
+        if (half) v >>= 1;
+        if (v > 31) v = 31;
+        ch[k] = v;
+    }
+    return (u16)(ch[0] | (ch[1] << 5) | (ch[2] << 10));
+}
+
+/* The game's colour windows on the picture: render it, and again without
+ * colour math. Outside the windows nothing may change; inside, a pixel is
+ * either untouched (a sprite or text) or changed exactly by the window's
+ * colour. Returns the number of changed pixels, -1 on a wrong one. */
+static int window_effect(void)
+{
+    const ColorWindow *w = game_windows();
+    uint8_t r = 0, g = 0, b = 0, math = 0, i;
+    int x, y, changed = 0;
+    for (i = 0; i < NUM_WINDOWS; i++) {
+        if (w[i].add_r || w[i].add_g || w[i].add_b || (w[i].math & CMATH_HALF)) {
+            if (w[i].add_r > r) r = w[i].add_r;
+            if (w[i].add_g > g) g = w[i].add_g;
+            if (w[i].add_b > b) b = w[i].add_b;
+            math = w[i].math;
+        }
+    }
+    snes_vblank();
+    snes_render(pic_a);
+    setColorEffect(CM_NEVER_ENABLE, 0);
+    snes_render(pic_b);
+    for (y = 0; y < SNES_H; y++) {
+        for (x = 0; x < SNES_W; x++) {
+            u16 a = pic_a[y * SNES_W + x], o = pic_b[y * SNES_W + x];
+            int inside = 0;
+            for (i = 0; i < NUM_WINDOWS; i++) {
+                inside |= x >= w[i].left[y] && x <= w[i].right[y] &&
+                          (w[i].add_r || w[i].add_g || w[i].add_b || (w[i].math & CMATH_HALF));
+            }
+            if (a == o) continue;
+            if (!inside || a != math_pixel(o, r, g, b, math & CMATH_SUB, math & CMATH_HALF)) {
+                printf("  pixel %d,%d: %04x, without colour math %04x, inside a window: %d\n", x, y, a, o, inside);
+                return -1;
+            }
+            changed++;
+        }
+    }
+    return changed;
+}
+
+static void test_video_round_intro_box(void)
+{
+    int n;
+    start_at_round(16, 0);
+    CHECK(run_until(GS_ROUND_INTRO, 900), "round 16 did not show its intro");
+    run_until(GS_PLAY, 30);   /* a few frames into the intro: the box is up */
+    CHECK(g_state == GS_ROUND_INTRO, "still in the intro");
+    n = window_effect();
+    CHECK(n > 100, "the box darkens the room behind the round text (%d pixels changed)", n);
+}
+
+static void test_video_vacuum_glow(void)
+{
+    uint16_t pad[NUM_PLAYERS] = { PAD_A, 0 };
+    int n, f;
+    start_at_round(4, 0);
+    CHECK(run_until(GS_PLAY, 900), "round 4 did not start");
+    g_opt.plus = 1;
+    game_tick(pad);
+    pad[0] = 0;
+    for (f = 0; f < 40; f++) {
+        g_players[0].invulnerable = 200;
+        game_tick(pad);
+    }
+    n = window_effect();
+    CHECK(n > 100, "the vacuum glow brightens the room (%d pixels changed)", n);
+    g_opt.plus = 0;
+}
+
+/* The SNES palette (OAM attribute bits 1..3) of the sprite the game drew at x, y. */
+static int oam_palette_at(uint8_t x, uint8_t y)
+{
+    const u8 *o;
+    int i;
+    snes_vblank();
+    o = snes_oam();
+    for (i = 0; i < 128; i++) {
+        if (o[i * 4] == x && o[i * 4 + 1] == (uint8_t)(y - 1)) {
+            return (o[i * 4 + 3] >> 1) & 7;
+        }
+    }
+    return -1;
+}
+
+static void test_video_palettes(void)
+{
+    uint16_t pad[NUM_PLAYERS] = { 0, 0 };
+    Enemy *e = 0;
+    int i;
+    start_at_round(16, 1);
+    CHECK(run_until(GS_PLAY, 900), "round 16 did not start");
+    for (i = 0; i < MAX_ENEMIES; i++) {
+        if (g_enemies[i].active && g_enemies[i].type != ENEMY_TYPE_WALKER) {
+            e = &g_enemies[i];   /* walkers have their own angry graphics; the others are tinted */
+            break;
+        }
+    }
+    CHECK(e != 0, "round 16 has an enemy that is not a walker");
+    if (!e) return;
+    g_players[0].invulnerable = g_players[1].invulnerable = 0;   /* no blinking */
+    game_tick(pad);
+    CHECK(oam_palette_at(PX(g_players[0].x), PX(g_players[0].y)) == 0, "player 1: palette 0");
+    CHECK(oam_palette_at(PX(g_players[1].x), PX(g_players[1].y)) == 1, "player 2: palette 1");
+    CHECK(oam_palette_at(PX(e->x), PX(e->y)) == 4, "an enemy: palette 4, got %d", oam_palette_at(PX(e->x), PX(e->y)));
+    e->angry = 1;
+    game_tick(pad);
+    CHECK(oam_palette_at(PX(e->x), PX(e->y)) == 5, "an angry enemy: palette 5 (red copy)");
+    g_freeze = 100;
+    game_tick(pad);
+    CHECK(oam_palette_at(PX(e->x), PX(e->y)) == 6, "a frozen enemy: palette 6");
+    CHECK(snes_cgram()[128 + 6 * 16 + 1] == gfx_pal_enemies[gfx_level_sheet[15]][GFX_TINT_GREY][1],
+          "palette 6 holds the grey copy of the enemies");
+    g_freeze = 0;
+}
+
+/* Over a long run through title, story, rounds, game overs and the high
+ * score table: the VRAM maps always match the game's maps (every write is
+ * marked), and every sprite the game draws is in the loaded sheet. */
+static void test_video_consistency(void)
+{
+    uint16_t pad[NUM_PLAYERS] = { 0, 0 };
+    uint32_t f;
+    uint16_t worst = 0;
+    game_debug_skip_story(0);
+    game_init(99);
+    g_video_missing = 0;
+    for (f = 0; f < 60u * 60u * 6u; f++) {
+        pad[0] = (uint16_t)((f % 90) < 3 ? PAD_START : (f / 40) % 3 == 0 ? PAD_LEFT | PAD_Y : (f / 40) % 3 == 1 ? PAD_RIGHT | PAD_B : PAD_Y);
+        game_tick(pad);
+        if (f % 7 == 0) {
+            uint16_t bad = video_check_maps();
+            if (bad > worst) worst = bad;
+        }
+    }
+    game_debug_skip_story(1);
+    CHECK(worst == 0, "VRAM maps differed from the game's maps (%u entries): a write was not marked", worst);
+    CHECK(g_video_missing == 0, "%u sprites were drawn with a cell that is not in the sprite sheet", g_video_missing);
+}
+
 static void test_debug_goto_round(void)
 {
     DebugObject objs[64];
@@ -2715,6 +2874,10 @@ int main(void)
     test_debug_switches();
     test_debug_goto_round();
     test_hitboxes_match_touch();
+    test_video_round_intro_box();
+    test_video_vacuum_glow();
+    test_video_palettes();
+    test_video_consistency();
     test_cpu_rooms();
     test_determinism_and_play();
 

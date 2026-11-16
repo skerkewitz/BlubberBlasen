@@ -3,9 +3,12 @@
 
 /*
  * Interface between the portable game code and the platform layer.
- * Shaped like the SNES: joypad words in; sprite table, two tilemaps and
- * sound requests out; one tick per frame.
- * This header must never include platform headers (raylib etc.).
+ * Joypad words in, one tick per frame. The picture goes out through the
+ * pseudo SNES (snes/snes.h): each tick ends with video.c writing OAM, VRAM,
+ * CGRAM and the registers, and the platform lets the pseudo SNES render it.
+ * The game's own description of the frame (sprite table, tilemaps, colour
+ * windows below) stays readable here for replay checksums and debugging.
+ * Sound requests out. This header must never include platform headers.
  */
 
 #include <stdint.h>
@@ -33,12 +36,12 @@
 
 #define NUM_PLAYERS 2
 
-/* --- Palettes ---------------------------------------------------------------
- * Stage 1 uses 24-bit graphics. A "palette" is a tint the platform multiplies
- * the graphic with; palette 0 leaves the graphic unchanged.
- * One exception, like a real palette: sprite palette 3 (PAL_P2) is player
- * 2's colours: the platform swaps the player's green for blue instead of
- * tinting. On the background, palette 3 is the cyan tint. */
+/* --- Logical palettes ----------------------------------------------------------
+ * The game names colours by what they mean; video.c picks the SNES palette
+ * (ADR-0006). Sprites: PAL_NONE as drawn, PAL_P2 player 2's colours, PAL_RED
+ * the red copy (angry), PAL_GREY the grey copy (frozen, afterimages, the sad
+ * ending), PAL_YELLOW / PAL_ORANGE a flash. Text: each PAL_* is a text colour
+ * (BG3 palette of the same number). */
 #define PAL_NONE   0u
 #define PAL_RED    1u
 #define PAL_GREEN  2u
@@ -68,10 +71,12 @@ typedef struct {
 
 /* --- Colour windows (SNES windows + colour math) -------------------------------
  * Up to NUM_WINDOWS shapes, each a left and right edge per scanline (on the
- * SNES an HDMA table for the window registers). Inside a window the platform
- * adds a colour to the background layer 0 and the backdrop, not to sprites or
- * layer 1 (colour math enabled for BG1 and the backdrop only). On a line with
- * left > right the window is empty.
+ * SNES an HDMA table for the window registers, which video.c builds). Inside
+ * a window the colour is added to the background layer 0 and the backdrop,
+ * not to sprites or layer 1 (colour math enabled for BG1 and the backdrop
+ * only). On a line with left > right the window is empty. The SNES has one
+ * fixed colour for the screen: when both windows are on, both use the
+ * stronger of their colours.
  * `math` picks the SNES colour math mode (CGADSUB bits 7 and 6):
  *   0                        bg + colour
  *   CMATH_SUB                bg - colour (clamped at 0)
@@ -107,8 +112,8 @@ typedef struct {
 #define BG_FLIP_Y      0x8000u
 #define BG_ENTRY(tile, pal) ((uint16_t)((tile) | ((pal) << BG_PAL_SHIFT)))
 
-/* Background CHR layout (8x8 tiles, 32 per row, 1024 tiles = 256x256 px).
- * The platform builds this "VRAM" from the PNG files in assets/gfx. */
+/* The game's tile numbers in the tilemaps (8x8 tiles). video.c translates
+ * them to the tiles it loaded into VRAM (font, the pages' tilesets, the logo). */
 #define CHR_FONT_BASE        0u     /* ASCII 32..95 -> tiles 0..63           */
 #define CHR_TILESET_BASE     64u    /* tileset n (0..7): 32 tiles from here  */
 #define CHR_TILESET_STRIDE   32u

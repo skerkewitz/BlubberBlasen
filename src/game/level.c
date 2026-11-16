@@ -250,6 +250,7 @@ void level_load(uint8_t index, uint8_t page)
     base = (uint16_t)(CHR_TILESET_BASE + ((uint16_t)ts << 5));
 
     cells = level_defs[index].cells;
+    video_tileset(page, ts);
 
     {
         uint16_t *dst = &g_bg0[(uint16_t)(page * PAGE_ROWS) << 5];
@@ -257,6 +258,9 @@ void level_load(uint8_t index, uint8_t page)
         for (i = 0; i < BG_W * PAGE_ROWS; i++) {
             dst[i] = 0;
         }
+    }
+    for (y = 0; y < PAGE_ROWS; y++) {
+        bg_mark_row(0, (uint8_t)(page * PAGE_ROWS + y));
     }
     for (y = 0; y < LEVEL_H; y++) {
         uint16_t *row = &g_bg0[(uint16_t)(page * PAGE_ROWS + y + HUD_ROWS) << 5];

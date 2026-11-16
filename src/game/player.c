@@ -598,12 +598,16 @@ void player_draw(const Player *p)
         if (p->invulnerable && (p->invulnerable & 4)) {
             return;   /* blink */
         }
-        if (p->dash) {
+        if (p->dash && ((g_frame >> 1) & 1)) {
             /* dashing: bright flash */
-            attr = (uint8_t)((attr & (0xFFu ^ SPR_ATTR_PAL_MASK)) | (((g_frame >> 1) & 1 ? PAL_YELLOW : PAL_NONE) << SPR_ATTR_PAL_SHIFT));
+            attr = (uint8_t)((attr & (0xFFu ^ SPR_ATTR_PAL_MASK)) | (PAL_YELLOW << SPR_ATTR_PAL_SHIFT));
+            g_player_tint[p->id] = PAL_YELLOW;
+        } else if (p->dash) {
+            attr = (uint8_t)(attr & (0xFFu ^ SPR_ATTR_PAL_MASK));
         }
         if (p->stun) {
             attr = (uint8_t)((attr & (0xFFu ^ SPR_ATTR_PAL_MASK)) | (PAL_ORANGE << SPR_ATTR_PAL_SHIFT));
+            g_player_tint[p->id] = PAL_ORANGE;
         }
         if (p->shoot_pose) {
             tile = SPR_P_SHOOT;

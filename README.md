@@ -28,8 +28,8 @@ The game has a version number `major.minor.revision`. It is set in one place, `G
 - **Platform layer:** raylib, used **only** in `src/platform/`. Game code never includes `raylib.h` (ADR-0001, not written yet).
 - **SNES-shaped interface** between game and platform:
   - Input: one 16-bit button word per player per frame (SNES joypad bit layout).
-  - Output: a shadow sprite table (OAM-like, 16 × 16 sprites), two colour windows (a left and right edge per scanline with a colour added inside, like SNES windows with colour math) and two 8 × 8 tilemaps, rendered into a 256 × 224 framebuffer and scaled to the window. Layer 0 (level, below the sprites) is 32 × 64 tiles, scrolls vertically and has a window line so it never shows behind the HUD; layer 1 (text, above the sprites) is fixed.
-  - Graphics (stage 1): 24-bit PNGs, magenta = transparent. A "palette" is a tint for now. See [assets/README.md](assets/README.md).
+  - Output: the game describes each frame as a sprite list (16 × 16 cells with logical palettes), two colour windows (a left and right edge per scanline with a colour inside) and two 8 × 8 tilemaps: layer 0 (room or title, 32 × 64 tiles, scrolls vertically, only shown below the HUD) and layer 1 (text, fixed). `src/game/video.c` turns that into what the SNES needs, through PVSnesLib-shaped functions: OAM entries, VRAM map rows, palettes, HDMA tables for the windows and colour math. The pseudo SNES (`src/snes`) renders the 256 × 224 picture from it; the platform scales it to the window (ADR-0005).
+  - Graphics: 24-bit PNGs (magenta = transparent) converted at build time into SNES tiles and palettes by `tools/gfx2c`, which checks the SNES limits. See [assets/README.md](assets/README.md).
   - Audio: sound effects requested by ID (one bit per effect per tick) and one music track ID; the platform streams the track.
   - Save RAM: 128 bytes (high score table in the first 64, options from byte 64) that the platform keeps in a file, like a battery-backed cartridge.
   - Time: the game is ticked exactly once per frame at 60 Hz.

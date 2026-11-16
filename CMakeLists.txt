@@ -71,6 +71,7 @@ set_target_properties(gfxdata PROPERTIES C_EXTENSIONS OFF)
 file(GLOB_RECURSE GAME_SOURCES CONFIGURE_DEPENDS src/game/*.c)
 add_library(game STATIC ${GAME_SOURCES} ${LEVEL_DATA_C})
 target_include_directories(game PUBLIC src)
+target_link_libraries(game PUBLIC snes gfxdata)   # the game draws through the pseudo SNES (ADR-0005)
 set_target_properties(game PROPERTIES C_EXTENSIONS OFF)
 
 # Debug switches (src/game/debug.c, dev command-line options). On for
@@ -139,7 +140,7 @@ endif()
 
 if(EMSCRIPTEN)
     # Web: a page with the game, the assets packed into blubberblasen.data at /assets.
-    # Level sources are compiled in, so they stay out; so does the unused ambient track.
+    # Levels and graphics are compiled in, so their sources stay out; so does the unused ambient track.
     set_target_properties(blubberblasen PROPERTIES SUFFIX ".html")
     target_compile_definitions(blubberblasen PRIVATE BB_ASSET_DIR="/assets")
     target_link_options(blubberblasen PRIVATE
@@ -154,6 +155,7 @@ if(EMSCRIPTEN)
         "SHELL:--exclude-file *.map"
         "SHELL:--exclude-file *.txt"
         "SHELL:--exclude-file *.md"
+        "SHELL:--exclude-file *.png"   # graphics are compiled in (gfx2c)
         "SHELL:--exclude-file *guarded-stillness*"
         "SHELL:--shell-file ${PROJECT_SOURCE_DIR}/web/shell.html")
     set_property(TARGET blubberblasen APPEND PROPERTY LINK_DEPENDS ${PROJECT_SOURCE_DIR}/web/shell.html)

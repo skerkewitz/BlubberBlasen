@@ -2,7 +2,7 @@
 
 Everything the game loads at runtime (graphics, sound) or converts at build time (levels).
 
-Graphics are plain **24-bit PNG** files, and the colour **magenta (255, 0, 255) is transparent**. The platform layer still loads them at startup for drawing; the build also converts them into SNES tiles and palettes with `tools/gfx2c` (settings in `gfx/gfx.txt`, see `tools/README.md`), which the game will draw from (ADR-0005).
+Graphics are plain **24-bit PNG** files, and the colour **magenta (255, 0, 255) is transparent**. The build converts them into SNES tiles and palettes with `tools/gfx2c` (settings in `gfx/gfx.txt`, see `tools/README.md`), and the game draws from that data through the pseudo SNES (ADR-0005); the PNGs themselves are not loaded at run time and not shipped with the web build.
 
 ### SNES limits for all art (ADR-0004, ADR-0006)
 

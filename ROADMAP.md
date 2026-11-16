@@ -15,7 +15,7 @@ halves, so that real 65816 measurements steer the second half instead of arrivin
 | Step | Goal | Status |
 |---|---|---|
 | 1 | Playable prototype on PC (C99 + raylib) | Done |
-| 2a | Data and limits shaped like the SNES | In progress: debug view, pseudo SNES library and graphics tool done |
+| 2a | Data and limits shaped like the SNES | In progress: the game draws through the pseudo SNES; viewers, the 16-bit `int` check and two ADRs remain |
 | 3-spike | Game code compiled for the 65816 and measured | Planned |
 | 2b | Fix what the spike found, finish the pseudo SNES layer | Planned |
 | 3-POC | One complete room group running on SNES | Planned |
@@ -31,13 +31,12 @@ What, in this order:
 - Done: the Dear ImGui debug view (ADR-0005, point 7): one window with docked panels, desktop
   debug builds only (README, *Debug view*). It comes first because it helps in stage 1 already and makes the rest of this step
   easier to check.
-- Done as a library, not yet used by the game: the frontend with SNES-shaped memory and a
-  PVSnesLib-like API (`src/snes`): VRAM (64 KB), CGRAM (256 colours), OAM (128 sprites),
-  registers and HDMA.
-- Done, not yet used by the game: graphics compiled into the program. `gfx2c` turns the PNGs into
-  4 bpp tiles and 15-bit palettes, with no asset over 32 KB, and one sprite sheet per room group
-  within 128 cells of 16 × 16 (ADR-0006). Still to do: the platform stops loading PNGs and tinting
-  them.
+- Done: the frontend with SNES-shaped memory and a PVSnesLib-like API (`src/snes`): VRAM
+  (64 KB), CGRAM (256 colours), OAM (128 sprites), registers and HDMA. The game draws through it
+  (`src/game/video.c`).
+- Done: graphics compiled into the program. `gfx2c` turns the PNGs into 4 bpp tiles and 15-bit
+  palettes, with no asset over 32 KB, and one sprite sheet per room group within 128 cells of
+  16 × 16 (ADR-0006). The platform no longer loads PNGs or tints anything.
 - Done: the art checker from ADR-0004, as part of `gfx2c`.
 - Done in the same library, tested headless (`tests/test_snes.c`): a software renderer that
   draws the picture line by line from that memory, with
