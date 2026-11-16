@@ -10,11 +10,13 @@ The project is built in three stages:
 
 | Stage | Goal | Status |
 |-------|------|--------|
-| 1 | Playable prototype on PC (C99 + raylib) | In progress: playable version (100 rounds, boss, secret room, title, game over, high scores) |
-| 2 | Split into game code and a "pseudo SNES" layer with a SNES-like API (sprites, tilemaps, palettes, memory layout) | Planned |
-| 3 | Port to real SNES hardware (65816 C compiler and/or assembly) | Planned |
+| 1 | Playable prototype on PC (C99 + raylib) | Done: playable version (100 rounds, boss, secret room, title, game over, high scores) |
+| 2 | Split into game code and a "pseudo SNES" layer with a SNES-like API (sprites, tilemaps, palettes, memory layout) | Next |
+| 3 | Port to real SNES hardware (65816 C compiler and/or assembly) | Planned, starting with a measuring spike during stage 2 |
 
 The game code is written from day one so that it survives all three stages with minimal rewriting. See the architecture decisions below.
+
+The steps in detail, including the stage 3 spike between the two halves of stage 2, are in [ROADMAP.md](ROADMAP.md). What a finished game still needs beyond that (art, story scenes, round structure, difficulty, options) is in [GAME-TODO.md](GAME-TODO.md).
 
 ### Version
 
@@ -310,6 +312,8 @@ grep -rnE 'raylib\.h|\bfloat\b|\bdouble\b|\b(malloc|calloc|realloc|free)\s*\(' s
 - ADR-0001: Stage 1 prototype in C99 with raylib behind a thin platform layer (not written yet)
 - ADR-0002: Old-school game loop and data layout, structured like the later SNES version (not written yet)
 - [ADR-0003](docs/adr/0003-multikills-and-blasen.md): multikills and BLASEN letters as a bonus
+- [ADR-0004](docs/adr/0004-16-bit-look-with-snes-limits.md): a 16-bit look, held to SNES limits from stage 1
+- [ADR-0005](docs/adr/0005-stage-2-snes-compatibility-layer.md): stage 2 as a SNES compatibility layer, with a Dear ImGui debug view
 - [Game Design Guide](docs/Blubber%20Blasen%20–%20Game%20Design%20Guide.md): the game we are building, Plus and Classic mode, and where it differs from the original
 - [Bubble Bobble (Arcade) – Game Design Reference Guide](docs/Bubble%20Bobble%20(Arcade)%20–%20Game%20Design%20Reference%20Guide.md): how the arcade original works, as reference
 - [Story](docs/story.md): the Blubber Factory, heroes, floors, secret rooms, boss and endings

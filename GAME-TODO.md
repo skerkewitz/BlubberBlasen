@@ -68,14 +68,20 @@ come first.
 
 ## Graphics
 
+- **Indexed graphics and an art checker.**
+  Now: graphics are 24-bit PNGs and a "palette" is a tint, so nothing stops art from breaking the
+  SNES limits (ADR-0004).
+  Done when the asset pipeline loads palettes as data and tiles that refer to them, and a checker
+  in the build fails when a background tile uses more than one palette or more than 15 colours, a
+  room needs more than 6 background palettes, a colour is off the 5-bit grid, or sprites exceed
+  their budget. It reports the unique tiles per room. Needed before final art is drawn.
+
 - **Art style sheet.**
-  Now: there is no agreed style. A "palette" is only a tint over 24-bit PNGs, so nothing stops
-  final art from using colours the SNES cannot show.
-  Done before any final art is drawn: a short document fixes the SNES limits (15-bit colour,
-  16 colours per palette, 8 sprite palettes, 128 sprites and 32 per scanline), the brightness
-  order (players and bubbles brightest, enemies next, room tiles in the middle, background
-  darkest), one palette per round group for rooms and background, and the outline and shading
-  style of the characters. It is tried out by drawing one group completely (a room, the
+  Now: the target look, the SNES limits, the palette budget and the readability rules are fixed
+  (ADR-0004, design guide "Readability and art limits"). The drawing style is not: outlines,
+  shading and proportions of the characters at 16 × 16 px.
+  Done before any final art is drawn: a short document fixes the outline and shading style of the
+  characters and one palette set per round group for rooms and background. It is tried out by drawing one group completely (a room, the
   background, one enemy and the boss) before the other groups are started.
 
 - **Player and enemy sprites.**

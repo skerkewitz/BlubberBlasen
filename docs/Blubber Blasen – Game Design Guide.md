@@ -34,6 +34,31 @@ A round is a `.map` file from the level editor (solid tiles, air direction per t
 
 Solid tiles are one-way from below: players and enemies jump up through platforms and land on top. The side walls are always solid. Gaps in the bottom row let anything fall through and come back in at the top.
 
+## Readability and art limits
+
+The player must see at a glance what is solid, what is dangerous and what can be picked up. Every room, background and sprite is drawn to these rules, and the SNES limits behind them are fixed in [ADR-0004](adr/0004-16-bit-look-with-snes-limits.md).
+
+**Brightness order**, brightest first: players and bubbles, enemies and items, walls and platforms, background. Saturated colours are only for things that move or can be picked up.
+
+**Solid tiles**
+- Walls and platforms are on BG1 and clearly brighter and warmer than the background (for example copper or brass against blue-grey).
+- Every platform has a light edge of 1–2 px on its top: a light edge means "you can stand here". Shadow tiles below and to the right of solid tiles separate them from the background.
+- Platforms are one tile (8 px) thick and keep to the grid. One tile style per room, so every platform in it looks the same.
+- Nothing lies on a platform that looks solid unless it is solid.
+
+**Background**
+- On BG2, dark (roughly 30–40 % brightness), low contrast, desaturated.
+- Large, calm shapes. Detail is vertical: chains, vertical pipes, pillars, brick. No horizontal ledges, shelves, girders, barrels or crates that could be mistaken for a platform.
+- No detail the size of a bubble or an enemy, little or no movement.
+
+**Characters and objects**
+- 16 × 16 px. Player 1 and player 2 are told apart by colour; no enemy uses the players' colours, and angry enemies use red, which no player uses.
+- Bubbles have a bright, thick rim and a strong shine spot with a transparent middle, so they stand out against a dark background.
+
+**Checks for every room**
+- Greyscale test: turn a screenshot to greyscale and blur it. Platforms must still be clearly brighter than the background.
+- Busy test: check the room with many bubbles, water and Hurry Up on screen, and take the background back where it makes the room harder to read.
+
 ## Players
 
 Blubber (player 1, green) starts in the bottom-left corner, Blasi (player 2, cyan) in the bottom-right.

@@ -49,7 +49,7 @@ angry stage. All of it is placeholder art.
 ## The rounds are the parts of the factory
 
 > **Planned, not built yet.** This section describes the structure decided on 2026-11-16 (see
-> `TODO.md`, "Game structure"). The game still uses ten floors of ten rounds (Cellar, Pipe Works,
+> `GAME-TODO.md`, "Game structure"). The game still uses ten floors of ten rounds (Cellar, Pipe Works,
 > Spring Shop, Boiler Room, Conveyor Halls, Drying Lofts, Dye Works, Pump Station, Pressure Tanks,
 > The Chimney, and Duke Grumble in round 100), and secret doors in rounds 20, 40 and 60. The names,
 > themes and bosses below are a first proposal.
