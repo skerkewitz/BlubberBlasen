@@ -629,8 +629,7 @@ void player_draw(const Player *p)
             oam_add(p->trail_x[(p->trail_pos - 4) & 7], p->trail_y[(p->trail_pos - 4) & 7], tile, ghost);
         }
     } else if (p->dash_ready && tile < 5) {
-        /* a short yellow glow: the next dash is ready */
-        oam_add(PX(p->x), PX(p->y), (uint8_t)(SPR_AURA0 + tile),
-                (uint8_t)((attr & SPR_ATTR_FLIP_X) | (PAL_YELLOW << SPR_ATTR_PAL_SHIFT)));
+        /* a short yellow glow: the next dash is ready (the cells are drawn yellow) */
+        oam_add(PX(p->x), PX(p->y), (uint8_t)(SPR_AURA0 + tile), (uint8_t)(attr & SPR_ATTR_FLIP_X));
     }
 }

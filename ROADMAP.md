@@ -15,7 +15,7 @@ halves, so that real 65816 measurements steer the second half instead of arrivin
 | Step | Goal | Status |
 |---|---|---|
 | 1 | Playable prototype on PC (C99 + raylib) | Done |
-| 2a | Data and limits shaped like the SNES | In progress: debug view and pseudo SNES library done |
+| 2a | Data and limits shaped like the SNES | In progress: debug view, pseudo SNES library and graphics tool done |
 | 3-spike | Game code compiled for the 65816 and measured | Planned |
 | 2b | Fix what the spike found, finish the pseudo SNES layer | Planned |
 | 3-POC | One complete room group running on SNES | Planned |
@@ -34,16 +34,16 @@ What, in this order:
 - Done as a library, not yet used by the game: the frontend with SNES-shaped memory and a
   PVSnesLib-like API (`src/snes`): VRAM (64 KB), CGRAM (256 colours), OAM (128 sprites),
   registers and HDMA.
-- Graphics compiled into the program: a build tool turns the PNGs into 4 bpp tiles and 15-bit
-  palettes, with no asset over 32 KB. The platform stops loading PNGs and tinting them.
-- One sprite sheet per room group, within 128 cells of 16 × 16. If a group does not fit, the
-  numbers come back for a decision.
+- Done, not yet used by the game: graphics compiled into the program. `gfx2c` turns the PNGs into
+  4 bpp tiles and 15-bit palettes, with no asset over 32 KB, and one sprite sheet per room group
+  within 128 cells of 16 × 16 (ADR-0006). Still to do: the platform stops loading PNGs and tinting
+  them.
+- Done: the art checker from ADR-0004, as part of `gfx2c`.
 - Done in the same library, tested headless (`tests/test_snes.c`): a software renderer that
   draws the picture line by line from that memory, with
   three background layers as in mode 1 (walls and platforms, background, HUD and text) and the
   sprite limits of 32 sprites and 272 px per line, so that overflows are visible on the PC.
 - VRAM, palette and OAM viewers as debug panels.
-- The art checker from ADR-0004 in the build.
 - A check that the game code is correct with a 16-bit `int`, which is what 65816 compilers use.
   Every place that relies on a 32-bit `int` is found and fixed.
 

@@ -66,11 +66,12 @@ BlubberBlasen/
 │   │                        #   debug_ui.cpp: Dear ImGui debug view (desktop debug builds, the only C++)
 │   └── replay/              # recordings of games (development builds, PC only; uses stdio and malloc)
 ├── assets/                  # Graphics, sound and level files (see assets/README.md)
-├── tools/                   # Host tools: map2c (levels -> const C arrays), mapview (room previews); see tools/README.md
+├── tools/                   # Host tools: map2c (levels -> const C arrays), gfx2c (graphics -> SNES tiles and
+│                            #   palettes, checks the SNES limits), mapview (room previews); see tools/README.md
 └── tests/                   # Headless tests of the game library; replays/: stored recordings
 ```
 
-Level data is generated at build time: CMake builds `map2c`, runs it over `assets/levels/*.map` and compiles the result (`build/generated/level_data.c`) into the game library.
+Level data is generated at build time: CMake builds `map2c`, runs it over `assets/levels/*.map` and compiles the result (`build/generated/level_data.c`) into the game library. Graphics too: `gfx2c` turns `assets/gfx` into SNES tiles and palettes (`build/generated/gfx_data.c`) and stops the build when a graphic breaks a SNES limit (see `assets/README.md`).
 
 ## Prerequisites
 
@@ -155,6 +156,8 @@ ctest --test-dir build -C Debug --output-on-failure
 `tests/test_game.c` runs the game library without a window: score arithmetic, level data checks, a determinism check (same seed and input must give the same frames), a random bot that plays 30 minutes of game time, unit tests for the mechanics, and a room test in which the CPU partner plays both players in every round from 1 to 99, in Arcade and in Plus with co-op rescue, with endless lives. A room fails only if no try out of 15 clears it within 3 minutes of game time; each try uses its own seed, because the same seed would play the same game again. Deaths are printed with their causes as information, not checked: they depend on the CPU partner and on chance as much as on the room. Arcade rounds 16 and 34 are skipped: their start pocket can only be left by bouncing on a bubble, which the CPU partner cannot do yet. `BB_TRACE=600` prints the game state every 600 frames; `BB_DEATHS=1` prints the circumstances of the first CPU deaths in Arcade; `BB_ROOMS=1` prints what is left in a room after a try that did not clear it.
 
 `tests/test_snes.c` checks the pseudo SNES (`src/snes`) without a window: it builds small scenes through the PVSnesLib-shaped functions, renders a frame and compares pixels with what the SNES shows: tiles, palettes and flips, scrolling and 32 x 64 maps, the mode 1 layer order, sprites (one line below their y, 9-bit x, the lower number in front), the limits of 32 sprites and 34 sprite tiles per line, colour math in windows (fixed colour, sub screen, add, subtract, half), HDMA tables, brightness and the DMA count.
+
+`tests/test_gfx.c` loads the graphics `gfx2c` made into the pseudo SNES, renders them and compares every pixel with the PNGs: the font, the tilesets, the title and every cell of every sprite sheet. The CTest tests `gfx2c_bad_*` check that `gfx2c` rejects art that breaks a limit, with the right reason.
 
 `tests/test_replay.c` records a game, plays the recording back and checks that it gives the same game, and that a changed input or seed is noticed. It also plays every recording in `tests/replays/` (one test each, `replay_<name>`); see *Recordings*.
 
@@ -337,6 +340,7 @@ grep -rnE 'raylib\.h|\bfloat\b|\bdouble\b|\b(malloc|calloc|realloc|free)\s*\(' s
 - [ADR-0003](docs/adr/0003-multikills-and-blasen.md): multikills and BLASEN letters as a bonus
 - [ADR-0004](docs/adr/0004-16-bit-look-with-snes-limits.md): a 16-bit look, held to SNES limits from stage 1
 - [ADR-0005](docs/adr/0005-stage-2-snes-compatibility-layer.md): stage 2 as a SNES compatibility layer, with a Dear ImGui debug view
+- [ADR-0006](docs/adr/0006-sprite-sheets-and-palettes.md): one sprite sheet per room group, and how the 8 sprite palettes are used
 - [Game Design Guide](docs/Blubber%20Blasen%20–%20Game%20Design%20Guide.md): the game we are building, Plus and Classic mode, and where it differs from the original
 - [Bubble Bobble (Arcade) – Game Design Reference Guide](docs/Bubble%20Bobble%20(Arcade)%20–%20Game%20Design%20Reference%20Guide.md): how the arcade original works, as reference
 - [Story](docs/story.md): the Blubber Factory, heroes, floors, secret rooms, boss and endings

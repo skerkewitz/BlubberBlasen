@@ -50,6 +50,23 @@ else()
     target_compile_options(snes PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
+# --- Generated graphics: assets/gfx -> gfx_data.c (ADR-0006) -------------------
+# gfx2c checks the SNES limits and fails the build when the art breaks one.
+set(GFX_DATA_C ${PROJECT_BINARY_DIR}/generated/gfx_data.c)
+set(GFX_DATA_H ${PROJECT_BINARY_DIR}/generated/gfx_data.h)
+file(GLOB GFX_FILES CONFIGURE_DEPENDS ${PROJECT_SOURCE_DIR}/assets/gfx/*.png)
+add_custom_command(
+    OUTPUT  ${GFX_DATA_C} ${GFX_DATA_H}
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${PROJECT_BINARY_DIR}/generated
+    COMMAND gfx2c -o ${GFX_DATA_C} -H ${GFX_DATA_H} ${PROJECT_SOURCE_DIR}/assets/gfx/gfx.txt ${LEVEL_FILES}
+    DEPENDS gfx2c ${PROJECT_SOURCE_DIR}/assets/gfx/gfx.txt ${GFX_FILES} ${LEVEL_FILES}
+    COMMENT "gfx2c: converting graphics"
+    VERBATIM
+)
+add_library(gfxdata STATIC ${GFX_DATA_C})
+target_include_directories(gfxdata PUBLIC ${PROJECT_BINARY_DIR}/generated)
+set_target_properties(gfxdata PROPERTIES C_EXTENSIONS OFF)
+
 # --- Portable game code: must not depend on raylib ---------------------------
 file(GLOB_RECURSE GAME_SOURCES CONFIGURE_DEPENDS src/game/*.c)
 add_library(game STATIC ${GAME_SOURCES} ${LEVEL_DATA_C})
@@ -168,6 +185,10 @@ if(BB_DEBUG_SWITCHES)
     target_link_libraries(test_snes PRIVATE snes)
     add_test(NAME snes COMMAND test_snes)
 
+    add_executable(test_gfx tests/test_gfx.c)
+    target_link_libraries(test_gfx PRIVATE snes gfxdata toolcommon)
+    add_test(NAME gfx COMMAND test_gfx ${PROJECT_SOURCE_DIR}/assets/gfx)
+
     add_executable(test_replay tests/test_replay.c)
     target_link_libraries(test_replay PRIVATE replay)
     add_test(NAME replay COMMAND test_replay)
@@ -189,6 +210,17 @@ foreach(bad bad_delay bad_key)
     add_test(NAME map2c_${bad}
              COMMAND map2c -o ${PROJECT_BINARY_DIR}/generated/${bad}.c ${PROJECT_SOURCE_DIR}/tests/map2c/${bad}.map)
     set_tests_properties(map2c_${bad} PROPERTIES PASS_REGULAR_EXPRESSION "${BB_BAD_${bad}}")
+endforeach()
+
+# gfx2c must reject art that breaks a SNES limit, with the reason (ADR-0004).
+set(BB_GFX_bad_grid    "pixel 0,0: colour 0D0D0D is not a SNES colour")
+set(BB_GFX_bad_colours "tileset_16\\.png: more than 15 colours")
+set(BB_GFX_bad_sheet   "need more than 128 cells")
+foreach(bad bad_grid bad_colours bad_sheet)
+    add_test(NAME gfx2c_${bad}
+             COMMAND gfx2c -o ${PROJECT_BINARY_DIR}/generated/${bad}.c -H ${PROJECT_BINARY_DIR}/generated/${bad}.h
+                     ${PROJECT_SOURCE_DIR}/tests/gfx2c/${bad}.txt)
+    set_tests_properties(gfx2c_${bad} PROPERTIES PASS_REGULAR_EXPRESSION "${BB_GFX_${bad}}")
 endforeach()
 
 # every room must be playable (reachability check)

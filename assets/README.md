@@ -2,7 +2,18 @@
 
 Everything the game loads at runtime (graphics, sound) or converts at build time (levels).
 
-Stage 1 keeps it simple: graphics are plain **24-bit PNG** files, and the colour **magenta (255, 0, 255) is transparent**. The platform layer loads them at startup and builds its "VRAM" textures from them. Indexed colours and SNES palettes come later.
+Graphics are plain **24-bit PNG** files, and the colour **magenta (255, 0, 255) is transparent**. The platform layer still loads them at startup for drawing; the build also converts them into SNES tiles and palettes with `tools/gfx2c` (settings in `gfx/gfx.txt`, see `tools/README.md`), which the game will draw from (ADR-0005).
+
+### SNES limits for all art (ADR-0004, ADR-0006)
+
+`gfx2c` fails the build when a graphic breaks one of these, naming the file and the place:
+
+- **Colours are SNES colours:** each channel is a 5-bit value v written as `v << 3 | v >> 2` (0, 8, 16, 24, 33, 41, ... 247, 255). The error message names the nearest one.
+- **15 colours per palette** (plus transparent): per tileset; per sprite palette (player, bubbles and effects, food and items, and the enemies of each sprite sheet together); per 8 x 8 tile of the title, whose tiles must fit into 6 palettes.
+- **128 cells of 16 x 16 per sprite sheet.** Each room group has a sheet (rounds 1-5, 6-15, 16-30, 31-50, 51-70, 71-99), round 100 and the title, story and ending screens have their own. The cells in the `palette` lines of `gfx.txt` are in every sheet; a sheet adds the cells of its rounds' enemy types. Cells with exactly the same pixels are stored once.
+- **No asset over 32 KB** (one ROM bank).
+
+The 8 sprite palettes: 0 player 1, 1 player 2 (player 1 with the green ramp swapped for blue), 2 bubbles and effects, 3 food and items, 4 the sheet's enemies, 5 to 7 tinted copies (red for angry, grey or yellow for frozen and about to shoot, grey for dash afterimages). All enemy types share one palette of 15 colours, because each enemy looks the same in every sheet.
 
 ## Graphics (`gfx/`)
 
@@ -137,6 +148,7 @@ Two temporary tracks, streamed by the platform layer (`music_files` in `src/plat
 | `tileset01..08.png` | The room tiles from the Java version (`level/round01..08.png`), unchanged. |
 | Bubble cells 32..34 | `spritesheet/bubble.png` from the Java version. |
 | Rest of `sprites.png`, `font.png` | Placeholder art drawn by a script for this prototype. Replace freely. |
+| All of `gfx/*.png` | On 2026-11-16 every colour was moved to the nearest SNES colour, and the sprites, the title logo and the tilesets were reduced once to the palette limits above (ADR-0006). The dash glow cells (196..200) were drawn white and tinted yellow by the game; they are yellow now. |
 | `sfx/*.wav` | Placeholder sounds synthesised by a script for this prototype, except `UhHelpMe.wav`, `vacuum.wav` and `multikill.wav`. |
 | `sfx/UhHelpMe.wav`, `sfx/vacuum.wav` | Added by the project owner (2026-11-14). |
 | `sfx/multikill.wav` | Added by the project owner (2026-11-15). |

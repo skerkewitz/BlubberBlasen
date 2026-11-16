@@ -1,0 +1,13 @@
+# gfx2c must reject this (see CMakeLists.txt, gfx2c_bad_sheet)
+font     font.png FFFFFF
+tilesets tileset_ok.png
+title    title.png 1
+sprites  sprites_130.png
+palette player 0 0
+palette effects 2 1-129
+palette enemies 4
+tint red FF5050
+tint grey 969696
+tint yellow FFE650
+tint orange FFA03C
+sheet screens enemies 1

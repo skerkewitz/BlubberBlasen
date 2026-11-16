@@ -55,6 +55,32 @@ map2c also stores, per round, where one can stand and how to get from there to e
 
 One byte per cell (bit 7 = solid, bits 0..2 = airflow), an enemy table with spawn delays, and per round the tileset and the Hurry Up time in frames, and the special bubble type with its interval in frames, as declared in `src/game/level_data.h`.
 
+## gfx2c
+
+Converts the graphics in `assets/gfx` into SNES data (ADR-0004, ADR-0006): 4 bpp and 2 bpp planar tiles, 15-bit palettes, the title's tile map and one sprite sheet per room group, as `const` arrays in `gfx_data.c` with `gfx_data.h`.
+
+```
+gfx2c -o <gfx_data.c> -H <gfx_data.h> <gfx.txt> <level1.map> [<level2.map> ...]
+```
+
+`assets/gfx/gfx.txt` says what each PNG is (the comments there explain every line): the font and its colours, the tilesets, the title and its number of palettes, and for the sprite sheet which cells use which palette, which cells belong to which enemy type and to the boss, player 2's colour swap, the tint colours and the sheets with their rounds. The level files tell which enemy types each round sheet needs.
+
+What it makes:
+
+| Data | Content |
+|---|---|
+| `gfx_font_tiles` | 64 glyphs (ASCII 32..95), 2 bpp |
+| `gfx_tileset_tiles`, `gfx_tileset_pal` | 18 tiles of 4 bpp and one palette per tileset |
+| `gfx_title_tiles`, `gfx_title_map`, `gfx_title_pal` | the logo: tiles (identical ones once), a map with BG palettes 2..7, 6 palettes |
+| `gfx_sprites_shared`, `gfx_sheet_tiles` | sprite tiles in VRAM order, 8 cells per row of 16 x 2 tiles: the rows all sheets share, then each sheet's rows |
+| `gfx_sheet_slot` | per sheet, the slot of each cell of `sprites.png` (0xFF = not in it) |
+| `gfx_cell_pal`, `gfx_level_sheet` | the sprite palette of each cell; the sheet of each round |
+| `gfx_pal_player`, `gfx_pal_effects`, `gfx_pal_items`, `gfx_pal_enemies` | sprite palettes, each with its red, grey, yellow and orange copy |
+
+It converts and checks, it does not repair: a colour off the SNES grid, a palette over 15 colours, a sprite sheet over 128 cells or an asset over 32 KB stops the build with the file and the reason (CTest `gfx2c_bad_*` checks that). `tests/test_gfx.c` loads everything it made into the pseudo SNES, renders it and compares each pixel with the PNG.
+
+PNGs are read by `tools/common/pngread.c` (8-bit RGB, RGBA or palette, not interlaced), which has its own small inflate.
+
 ## mapview
 
 Renders rooms into one PNG contact sheet, for reviewing levels without starting the game.
