@@ -32,7 +32,7 @@ uint8_t game_debug_get(uint8_t sw)
 
 uint8_t game_debug_room_shown(void)
 {
-    return (uint8_t)(g_state == GS_ROUND_INTRO || g_state == GS_PLAY || g_state == GS_PAUSE ||
+    return (uint8_t)(g_state == GS_ROUND_INTRO || g_state == GS_PLAY || g_state == GS_PAUSE || g_state == GS_ROUND_SKIP ||
                      g_state == GS_CONTINUE || g_state == GS_GAME_OVER);
 }
 

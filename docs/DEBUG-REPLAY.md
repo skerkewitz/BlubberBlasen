@@ -33,7 +33,7 @@ Some notes:
   written to disk the moment you press Backspace.
 - Runs with `--autoplay` are not recorded unless you add `--record`. `--no-record` switches recording
   off for one run.
-- The debug keys that change the game (F2, F3, F10, F12) are recorded too, so a replay
+- The debug keys that change the game (F2, F3, F6, F10, F12) are recorded too, so a replay
   stays correct even if you used them.
 - A file is a few kilobytes per minute and plain text, so it can be attached to a bug report or sent
   to someone else.
@@ -82,7 +82,7 @@ rungame.bat --replay build\Debug\recordings\20261115-165418-marked.bbr
 | Esc | Quit |
 
 The keyboard and the gamepad don't control the players during a replay. The keys that would change
-the game (F2, F3, F10, F12) are refused with `NOT WHILE REPLAYING`, because they would make the
+the game (F2, F3, F6, F10, F12) are refused with `NOT WHILE REPLAYING`, because they would make the
 replay go wrong.
 
 Going back works by playing the recording again from the start, fast, up to the frame wanted. A
@@ -142,6 +142,7 @@ These work in every development build, while playing and (where noted above) whi
 | `F3` | Infinite lives |
 | `F4` | Show hitboxes (green players, red enemies, blue bubbles, yellow items, pink boss) |
 | `F5` | Show the air currents of the room |
+| `F6` | No sticky bubbles: floating bubbles don't cling together (to compare) |
 | `F7` | Pause / go on (frame step mode) |
 | `F8` | One frame forward while paused (`Shift`+`F8`: one frame back, `Ctrl`+`Shift`+`F8`: one second back, only while replaying) |
 | `F9` | Slow motion (quarter speed) |

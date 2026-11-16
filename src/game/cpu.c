@@ -9,8 +9,10 @@
  *   3. pop trapped enemies, preferably once two or more are trapped
  *      (in the boss round: pop lightning bubbles)
  *   4. line up with an enemy at the same height and blow bubbles at it
- *   5. collect food (only when no human is playing; otherwise it leaves food)
- *   6. otherwise stay near the human player
+ *   5. pop a BLASEN letter bubble it still needs (never one it has: that
+ *      one would be wasted, so its dashes also avoid those)
+ *   6. collect food (only when no human is playing; otherwise it leaves food)
+ *   7. otherwise stay near the human player
  * Navigation uses the segment graph map2c stores with every round (NavSeg).
  * Difficulty comes from a reaction delay and deliberate aiming errors; the
  * delay applies to choosing a goal, not to dodging.
@@ -43,6 +45,7 @@
 #define MAX_DANGERS    32     /* 8 enemies + 8 coming shots + shots in flight, chasers, boss */
 #define NOT_YET        (-1000) /* a coming shot before it leaves: far away */
 #define SAMPLES        5
+#define DASH_REACH     ((DASH_FRAMES * 1152) >> 8)   /* px a dash covers: 12 x 4.5 */
 
 static const uint8_t sample_t[SAMPLES] = { 4, 8, 14, 20, 26 };
 
@@ -287,6 +290,45 @@ static const Bubble *bubble_to_pop(const Player *p)
     return (trapped >= 2 || boss || enemies_count() == 0) ? best : 0;
 }
 
+/* The nearest floating letter bubble the player still misses. */
+static const Bubble *letter_to_take(const Player *p)
+{
+    const Bubble *best = 0;
+    uint16_t best_d = 0xFFFFu;
+    uint8_t i;
+    for (i = 0; i < MAX_BUBBLES; i++) {
+        const Bubble *b = &g_bubbles[i];
+        uint16_t dd;
+        if (b->state != BS_FLOAT || b->kind != BK_LETTER || (p->letters & (1u << b->letter))) {
+            continue;
+        }
+        dd = (uint16_t)(dist16(PX(b->x), PX(p->x)) + dist16(PX(b->y), PX(p->y)));
+        if (dd < best_d) {
+            best_d = dd;
+            best = b;
+        }
+    }
+    return best;
+}
+
+/* A dash pops every bubble on its way: would one in direction dir pop a
+ * letter the player already has (and waste it)? */
+static uint8_t dash_wastes_letter(const Player *p, int8_t dir)
+{
+    int16_t x0 = (int16_t)PX(p->x), x1 = (int16_t)(x0 + dir * DASH_REACH);
+    int16_t lo = (int16_t)((x0 < x1 ? x0 : x1) - DASH_POP_X), hi = (int16_t)((x0 < x1 ? x1 : x0) + DASH_POP_X);
+    uint8_t i;
+    for (i = 0; i < MAX_BUBBLES; i++) {
+        const Bubble *b = &g_bubbles[i];
+        int16_t bx = (int16_t)PX(b->x);
+        if (b->state == BS_FLOAT && b->kind == BK_LETTER && (p->letters & (1u << b->letter)) &&
+            bx > lo && bx < hi && dist16(PX(b->y), PX(p->y)) < DASH_POP_Y) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 static const Item *food_to_take(const Player *p)
 {
     const Item *best = 0;
@@ -345,14 +387,19 @@ static uint16_t decide(Player *p)
         }
         return move_to(p, e->x, e->y);
     }
-    /* 5. food, but leave it for a human partner */
+    /* 5. a letter it still needs */
+    b = letter_to_take(p);
+    if (b) {
+        return move_to(p, b->x, b->y);
+    }
+    /* 6. food, but leave it for a human partner */
     if (o->state == PS_OFF || o->cpu) {
         f = food_to_take(p);
         if (f) {
             return move_to(p, f->x, f->y);
         }
     }
-    /* 6. stay near the human */
+    /* 7. stay near the human */
     if (o->state == PS_ALIVE && dist16(PX(o->x), PX(p->x)) + dist16(PX(o->y), PX(p->y)) > FOLLOW_DIST) {
         return move_to(p, o->x, o->y);
     }
@@ -488,7 +535,7 @@ static int16_t evaluate(const Player *p, uint8_t act, uint8_t samples)
             if (k != samples - 1) {
                 continue;
             }
-            ox = (int16_t)(PX(p->x) + dir * ((DASH_FRAMES * 1152) >> 8));
+            ox = (int16_t)(PX(p->x) + dir * DASH_REACH);
         } else {
             ox = (int16_t)(PX(p->x) + dir * ((235 * t) >> 8));
         }
@@ -568,7 +615,8 @@ static uint16_t dodge(const Player *p, uint16_t goal)
     best = evaluate(p, best_act, SAMPLES);
     for (a = 0; a < ACT_COUNT; a++) {
         int16_t v;
-        if ((a >= ACT_DASH_LEFT && !can_dash) || (a >= ACT_JUMP && a <= ACT_JUMP_RIGHT && !p->on_ground)) {
+        if ((a >= ACT_DASH_LEFT && (!can_dash || dash_wastes_letter(p, (int8_t)(a == ACT_DASH_LEFT ? -1 : 1)))) ||
+            (a >= ACT_JUMP && a <= ACT_JUMP_RIGHT && !p->on_ground)) {
             continue;
         }
         v = evaluate(p, a, SAMPLES);

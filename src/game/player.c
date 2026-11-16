@@ -21,8 +21,6 @@
 #define RESCUE_HELP_AGAIN (RESCUE_FRAMES / 3)   /* second call for help: 2/3 of the time is over */
 #define RESCUE_SPEED  FX(0, 90)
 #define DASH_SPEED    FX(4, 128)
-#define DASH_POP_X    14          /* a dash pops bubbles this close in x ... */
-#define DASH_POP_Y    20          /* ... and in y: a band taller than the body */
 #define DASH_BUFFER   6           /* a dash pressed up to 6 frames too early still happens */
 #define DASH_EXTEND   48          /* how far a dash may run on to get out of a wall */
 #define SHOOT_DELAY   15
@@ -567,7 +565,7 @@ void player_update(Player *p, uint16_t pad, uint16_t pressed)
         shoot(p, pad, pressed);
         touch_bubbles(p, pad);
         if (g_freeze) {
-            enemies_defeat_at(p->x, p->y);
+            multikill_award(p->id, enemies_defeat_at(p->x, p->y));
         }
         if (!safe(p)) {
             uint8_t touch = enemies_touch(p->x, p->y);

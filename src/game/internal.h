@@ -45,7 +45,8 @@ enum {
     SPR_BOUNCER0 = 112, SPR_THROWER0 = 118, SPR_THROWER_THROW = 120,
     SPR_ROCK0 = 121, SPR_CHASER0 = 123,
     SPR_SPECIAL_WATER = 128, SPR_SPECIAL_FIRE = 129, SPR_SPECIAL_LIGHTNING = 130,
-    SPR_LETTER0 = 131,                                    /* E X T N D */
+    SPR_LETTER_E = 131, SPR_LETTER_B = 132, SPR_LETTER_L = 133,   /* letter bubbles: E B L N A, ... */
+    SPR_LETTER_N = 134, SPR_LETTER_A = 135, SPR_LETTER_S = 143,   /* ... and S (blasen_tile) */
     SPR_WATER0 = 136, SPR_FIREBALL = 138, SPR_FIRE0 = 139, SPR_BOLT0 = 141,
     SPR_POWERUP0 = 144,                                   /* POWER_* order */
     SPR_BONUS0 = 149,                                     /* bonus food of the round */
@@ -82,8 +83,8 @@ enum {
 #define POWER_BIT(p) ((uint16_t)(1u << (p)))
 #define GEM_TIER 3   /* enemies defeated by items become 8,000 point gems */
 
-/* EXTEND: six letters per player (bit 0 = E ... bit 5 = D). */
-#define EXTEND_ALL 0x3Fu
+/* BLASEN: six letters per player (bit 0 = B ... bit 5 = N). */
+#define BLASEN_ALL 0x3Fu
 #define FOOD_TIERS 7    /* 1000, 2000, 4000, ... 64000 */
 
 /* --- Top-level state ------------------------------------------------------- */
@@ -94,6 +95,7 @@ typedef enum {
     GS_TRANSITION,       /* the next round scrolls in */
     GS_ROUND_INTRO,
     GS_PLAY,
+    GS_ROUND_SKIP,       /* BLASEN or umbrella: the room stands still, a message, then on */
     GS_PAUSE,
     GS_CONTINUE,
     GS_GAME_OVER,
@@ -122,7 +124,7 @@ typedef struct {
     uint8_t  lives;
     uint8_t  extends_given;/* score-based extra lives already awarded */
     uint8_t  score[8];     /* decimal digits, most significant first */
-    uint8_t  letters;      /* EXTEND letters collected (bit mask) */
+    uint8_t  letters;      /* BLASEN letters collected (bit mask) */
     uint16_t powers;       /* power-ups held (POWER_BIT mask) */
     uint8_t  stun;         /* frames left stunned by fire */
     uint8_t  carried;      /* swept along by a water stream */
@@ -199,7 +201,7 @@ typedef struct {
     uint8_t  trapped;      /* holds an enemy (also while popping) */
     uint8_t  etype;        /* type of the trapped enemy */
     uint8_t  kind;         /* BubbleKind */
-    uint8_t  letter;       /* BK_LETTER: 0..5 = E X T E N D */
+    uint8_t  letter;       /* BK_LETTER: 0..5 = B L A S E N */
     uint8_t  shot_frames;  /* how long it flies (range power-up) */
     uint8_t  owner;        /* player who blew it */
     fx8_8    shot_speed;   /* how fast it flies (speed power-up) */
@@ -240,7 +242,7 @@ extern uint8_t   g_level;          /* 0-based index into level_defs */
 extern uint8_t   g_round;          /* 1-based round number shown to the player */
 extern uint8_t   g_hurry;          /* hurry-up mode active */
 extern uint32_t  g_sfx;
-extern uint8_t   g_skip_rounds;    /* >0: end the round now and advance that many */
+extern uint8_t   g_skip_rounds;    /* >0: end the round now and advance that many (round_skip) */
 extern uint16_t  g_freeze;         /* frames left of the Steam Whistle */
 
 /* Hidden counters that unlock power-ups (shared by both players). */
@@ -280,6 +282,8 @@ void     sfx(uint8_t id);
 void     oam_add(uint8_t x, uint8_t y, uint8_t tile, uint8_t attr);
 uint8_t  overlap(uint16_t ax, uint16_t ay, uint16_t bx, uint16_t by, uint8_t w, uint8_t h);
 void     player_killed(Player *p);
+enum { SKIP_BLASEN, SKIP_UMBRELLA };
+void     round_skip(uint8_t rounds, uint8_t why, uint8_t player);   /* end the round, with a message */
 
 /* --- level.c ---------------------------------------------------------------- */
 void     level_load(uint8_t index, uint8_t page);   /* collision + draw into a page */
@@ -324,6 +328,8 @@ uint8_t  player_dash_invulnerable(const Player *p);
 #define DASH_GRACE        30     /* invulnerable after a dash: time to react and jump clear */
 #define DASH_COOLDOWN     60     /* frames after a dash ends before the next one */
 #define DASH_READY_GLOW   10     /* frames the player glows when the next dash is ready */
+#define DASH_POP_X        14     /* a dash pops bubbles this close in x ... */
+#define DASH_POP_Y        20     /* ... and in y: a band taller than the body */
 uint8_t  player_can_dash(const Player *p);
 
 /* --- enemy.c ---------------------------------------------------------------- */
@@ -336,8 +342,8 @@ void     enemies_make_angry(void);
 void     enemies_calm_down(void);
 uint8_t  enemies_touch(uint16_t x, uint16_t y);   /* TOUCH_*: an enemy body, or something always deadly */
 uint8_t  enemy_shot_in(const Enemy *e);           /* frames until its shot leaves; 0 = not winding up */
-void     enemies_to_gems(void);                   /* items: every enemy becomes a gem */
-void     enemies_defeat_at(uint16_t x, uint16_t y);   /* Steam Whistle: touching frozen enemies */
+uint8_t  enemies_to_gems(void);                   /* items: every enemy becomes a gem; returns how many */
+uint8_t  enemies_defeat_at(uint16_t x, uint16_t y);   /* Steam Whistle: touching frozen enemies; returns how many */
 uint8_t  enemy_shield_blocks(const Enemy *e, uint16_t bx);   /* a bubble at x bx hits the plate */
 void     enemies_dash_hit(uint16_t x, uint16_t y);   /* a dash here knocks shield plates off */
 
@@ -354,7 +360,7 @@ void     enemies_draw(void);
 /* --- bubble.c --------------------------------------------------------------- */
 void     bubbles_clear(void);
 void     bubble_shoot(uint16_t x, uint16_t y, uint8_t dir, uint16_t powers);   /* dir: AIR_LEFT, AIR_RIGHT, AIR_UP (Plus) */
-void     bubbles_trapped_to_gems(void);   /* items: trapped enemies become gems */
+uint8_t  bubbles_trapped_to_gems(void);   /* items: trapped enemies become gems; returns how many */
 void     bubble_spawn_special(uint8_t kind, uint8_t letter, uint16_t x, uint16_t y);
 uint8_t  push_shoot(uint8_t player, uint16_t x, uint16_t y, uint8_t dir);   /* Plus mode, dir as above; 0 = one already flying */
 uint8_t  push_active(uint8_t player);
@@ -396,8 +402,12 @@ void     effect_start(uint8_t kind, uint16_t x, uint16_t y, int8_t dir, uint8_t 
 void     effect_start_glove(uint16_t x, uint16_t y, int8_t dir, uint8_t player);  /* fireball shot */
 void     effects_update(void);
 void     effects_draw(void);
-void     extend_letters_earned(uint8_t count);    /* queue letter bubbles */
-void     extend_collect(uint8_t player, uint8_t letter);
+void     multikill_kill(uint8_t player, uint8_t count);   /* the count-th enemy of one go: sound, letters */
+void     multikill_award(uint8_t player, uint8_t n);      /* n enemies defeated at once */
+void     blasen_reset(void);                      /* new game: nothing queued */
+uint8_t  blasen_queued(uint8_t player);           /* letter bubbles still to come for a player */
+void     blasen_collect(uint8_t player, uint8_t letter);
+uint8_t  blasen_tile(uint8_t letter);             /* sprite cell of a letter bubble */
 void     counters_check(void);                    /* unlock power-ups */
 void     powerup_round_tick(void);                /* place a queued power-up */
 

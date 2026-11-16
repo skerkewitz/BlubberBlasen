@@ -155,6 +155,7 @@ enum {
     DBG_AIR,              /* platform draws the air currents (game_debug_cell) */
     DBG_CPU_VIEW,         /* platform draws the CPU partner's danger check (game_debug_cpu_view) */
     DBG_VACUUM_WALLS,     /* Plus mode: walls stop bubbles inside a vacuum (A/B test) */
+    DBG_NO_STICKY,        /* floating bubbles don't cling together (A/B test) */
     DBG_COUNT
 };
 
@@ -176,7 +177,7 @@ void            game_debug_start_round(uint8_t round); /* new games start here (
 void            game_debug_clear_round(void);          /* remove all enemies now */
 void            game_debug_skip_story(uint8_t skip);   /* no intro after the title */
 void            game_debug_show_ending(uint8_t happy); /* jump to an ending */
-void            game_debug_cpu(uint8_t mask);          /* bit i: CPU plays player i+1 (soak tests) */
+void            game_debug_cpu(uint8_t mask);          /* bit i: CPU plays player i+1 (room tests) */
 void            game_debug_options(uint8_t plus, uint8_t rescue, uint8_t p2_cpu);  /* not saved */
 void            game_debug_open_options(void);         /* show the options screen */
 /* The CPU partner's last danger check: predicted danger positions (boxes)

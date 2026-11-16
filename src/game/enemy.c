@@ -152,32 +152,36 @@ void enemies_make_angry(void)
     }
 }
 
-/* Soap Star / Rinse Wave: every enemy in the room becomes a gem. */
-void enemies_to_gems(void)
+/* Soap Star / Rinse Wave: every enemy in the room becomes a gem. The
+ * caller plays the sound (multikill_award). */
+uint8_t enemies_to_gems(void)
 {
-    uint8_t i;
+    uint8_t i, n = 0;
     for (i = 0; i < MAX_ENEMIES; i++) {
         Enemy *e = &g_enemies[i];
         if (e->active && !e->entering) {
             item_spawn_thrown(e->x, e->y, (int8_t)((i & 1) ? -1 : 1), GEM_TIER);
             e->active = 0;
+            n++;
         }
     }
-    sfx(SFX_KILL);
+    return n;
 }
 
-/* Steam Whistle: a frozen enemy touched by a player is defeated. */
-void enemies_defeat_at(uint16_t x, uint16_t y)
+/* Steam Whistle: a frozen enemy touched by a player is defeated. The
+ * caller plays the sound (multikill_award). */
+uint8_t enemies_defeat_at(uint16_t x, uint16_t y)
 {
-    uint8_t i;
+    uint8_t i, n = 0;
     for (i = 0; i < MAX_ENEMIES; i++) {
         Enemy *e = &g_enemies[i];
         if (e->active && !e->entering && overlap(x, y, e->x, e->y, 12, 12)) {
             item_spawn_thrown(e->x, e->y, (int8_t)(PX(e->x) < PX(x) ? -1 : 1), GEM_TIER - 1);
             e->active = 0;
-            sfx(SFX_KILL);
+            n++;
         }
     }
+    return n;
 }
 
 /* The plate covers the side the shield enemy faces: a bubble whose left

@@ -33,7 +33,7 @@
 
 /* Names in the file, so a recording survives new switches in the enum. */
 static const char *const switch_names[DBG_COUNT] = {
-    "infinite_lives", "invincible", "hitboxes", "air", "cpu_view", "vacuum_walls"
+    "infinite_lives", "invincible", "hitboxes", "air", "cpu_view", "vacuum_walls", "no_sticky"
 };
 
 const char *replay_switch_name(uint8_t sw)

@@ -1,14 +1,20 @@
 /*
- * Special bubbles and what they release, EXTEND letters, and the hidden
- * counters that unlock power-ups (design guide: Special bubbles, Items).
+ * Special bubbles and what they release, multikills and BLASEN letters, and
+ * the hidden counters that unlock power-ups (design guide: Special bubbles,
+ * Items).
  *
  *  - Water: a stream runs down and along the platforms and sweeps away
  *    every enemy it touches; all of them count as one combo.
  *  - Fire: a fireball drops onto the platform below and leaves a carpet
  *    of fire that defeats enemies and stuns players.
  *  - Lightning: a bolt flies straight across the room.
- *  - EXTEND: chains of three or more enemies earn letter bubbles; whoever
- *    pops a letter collects it; all six give an extra life and end the round.
+ *  - Multikill: three or more enemies defeated in one go (a chain, a dash,
+ *    one water stream, fire or lightning bubble, an item) play the multikill
+ *    sound and earn letter bubbles for the player who did it: 1 for 3
+ *    enemies, 2 for 4, 3 for 5 or more. Each is a letter that player still
+ *    misses.
+ *  - BLASEN: whoever pops a letter gets it (one they have already is
+ *    wasted); all six give an extra life and end the round.
  *  - Power-ups: when a counter reaches its limit, the power-up waits for the
  *    next round and appears on a platform a few seconds after the start.
  */
@@ -61,7 +67,8 @@ typedef struct {
 static Effect   effects[MAX_EFFECTS];
 static uint16_t special_timer;
 static uint16_t letter_timer;
-static uint8_t  letters_queued;
+static uint8_t  letters_queued[NUM_PLAYERS];
+static uint8_t  letter_turn;      /* whose queued letter comes next */
 static uint8_t  powerup_placed;   /* at most one power-up per round */
 
 void effects_clear(void)
@@ -135,7 +142,7 @@ static void sweep_enemies(Effect *ef, uint16_t x, uint16_t y, uint8_t w, uint8_t
             if (ef->combo < 255) {
                 ef->combo++;
             }
-            sfx(SFX_KILL);
+            multikill_kill(ef->owner, ef->combo);
         }
     }
 }
@@ -302,6 +309,33 @@ static void update_bolt(Effect *ef)
     }
 }
 
+/* A letter the player still misses, at random, preferring one that is not
+ * already floating in the room; if they miss only letters that are, one of
+ * those comes again (a 5-multikill when only B is missing brings three Bs). */
+static uint8_t pick_letter(uint8_t player)
+{
+    uint8_t missing = (uint8_t)(BLASEN_ALL & (uint8_t)~g_players[player].letters);
+    uint8_t want = missing, letter, tries, i;
+
+    for (i = 0; i < MAX_BUBBLES; i++) {
+        const Bubble *b = &g_bubbles[i];
+        if (b->state == BS_FLOAT && b->kind == BK_LETTER) {
+            want = (uint8_t)(want & (uint8_t)~(1u << b->letter));
+        }
+    }
+    if (!want) {
+        want = missing ? missing : BLASEN_ALL;
+    }
+    letter = (uint8_t)(rng_next() & 7);
+    for (tries = 0; tries < 8; tries++) {
+        letter = (uint8_t)(letter >= 5 ? 0 : letter + 1);
+        if (want & (1u << letter)) {
+            break;
+        }
+    }
+    return letter;
+}
+
 /* Letter bubbles and special bubbles come in through the room's opening. */
 static void emit_bubbles(void)
 {
@@ -313,26 +347,13 @@ static void emit_bubbles(void)
         level_opening(&x, &y);
         bubble_spawn_special((uint8_t)def->special, 0, x, y);   /* SPECIAL_* == BK_* */
     }
-    if (letters_queued && ++letter_timer >= LETTER_INTERVAL) {
-        uint8_t want = 0, letter, tries;
-        uint8_t k;
+    if ((letters_queued[0] || letters_queued[1]) && ++letter_timer >= LETTER_INTERVAL) {
+        uint8_t player = letters_queued[letter_turn] ? letter_turn : (uint8_t)(letter_turn ^ 1);
         letter_timer = 0;
-        letters_queued--;
-        /* Prefer a letter some player in the game is still missing. */
-        for (k = 0; k < NUM_PLAYERS; k++) {
-            if (g_players[k].state != PS_OFF) {
-                want = (uint8_t)(want | (EXTEND_ALL & (uint8_t)~g_players[k].letters));
-            }
-        }
-        letter = (uint8_t)(rng_next() & 7);
-        for (tries = 0; tries < 8; tries++) {
-            letter = (uint8_t)(letter >= 5 ? 0 : letter + 1);
-            if (want & (1u << letter)) {
-                break;
-            }
-        }
+        letter_turn = (uint8_t)(player ^ 1);   /* two players take turns */
+        letters_queued[player]--;
         level_opening(&x, &y);
-        bubble_spawn_special(BK_LETTER, letter, x, y);
+        bubble_spawn_special(BK_LETTER, pick_letter(player), x, y);
     }
 }
 
@@ -401,24 +422,74 @@ void effects_draw(void)
     }
 }
 
-/* --- EXTEND ----------------------------------------------------------------- */
-void extend_letters_earned(uint8_t count)
+/* --- Multikills and BLASEN ---------------------------------------------------- */
+#define MULTIKILL     3      /* enemies in one go that make a multikill */
+#define MAX_LETTERS   3      /* letters one multikill earns at most (5 or more enemies) */
+
+/* Called for each enemy defeated in one go, with the running count. The
+ * third plays the multikill sound instead of the kill sound; the third,
+ * fourth and fifth each earn a letter for the player who did it. */
+void multikill_kill(uint8_t player, uint8_t count)
 {
-    letters_queued = (uint8_t)(letters_queued + count > 6 ? 6 : letters_queued + count);
+    if (count == MULTIKILL) {
+        g_sfx &= ~((uint32_t)1u << SFX_KILL);
+        sfx(SFX_MULTIKILL);
+    } else if (!(g_sfx & ((uint32_t)1u << SFX_MULTIKILL))) {
+        sfx(SFX_KILL);
+    }
+    if (count >= MULTIKILL && count < MULTIKILL + MAX_LETTERS && letters_queued[player] < 6) {
+        letters_queued[player]++;
+    }
 }
 
-void extend_collect(uint8_t player, uint8_t letter)
+void multikill_award(uint8_t player, uint8_t n)
+{
+    uint8_t k;
+    for (k = 1; k <= n; k++) {
+        multikill_kill(player, k);
+    }
+}
+
+/* A new game: no letters waiting from the last one. */
+void blasen_reset(void)
+{
+    uint8_t i;
+    for (i = 0; i < NUM_PLAYERS; i++) {
+        letters_queued[i] = 0;
+    }
+    letter_turn = 0;
+    letter_timer = 0;
+}
+
+uint8_t blasen_queued(uint8_t player)
+{
+    return letters_queued[player];
+}
+
+uint8_t blasen_tile(uint8_t letter)
+{
+    static const uint8_t cell[6] = {
+        SPR_LETTER_B, SPR_LETTER_L, SPR_LETTER_A, SPR_LETTER_S, SPR_LETTER_E, SPR_LETTER_N
+    };
+    return cell[letter < 6 ? letter : 0];
+}
+
+void blasen_collect(uint8_t player, uint8_t letter)
 {
     Player *p = &g_players[player];
+    if (p->letters & (1u << letter)) {
+        sfx(SFX_POP);        /* already has it: the letter is wasted */
+        return;
+    }
     p->letters = (uint8_t)(p->letters | (1u << letter));
     sfx(SFX_GEM);
-    if (p->letters == EXTEND_ALL) {
+    if (p->letters == BLASEN_ALL) {
         p->letters = 0;
         if (p->lives < 9) {
             p->lives++;
         }
         sfx(SFX_EXTRA);
-        g_skip_rounds = 1;   /* the round ends at once */
+        round_skip(1, SKIP_BLASEN, player);   /* the round ends at once */
     }
 }
 

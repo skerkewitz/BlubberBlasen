@@ -40,7 +40,7 @@ Stage 1 keeps it simple: graphics are plain **24-bit PNG** files, and the colour
 | 121, 122 | Rock |
 | 123, 124 | Hurry Up chaser (storm cloud) |
 | 128, 129, 130 | Special bubbles: water, fire, lightning |
-| 131..135 | Letter bubbles E, X, T, N, D |
+| 131..135, 143 | Letter bubbles E, B, L, N, A and S (`blasen_tile()` in `src/game/effect.c` maps B-L-A-S-E-N to them) |
 | 136, 137 | Water stream |
 | 138 | Fireball; 139, 140 fire carpet |
 | 141, 142 | Lightning bolt |
@@ -117,7 +117,7 @@ Things to keep in mind when designing rooms:
 
 Mono WAV files, loaded by name: `jump`, `shoot`, `pop`, `trap`, `kill`, `gem`, `death`, `start`, `clear`, `hurry`, `gameover`, `menu`, `pause`, `extra`, `dash`, `UhHelpMe`, `vacuum`, `multikill`. A missing file is skipped silently.
 
-`UhHelpMe` plays when a player is caught in a rescue bubble (co-op rescue) and once more when two thirds of the bubble's time are over. `vacuum` plays when a player places a vacuum (Plus mode). `multikill` plays once per chain, in place of `kill`, when the third trapped enemy of the chain pops (the chain that earns EXTEND letters).
+`UhHelpMe` plays when a player is caught in a rescue bubble (co-op rescue) and once more when two thirds of the bubble's time are over. `vacuum` plays when a player places a vacuum (Plus mode). `multikill` plays once per multikill, in place of `kill`, when the third enemy defeated in one go falls (a chain, a dash, one water, fire or lightning bubble, an item); that is the moment that earns BLASEN letters.
 
 ## Music (`music/`)
 

@@ -60,18 +60,18 @@ Blubber (player 1, green) starts in the bottom-left corner, Blasi (player 2, cya
 
 **Lives**
 
-- 3 lives, up to 9. Extra lives at 30,000 and 100,000 points and for a completed EXTEND.
+- 3 lives, up to 9. Extra lives at 30,000 and 100,000 points and for a completed BLASEN.
 - After a death the player respawns at their corner and blinks, invulnerable for 2 s. The round goes on.
 - Losing a life calms every angry enemy and restarts the round's Hurry Up timer.
 - When the last player is out, a 9-second countdown lets them continue with Start; the score is kept. Player 2 can join at any time.
 
 ## Bubbles
 
-A fired bubble flies 4 px per frame for 8 frames (about 32 px), then floats. It traps any enemy it touches while flying. A floating bubble drifts with the room's air at 0.35 px per frame (0.30 with an enemy inside). Floating bubbles push apart when closer than 13 px, so they gather into touching clusters where the air meets.
+A fired bubble flies 4 px per frame for 8 frames (about 32 px), then floats. It traps any enemy it touches while flying. A floating bubble drifts with the room's air at 0.35 px per frame (0.30 with an enemy inside). Floating bubbles push apart when closer than 13 px, so they gather into touching clusters where the air meets. Floating bubbles closer than 24 px cling together like soap: each is pulled 0.25 px per frame towards the other until they touch, so a loose group closes into a cluster that chains.
 
 An empty bubble lasts 10 s and turns orange and then red before it bursts. A trapped enemy breaks free after 5 s, with the same warning colours, and comes out angry.
 
-Popping a bubble pops every bubble within 15 px of it, one link every 5 frames, so a chain is visible as it runs through a cluster. All enemies in one chain form one combo. A popped enemy flies through the room in an arc and lands as food.
+Popping a bubble pops every bubble in reach, one link every 5 frames, so a chain is visible as it runs through a cluster. In reach means less than 18 px apart on both axes and at most 25 px for dx + dy together. A bubble is drawn 16 px wide, so bubbles that look touching always chain, like coyote time in jumping, and the dx + dy limit keeps diagonal neighbours from getting more reach than side-by-side ones. The values are a first guess and get tuned by play. All enemies in one chain form one combo. A popped enemy flies through the room in an arc and lands as food.
 
 **Walls and aiming (Plus).** A fired bubble stops at walls and platforms and starts floating in front of them. Blown into a wall at point-blank range, it pops at once. Holding Up shoots a bubble or a push bubble straight up. In Classic, fired bubbles pass through inner walls and Up does not aim.
 
@@ -131,9 +131,9 @@ Rules all enemies share:
 2. **Play.** The Hurry Up timer runs. It is set per round, from 40 s in round 1 down to 17 s in round 99. After 5 s a waiting power-up appears on a platform, and after 10 s the round's bonus food (500 to 2,000 points). Rounds with a special bubble type send one in through the opening at a fixed interval.
 3. **Hurry Up.** "HURRY UP!" appears and every enemy turns angry. 10 s later a Soot Cloud comes for each living player. Round 100 has no time limit.
 4. **Clear.** When the last enemy is gone, players have 5 s to collect the food.
-5. **Next round.** The next room scrolls in. A completed EXTEND ends the round at once; an umbrella skips 3 rounds.
+5. **Next round.** The next room scrolls in. A completed BLASEN ends the round at once and an umbrella skips 3 rounds. Both first stop the room for 2 s and say why in the darkened box of the round intro: `CONGRATULATIONS! / BLASEN COLLECTED / BLUBBER GETS AN EXTRA LIFE` (Blasi for player 2 and the CPU partner), or `UMBRELLA! / SKIP 3 ROUNDS`.
 
-## Special bubbles and EXTEND
+## Special bubbles, multikills and BLASEN
 
 Special bubbles come in through the room's opening, float with the air and set off their effect when a player touches them or hits them with a push bubble. They last 20 s.
 
@@ -143,7 +143,11 @@ Special bubbles come in through the room's opening, float with the air and set o
 | Fire | A fireball drops onto the platform below and lights a carpet 4 tiles to each side for 3 s. Stuns players for 1 s | Defeated |
 | Lightning | A bolt flies straight across the room | Defeated; the only thing that hurts the boss |
 
-A chain of three or more enemies earns EXTEND letters: 1 letter for 3 or 4 enemies, 2 for 5 or 6, 3 for 7 or 8. Up to 6 letters wait in a queue and come in one every 4 s through the opening, preferring letters a player still misses. Whoever pops a letter collects it; the letters are shown on the side walls. All six give an extra life and end the round.
+Three or more enemies defeated in one go are a multikill, whatever did it: a bubble chain, one dash, one water stream, one fire or lightning bubble, a Soap Star or Rinse Wave, or one touch on frozen enemies during the Steam Whistle. The third enemy plays the multikill sound in place of the kill sound. A multikill earns letter bubbles for the player who caused it: 1 for 3 enemies, 2 for 4, 3 for 5 or more. Up to 6 per player wait in a queue and come in one every 4 s through the opening, the two players taking turns. Each is a letter that player still misses, chosen at random and preferring one not already floating in the room. If they miss fewer letters than they earned, letters repeat: a 5-multikill when only B is missing brings three Bs.
+
+Whoever pops a letter gets it; a letter they already have is wasted. The letters spell B-L-A-S-E-N, the game's name, and are shown on the side walls (player 1 left, player 2 right). All six give an extra life and end the round.
+
+Chains and BLASEN are a bonus, not a core mechanic. Test games showed that a player can rarely set up a chain of three on purpose: the room decides whether enemies meet, the air that gathers bubbles is invisible and slow, and the clock (a trapped enemy escapes after 5 s, Hurry Up comes after 40 s down to 17 s) punishes waiting. The rules therefore make the bonus honest when the room allows it (bubbles that look touching chain, loose groups cling together, the multikill sound says it counted) and never make the game harder for a player who pops early. Background: `docs/adr/0003-multikills-and-blasen.md`.
 
 ## Items
 
@@ -168,11 +172,11 @@ Candies and shoes are lost with a life.
 
 ## Two players
 
-Both players share the room, the enemies and the bubbles, and either can pop or bounce on any bubble. Players cannot hurt each other. Score, lives, power-ups and EXTEND letters are per player. A round ends when all enemies are gone, whoever defeated them.
+Both players share the room, the enemies and the bubbles, and either can pop or bounce on any bubble. Players cannot hurt each other. Score, lives, power-ups and BLASEN letters are per player. A round ends when all enemies are gone, whoever defeated them.
 
 **Co-op rescue** (option). An enemy that touches a player traps them in a rescue bubble for 7 s. It drifts with the air (and a vacuum pulls it), and the partner frees them by touching it, with no life lost. If the time runs out, the player loses a life. Shots, the Soot Cloud and the boss still kill.
 
-**CPU partner** (option). A computer partner plays player 2. It frees the human from rescue bubbles, pops trapped enemies (preferably several at once), hunts enemies and stays near player 1. It looks half a second ahead every frame, trying its own moves (stay, walk, jump, dash, turn and shoot) against where enemies, shots, Soot Clouds and the boss will be. It leaves the food to the human and earns no score. Start on pad 2 takes over from it. A game finished with the CPU partner counts as a two-player game.
+**CPU partner** (option). A computer partner plays player 2. It frees the human from rescue bubbles, pops trapped enemies (preferably several at once), hunts enemies, then fetches BLASEN letters it still needs, and stays near player 1. It leaves letters it already has, and does not dash through one; a letter it touches anyway is wasted, as for a human. It looks half a second ahead every frame, trying its own moves (stay, walk, jump, dash, turn and shoot) against where enemies, shots, Soot Clouds and the boss will be. It leaves the food to the human and earns no score. Start on pad 2 takes over from it. A game finished with the CPU partner counts as a two-player game.
 
 ## Floors, secret rooms, boss and endings
 
@@ -194,7 +198,7 @@ Round 100 is the Grumble Boiler, a 32 × 32 px steam kettle with 24 hit points t
 | Enemy shots | Can come without warning | 30-frame wind-up before every shot |
 | Getting caught | Always costs a life | Option: rescue bubble in co-op |
 | Player 2 | Human only | Human or CPU partner |
-| EXTEND letters | Only in open rounds; letter types depend on the biggest combo | In any round; the number of letters depends on each chain |
+| Extra-life letters | EXTEND, only in open rounds; letter types depend on the biggest combo | BLASEN, in any round; any multikill earns them, for the player who caused it, and the round end is explained on screen |
 | Power-ups | More than 20, with difficulty-dependent limits | 10 with fixed limits |
 | Umbrella | Skips 3, 5 or 7 rounds | Skips 3 |
 | Secret doors | Rounds 20, 30, 40; warp in 50 | Rounds 20, 40, 60; warp in 50 |
@@ -206,7 +210,7 @@ Round 100 is the Grumble Boiler, a 32 × 32 px steam kettle with 24 hit points t
 - Is the vacuum too strong? Cooldown or limits are still open.
 - Rounds 34, 39, 69 and 99 have enemies that walking, jumping and dashing do not reach (`mapview --check` reports them). Players need a bubble bounce there, or wait for the enemy to come out. Is that intended?
 - Dash jump: a jump at the end of a dash that started on the ground, for a long jump sideways. On hold until the air dash (jump, then dash) has been tried in play.
-- The CPU partner neither knows that a Riveter's front blocks bubbles nor plans dashes into pockets. It still clears those rounds in the soak test.
+- The CPU partner neither knows that a Riveter's front blocks bubbles nor plans dashes into pockets. Its navigation data uses the lenient movement model, in which a sideways jump may pass through a wall, so it can get stuck against one. In Arcade it cannot leave the start pocket of rounds 16 and 34 (only a bubble bounce does that); the room test skips them there. In Plus it gets out of them by chance, after several tries.
 - Should walls stop bubbles inside a vacuum? A developer switch (`F12`) lets both be compared in play.
 - The CPU partner dashes but uses neither the push bubble nor the vacuum. Should it?
 - Hit zones of the push bubble: most shots hit bubbles at the same height, so most pushes are sideways. Is that fine?

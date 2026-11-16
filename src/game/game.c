@@ -9,9 +9,8 @@
 #define START_LIVES     3
 #define INTRO_FRAMES    120
 #define INTRO_BOX_PAD    6                    /* px around the intro text */
-#define INTRO_BOX_TOP    (12 * 8 - INTRO_BOX_PAD)          /* row 12 "ROUND n" */
-#define INTRO_BOX_BOTTOM (16 * 8 - 1 + INTRO_BOX_PAD)      /* row 15 "READY!" */
 #define INTRO_BOX_DARKEN 8                    /* SNES 5-bit: (room - 8) / 2 */
+#define SKIP_FRAMES     120      /* the BLASEN / umbrella message stays 2 s */
 #define CLEAR_FRAMES    300      /* collect the gems, then the next round */
 #define HURRY_TEXT      120
 #define GAME_OVER_FRAMES 240
@@ -51,6 +50,8 @@ static Sprite   oam[MAX_SPRITES];
 static uint8_t  oam_count;
 static ColorWindow windows[NUM_WINDOWS];
 static uint8_t  intro_box_l, intro_box_r;   /* darkened box behind "ROUND n", px; l > r = none */
+static uint8_t  intro_box_t, intro_box_b;   /* its first and last line */
+static uint8_t  skip_why, skip_player;      /* what ended the round early (round_skip) */
 static uint16_t state_timer;
 static uint16_t rng;
 static uint16_t prev_pad[NUM_PLAYERS];
@@ -204,7 +205,7 @@ static uint8_t any_alive(void)
 
 /* --- HUD ------------------------------------------------------------------------
  * Row 0: 1UP, HIGH SCORE, 2UP. Row 1: the three scores. The round number
- * sits on the left wall, the EXTEND letters on the side walls and the spare
+ * sits on the left wall, the BLASEN letters on the side walls and the spare
  * lives (sprites) in the bottom corners. */
 static void draw_hud_labels(void)
 {
@@ -241,9 +242,9 @@ static void draw_hud_values(void)
     text_digits(11, 1, best_score(), 8, PAL_NONE);
     text_number(0, HUD_ROWS, g_round, PAL_YELLOW);
 
-    /* EXTEND letters on the side walls: player 1 left, player 2 right. */
+    /* BLASEN letters on the side walls: player 1 left, player 2 right. */
     for (i = 0; i < NUM_PLAYERS; i++) {
-        static const char letters[] = "EXTEND";
+        static const char letters[] = "BLASEN";
         uint8_t k;
         for (k = 0; k < 6; k++) {
             char s[2];
@@ -326,6 +327,69 @@ static uint8_t gems_left(void)
     return n;
 }
 
+/* --- Messages in the darkened box ----------------------------------------------- */
+/* The box behind rows first..last, centred, len columns wide. */
+static void set_box(uint8_t first, uint8_t last, uint8_t len)
+{
+    intro_box_l = (uint8_t)(((BG_W - len) >> 1) * 8 - INTRO_BOX_PAD);
+    intro_box_r = (uint8_t)((((BG_W - len) >> 1) + len) * 8 - 1 + INTRO_BOX_PAD);
+    intro_box_t = (uint8_t)(first * 8 - INTRO_BOX_PAD);
+    intro_box_b = (uint8_t)((last + 1) * 8 - 1 + INTRO_BOX_PAD);
+}
+
+static uint8_t text_len(const char *s)
+{
+    uint8_t n = 0;
+    while (s[n]) {
+        n++;
+    }
+    return n;
+}
+
+/* Puts s centred on a row; returns its length. */
+static uint8_t text_center(uint8_t row, const char *s, uint8_t pal)
+{
+    uint8_t len = text_len(s);
+    text_put((uint8_t)((BG_W - len) >> 1), row, s, pal);
+    return len;
+}
+
+/* BLASEN completed or the umbrella collected: the round ends at once. */
+void round_skip(uint8_t rounds, uint8_t why, uint8_t player)
+{
+    g_skip_rounds = rounds;
+    skip_why = why;
+    skip_player = player;
+}
+
+/* The room stands still for SKIP_FRAMES under a message that says why the
+ * round ended. Names from the story: Blubber is player 1, Blasi player 2
+ * (and the CPU partner). */
+static void begin_round_skip(void)
+{
+    static const char *const life_line[NUM_PLAYERS] = {
+        "BLUBBER GETS AN EXTRA LIFE", "BLASI GETS AN EXTRA LIFE"
+    };
+    uint8_t len, w;
+
+    text_clear_row(12);
+    text_clear_row(13);
+    text_clear_row(14);
+    text_clear_row(15);
+    if (skip_why == SKIP_BLASEN) {
+        len = text_center(12, "CONGRATULATIONS!", PAL_YELLOW);
+        w = text_center(13, "BLASEN COLLECTED", PAL_CYAN);
+        len = w > len ? w : len;
+        w = text_center(14, life_line[skip_player & 1], PAL_NONE);
+        set_box(12, 14, w > len ? w : len);
+    } else {
+        len = text_center(12, "UMBRELLA!", PAL_YELLOW);
+        w = text_center(13, "SKIP 3 ROUNDS", PAL_CYAN);
+        set_box(12, 13, w > len ? w : len);
+    }
+    set_state(GS_ROUND_SKIP);
+}
+
 /* --- Rounds --------------------------------------------------------------------- */
 static void begin_transition(void);
 static void enter_ending(void);
@@ -388,11 +452,7 @@ static void round_intro(void)
         }
         text_put((uint8_t)((BG_W - len) >> 1), 13, name, PAL_CYAN);
         /* The box covers the floor name, and at least "ROUND 100" (columns 11..20). */
-        if (len < 10) {
-            len = 10;
-        }
-        intro_box_l = (uint8_t)(((BG_W - len) >> 1) * 8 - INTRO_BOX_PAD);
-        intro_box_r = (uint8_t)((((BG_W - len) >> 1) + len) * 8 - 1 + INTRO_BOX_PAD);
+        set_box(12, 15, len < 10 ? 10 : len);
     }
     text_put(13, 15, "READY!", PAL_NONE);
     sfx(SFX_START);
@@ -488,6 +548,7 @@ static void new_game(uint8_t starter)
     g_count.fire_kills = 0;
     g_count.candies = 0;
     g_count.queued = 0;
+    blasen_reset();
     no_death = 1;
     ending_delay = 0;
     g_level = first_level;
@@ -510,7 +571,7 @@ static void new_game(uint8_t starter)
     start_round();
 }
 
-/* Rounds go up to the boss; skipping (umbrella, EXTEND, warp) stops there. */
+/* Rounds go up to the boss; skipping (umbrella, BLASEN, warp) stops there. */
 static void next_round(uint8_t advance)
 {
     while (advance--) {
@@ -675,9 +736,9 @@ static void update_play(const uint16_t pad[NUM_PLAYERS], const uint16_t pressed[
     powerup_round_tick();
     bonus_round_tick();
 
-    /* EXTEND completed or umbrella collected: the round ends at once. */
+    /* BLASEN completed or umbrella collected: the round ends at once. */
     if (g_skip_rounds && level_defs[g_level].kind == LEVEL_NORMAL) {
-        next_round(g_skip_rounds);
+        begin_round_skip();
         return;
     }
     g_skip_rounds = 0;
@@ -1110,7 +1171,8 @@ static void draw_lives(void)
     }
 }
 
-/* "ROUND n", the floor name and "READY!" (rows 12 to 15) get a darkened box
+/* "ROUND n", the floor name and "READY!" (rows 12 to 15), and the message
+ * when BLASEN or the umbrella ends a round, get a darkened box
  * behind them, so the text stays readable on any room. Like the vacuum it is
  * a colour window, here in subtract-and-halve mode: the room behind shows at
  * about a third of its brightness. Text is on layer 1 and enemies are
@@ -1121,7 +1183,7 @@ static void intro_box_window(ColorWindow *w)
     uint8_t y;
     w->add_r = w->add_g = w->add_b = INTRO_BOX_DARKEN;
     w->math = CMATH_SUB | CMATH_HALF;
-    for (y = INTRO_BOX_TOP; y <= INTRO_BOX_BOTTOM; y++) {
+    for (y = intro_box_t; y <= intro_box_b; y++) {
         w->left[y] = intro_box_l;
         w->right[y] = intro_box_r;
     }
@@ -1144,7 +1206,7 @@ static void build_windows(void)
     }
     if (g_state == GS_PLAY || g_state == GS_PAUSE) {
         vacuums_windows(windows);
-    } else if (g_state == GS_ROUND_INTRO && intro_box_l <= intro_box_r) {
+    } else if ((g_state == GS_ROUND_INTRO || g_state == GS_ROUND_SKIP) && intro_box_l <= intro_box_r) {
         intro_box_window(&windows[0]);
     }
 }
@@ -1155,7 +1217,7 @@ static void build_oam(void)
     oam_count = 0;
 
     if (g_state == GS_TRANSITION || g_state == GS_ROUND_INTRO || g_state == GS_PLAY || g_state == GS_PAUSE ||
-        g_state == GS_CONTINUE || g_state == GS_GAME_OVER) {
+        g_state == GS_ROUND_SKIP || g_state == GS_CONTINUE || g_state == GS_GAME_OVER) {
         /* Lower index = higher priority (drawn on top). */
         for (i = 0; i < NUM_PLAYERS; i++) {
             player_draw(&g_players[i]);
@@ -1211,6 +1273,7 @@ void game_init(uint16_t seed)
     options_load();
     clear_objects();
     boss_reset();
+    blasen_reset();
     door_open = 0;
     enter_title();
     build_oam();
@@ -1307,6 +1370,16 @@ void game_tick(const uint16_t real_pad[NUM_PLAYERS])
     case GS_PLAY:
         update_play(pad, pressed);
         draw_hud_values();
+        break;
+
+    case GS_ROUND_SKIP:
+        /* The room stands still under the message, then the next room comes. */
+        draw_hud_values();
+        if (state_timer >= SKIP_FRAMES) {
+            uint8_t rounds = g_skip_rounds;
+            text_clear_row(14);
+            next_round(rounds);
+        }
         break;
 
     case GS_PAUSE:

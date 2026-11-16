@@ -2,9 +2,10 @@
  * Bubbles: shot horizontally, then drift with the level's airflow.
  * A shot bubble that hits an enemy traps it; a trapped enemy escapes
  * (angry) after a while. Floating bubbles push each other apart, and a
- * popped bubble pops every bubble it touches (chain reaction); each trapped
+ * popped bubble pops every bubble within reach (chain reaction); each trapped
  * enemy in one chain is worth twice as much as the one before. Everything
- * one dash sweeps through counts as one chain.
+ * one dash sweeps through counts as one chain. Floating bubbles that are
+ * close but not touching cling together, like soap.
  * Plus mode adds the push bubble: it traps nothing and shoves the floating
  * bubble it hits, like a cue ball.
  * Ported from AiBubbleSystem / AirflowSystem, extended per the design guide.
@@ -23,8 +24,11 @@
 #define TRAP_ORANGE   (TRAP_LIFE - 180)
 #define TRAP_RED      (TRAP_LIFE - 90)
 #define POP_DELAY     5            /* frames between links of a chain */
-#define CHAIN_REACH   15           /* bubbles closer than this pop each other */
+#define CHAIN_REACH   18           /* bubbles closer than this on both axes pop each other ... */
+#define CHAIN_DIAG    25           /* ... if dx + dy is at most this (1.4 x 18): a near-circle */
 #define PUSH_REACH    13           /* floating bubbles closer than this push apart */
+#define STICK_REACH   24           /* ...and closer than this cling together (soap) */
+#define STICK_PULL    FX(0, 64)    /* 0.25 px/frame each, until they touch */
 #define SPECIAL_LIFE  1200         /* special and letter bubbles: 20 s */
 #define PUSH_SPEED    FX(6, 0)     /* Plus mode push bubble: small and fast */
 #define PUSH_FRAMES   12           /* about 72 px, then it vanishes */
@@ -160,16 +164,18 @@ void bubble_pop(Bubble *b, int8_t dir, uint8_t player)
     chain_owner = player;
 }
 
-void bubbles_trapped_to_gems(void)
+uint8_t bubbles_trapped_to_gems(void)
 {
-    uint8_t i;
+    uint8_t i, n = 0;
     for (i = 0; i < MAX_BUBBLES; i++) {
         Bubble *b = &g_bubbles[i];
         if (b->state == BS_TRAPPED || (b->state == BS_POPPING && b->trapped)) {
             item_spawn_thrown(b->x, b->y, (int8_t)((i & 1) ? -1 : 1), GEM_TIER);
             b->state = BS_OFF;
+            n++;
         }
     }
+    return n;
 }
 
 uint8_t push_shoot(uint8_t player, uint16_t x, uint16_t y, uint8_t dir)
@@ -224,7 +230,19 @@ static void drift(Bubble *b, fx8_8 speed)
     clamp_bubble(b);
 }
 
-/* Burst one link of a chain and light the fuse of every bubble it touches. */
+/* Two bubbles set each other off when they look touching. The reach is a
+ * little more generous than the 16 px picture (like coyote time), and the
+ * dx + dy limit cuts the corners off the square, so diagonal neighbours
+ * get no more reach than side-by-side ones. No multiplication. */
+static uint8_t in_chain_reach(const Bubble *a, const Bubble *b)
+{
+    uint8_t ax = PX(a->x), bx = PX(b->x), ay = PX(a->y), by = PX(b->y);
+    uint8_t dx = (uint8_t)(ax > bx ? ax - bx : bx - ax);
+    uint8_t dy = (uint8_t)(ay > by ? ay - by : by - ay);
+    return (uint8_t)(dx < CHAIN_REACH && dy < CHAIN_REACH && dx + dy <= CHAIN_DIAG);
+}
+
+/* Burst one link of a chain and light the fuse of every bubble in reach. */
 static void burst(Bubble *b)
 {
     uint8_t i;
@@ -236,11 +254,11 @@ static void burst(Bubble *b)
             chain_kills++;
         }
         item_spawn_thrown(b->x, b->y, dir, tier);
-        /* The third enemy of a chain earns letters: say so right away,
-         * once per chain, while the player still watches it. */
-        sfx(chain_kills == 3 ? SFX_MULTIKILL : SFX_KILL);
+        /* The third enemy of a chain is a multikill: say so right away,
+         * while the player still watches it. */
+        multikill_kill(chain_owner, chain_kills);
     } else if (b->kind == BK_LETTER) {
-        extend_collect(chain_owner, b->letter);
+        blasen_collect(chain_owner, b->letter);
         item_spawn(IT_BURST, b->x, b->y, 0);
     } else if (b->kind != BK_NORMAL) {
         /* Lightning flies away from the player who popped it,
@@ -266,7 +284,7 @@ static void burst(Bubble *b)
 
     for (i = 0; i < MAX_BUBBLES; i++) {
         Bubble *o = &g_bubbles[i];
-        if (floating(o) && overlap(b->x, b->y, o->x, o->y, CHAIN_REACH, CHAIN_REACH)) {
+        if (floating(o) && in_chain_reach(b, o)) {
             o->trapped = (uint8_t)(o->state == BS_TRAPPED);
             o->state = BS_POPPING;
             o->pop_timer = POP_DELAY;
@@ -388,7 +406,26 @@ static void separate(void)
             dy = (int16_t)((int16_t)PX(a->y) - (int16_t)PX(b->y));
             adx = abs16(dx);
             ady = abs16(dy);
+            if (adx >= STICK_REACH || ady >= STICK_REACH) {
+                continue;
+            }
             if (adx >= PUSH_REACH || ady >= PUSH_REACH) {
+                /* Close but not touching: soap bubbles cling together, so
+                 * a loose group closes into a cluster that chains. Only the
+                 * axes with a gap are pulled; the push below stops them at
+                 * PUSH_REACH, inside CHAIN_REACH. */
+                if (!DBG(DBG_NO_STICKY)) {
+                    if (adx > PUSH_REACH) {
+                        a->x = (uint16_t)(dx > 0 ? a->x - STICK_PULL : a->x + STICK_PULL);
+                        b->x = (uint16_t)(dx > 0 ? b->x + STICK_PULL : b->x - STICK_PULL);
+                    }
+                    if (ady > PUSH_REACH) {
+                        a->y = (uint16_t)(dy > 0 ? a->y - STICK_PULL : a->y + STICK_PULL);
+                        b->y = (uint16_t)(dy > 0 ? b->y + STICK_PULL : b->y - STICK_PULL);
+                    }
+                    clamp_bubble(a);
+                    clamp_bubble(b);
+                }
                 continue;
             }
             if (adx >= ady) {
@@ -595,15 +632,12 @@ void bubbles_update(void)
 
     /* A chain is over when nothing is popping any more. A dash holds it
      * open: everything one dash sweeps through is one chain, even bubbles
-     * that do not touch (Plus mode, design guide "Dash"). */
+     * that do not touch (Plus mode, design guide "Dash"). Its letters were
+     * earned as it ran (multikill_kill). */
     for (i = 0; i < MAX_BUBBLES && !popping; i++) {
         popping = (uint8_t)(g_bubbles[i].state == BS_POPPING);
     }
     if (!popping && !player_dash_invulnerable(&g_players[chain_owner])) {
-        /* A chain of three or more enemies earns EXTEND letters. */
-        if (chain_kills >= 3) {
-            extend_letters_earned((uint8_t)((chain_kills - 1) >> 1));
-        }
         chain_kills = 0;
     }
 }
@@ -622,7 +656,6 @@ void bubbles_draw(void)
         ph = phase[((b->age >> 3) + b->anim) & 3];
 
         if (b->kind != BK_NORMAL && !(b->state == BS_POPPING && b->trapped)) {
-            static const uint8_t letter_cell[6] = { 0, 1, 2, 0, 3, 4 };   /* E X T E N D */
             if (b->age >= SPECIAL_LIFE - 120 && (b->age & 4)) {
                 continue;   /* about to drift away */
             }
@@ -630,7 +663,7 @@ void bubbles_draw(void)
             case BK_WATER:     tile = SPR_SPECIAL_WATER; break;
             case BK_FIRE:      tile = SPR_SPECIAL_FIRE; break;
             case BK_LIGHTNING: tile = SPR_SPECIAL_LIGHTNING; break;
-            default:           tile = (uint8_t)(SPR_LETTER0 + letter_cell[b->letter]); break;
+            default:           tile = blasen_tile(b->letter); break;
             }
             oam_add(PX(b->x), PX(b->y), tile, 0);
             continue;

@@ -123,10 +123,11 @@ uint8_t powerup_tile(uint8_t power)
 static void collect_powerup(Item *it, Player *p)
 {
     uint8_t popup = POPUP_100;
+    uint8_t n;
 
     switch (it->tier) {
     case POWER_UMBRELLA:
-        g_skip_rounds = 3;
+        round_skip(3, SKIP_UMBRELLA, p->id);
         score_add(p->score, 2, 2);   /* +200 */
         popup = POPUP_200;
         break;
@@ -138,8 +139,10 @@ static void collect_powerup(Item *it, Player *p)
                 effect_start(BK_WATER, TO_POS(40 + k * 80), TO_POS(FIELD_Y + 8), (int8_t)(k & 1 ? -1 : 1), p->id);
             }
         }
-        enemies_to_gems();
-        bubbles_trapped_to_gems();
+        /* every enemy at once: a multikill for whoever picked it up */
+        n = enemies_to_gems();
+        n = (uint8_t)(n + bubbles_trapped_to_gems());
+        multikill_award(p->id, n);
         score_add(p->score, 3, 1);   /* +1000 */
         popup = POPUP_FOOD0;
         break;

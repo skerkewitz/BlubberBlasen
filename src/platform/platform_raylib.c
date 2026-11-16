@@ -854,6 +854,7 @@ static void debug_keys(void)
     if (IsKeyPressed(KEY_F4)) dbg_toggle(DBG_HITBOXES, "HITBOXES");
     if (IsKeyPressed(KEY_F5)) dbg_toggle(DBG_AIR, "AIR CURRENTS");
     if (IsKeyPressed(KEY_F12)) dbg_toggle(DBG_VACUUM_WALLS, "VACUUM WALLS");
+    if (IsKeyPressed(KEY_F6)) dbg_toggle(DBG_NO_STICKY, "NO STICKY BUBBLES");
     if (IsKeyPressed(KEY_F7)) {
         dbg_paused = !dbg_paused;
         snprintf(dbg_message, sizeof dbg_message, "FRAME STEP %s (F8 = next frame)", dbg_paused ? "ON" : "OFF");
@@ -938,10 +939,10 @@ static void debug_overlays(void)
 static void debug_status(void)
 {
     char line[96];
-    snprintf(line, sizeof line, "DEBUG %s%s%s%s%s%s%s%s",
+    snprintf(line, sizeof line, "DEBUG %s%s%s%s%s%s%s%s%s",
              game_debug_get(DBG_CPU_VIEW) ? "CPU " : "", game_debug_get(DBG_INVINCIBLE) ? "INV " : "", game_debug_get(DBG_INFINITE_LIVES) ? "LIVES " : "",
              game_debug_get(DBG_HITBOXES) ? "BOXES " : "", game_debug_get(DBG_AIR) ? "AIR " : "",
-             game_debug_get(DBG_VACUUM_WALLS) ? "VACWALLS " : "", dbg_paused ? "PAUSED " : "", dbg_slow ? "SLOW" : "");
+             game_debug_get(DBG_VACUUM_WALLS) ? "VACWALLS " : "", game_debug_get(DBG_NO_STICKY) ? "NOSTICKY " : "", dbg_paused ? "PAUSED " : "", dbg_slow ? "SLOW" : "");
     if (strcmp(line, "DEBUG ") != 0) {
         DrawText(line, 8, 8, 20, YELLOW);
     }
