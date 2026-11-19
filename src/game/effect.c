@@ -466,7 +466,7 @@ void blasen_collect(uint8_t player, uint8_t letter)
         return;
     }
     p->letters = (uint8_t)(p->letters | (1u << letter));
-    g_hud_changes++;
+    g_hud_letter_changes++;
     sfx(SFX_GEM);
     if (p->letters == BLASEN_ALL) {
         p->letters = 0;

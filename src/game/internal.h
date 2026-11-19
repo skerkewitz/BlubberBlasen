@@ -330,8 +330,9 @@ void     video_title(void);                              /* the title logo's til
 void     bg_mark_row(uint8_t layer, uint8_t row);        /* a map row changed: copy it to VRAM */
 void     bg_mark_all(uint8_t layer);
 extern BB_FAST uint16_t g_bg1_changes;   /* counts bg_mark_row(1, ..): any change to layer 1 */
-extern BB_FAST uint16_t g_hud_changes;   /* counts changes of what the HUD shows: scores, BLASEN
-                                            letters, the high score table (game.c, draw_hud_values) */
+extern BB_FAST uint16_t g_hud_changes;          /* counts changes of the scores and the high score table
+                                                   (game.c, draw_hud_values: the HUD draws them again) */
+extern BB_FAST uint16_t g_hud_letter_changes;   /* counts changes of the BLASEN letters, likewise */
 extern uint8_t g_player_tint[NUM_PLAYERS];   /* PAL_NONE, PAL_YELLOW, PAL_ORANGE: a player's flash */
 #ifdef BB_DEBUG
 extern uint16_t g_video_missing;             /* sprites drawn whose cell is not in the sprite sheet */

@@ -223,59 +223,99 @@ static const uint8_t *best_score(void)
     return best;
 }
 
-/* The HUD is drawn again only when something it shows changed, or when
- * other text changed layer 1 since (text_clear_row on a row with BLASEN
- * letters clears them too). Drawing it every tick cost a sixth of a tick on
- * the SNES. Scores, letters and the high score table count their changes in
- * g_hud_changes, which is cheaper than comparing their digits every tick;
- * a player's state is compared here (it changes in too many places). */
+/* The HUD is drawn again only where something it shows changed, part by
+ * part, or all of it when other text changed layer 1 since (text_clear_row on
+ * a row with BLASEN letters clears them too). Drawing all of it every tick cost
+ * a sixth of a tick on the SNES, and all of it for each change a third of a
+ * frame each time (the START blink of a player who is out redrew everything
+ * every 32 frames). Scores and the high score table count their changes in
+ * g_hud_changes, the BLASEN letters in g_hud_letter_changes, which is cheaper
+ * than comparing digits every tick; a player's state is compared here (it
+ * changes in too many places). A part drawn again with what it showed is no
+ * change on screen: text_put and text_digits mark a row only when an entry
+ * changes. */
 BB_FAST uint16_t g_hud_changes;
+BB_FAST uint16_t g_hud_letter_changes;
 static uint8_t  hud_show_seen[NUM_PLAYERS];   /* 0 in the game; out: 1 or 2, the START blink */
 static uint8_t  hud_round_seen;
 static uint16_t hud_bg1_seen;                 /* g_bg1_changes after the last draw */
 static uint16_t hud_changes_seen;             /* g_hud_changes at the last draw */
+static uint16_t hud_letters_seen;             /* g_hud_letter_changes at the last draw */
 static uint8_t  hud_valid;
 
-static uint8_t hud_changed(void)
-{
-    uint8_t changed = (uint8_t)(!hud_valid || hud_bg1_seen != g_bg1_changes || hud_changes_seen != g_hud_changes ||
-                                hud_round_seen != g_round);
+/* The parts of the HUD; bit i of a player's part is player i's. */
+#define HUD_SCORE   0x01u   /* and 0x02 for player 2 */
+#define HUD_LETTERS 0x04u   /* and 0x08 */
+#define HUD_BEST    0x10u
+#define HUD_ROUND   0x20u
+#define HUD_ALL     0x3Fu
 
+/* Which parts have to be drawn again. */
+static uint8_t hud_dirty(void)
+{
+    uint8_t dirty = 0;
+    if (!hud_valid || hud_bg1_seen != g_bg1_changes) {
+        dirty = HUD_ALL;
+    }
+    if (hud_changes_seen != g_hud_changes) {
+        dirty |= (uint8_t)(HUD_SCORE | (HUD_SCORE << 1) | HUD_BEST);
+    }
+    if (hud_letters_seen != g_hud_letter_changes) {
+        dirty |= (uint8_t)(HUD_LETTERS | (HUD_LETTERS << 1));
+    }
+    if (hud_round_seen != g_round) {
+        dirty |= HUD_ROUND;
+    }
     hud_valid = 1;
     hud_round_seen = g_round;
     hud_changes_seen = g_hud_changes;
+    hud_letters_seen = g_hud_letter_changes;
     for (uint8_t i = 0; i < NUM_PLAYERS; i++) {
         uint8_t show = (uint8_t)(g_players[i].state != PS_OFF ? 0 : (g_frame & 32) ? 2 : 1);
         if (hud_show_seen[i] != show) {
+            dirty |= (uint8_t)(HUD_SCORE << i);             /* START or the score */
+            if ((hud_show_seen[i] == 0) != (show == 0)) {
+                dirty |= (uint8_t)(HUD_LETTERS << i);       /* blank while the player is out */
+            }
             hud_show_seen[i] = show;
-            changed = 1;
         }
     }
-    return changed;
+    return dirty;
 }
 
 static void draw_hud_values(void)
 {
     static const uint8_t score_col[NUM_PLAYERS] = { 0, 24 };
 
-    if (!hud_changed()) {
+    uint8_t dirty = hud_dirty();
+    if (!dirty) {
         return;
     }
 
     for (uint8_t i = 0; i < NUM_PLAYERS; i++) {
         const Player *p = &g_players[i];
+        if (!(dirty & (HUD_SCORE << i))) {
+            continue;
+        }
         if (p->state == PS_OFF && (g_frame & 32)) {
             text_put(score_col[i], 1, " START  ", PAL_YELLOW);
         } else {
             text_digits(score_col[i], 1, p->score, 8, PAL_NONE);
         }
     }
-    text_digits(11, 1, best_score(), 8, PAL_NONE);
-    text_number(0, HUD_ROWS, g_round, PAL_YELLOW);
+    if (dirty & HUD_BEST) {
+        text_digits(11, 1, best_score(), 8, PAL_NONE);
+    }
+    if (dirty & HUD_ROUND) {
+        text_number(0, HUD_ROWS, g_round, PAL_YELLOW);
+    }
 
     /* BLASEN letters on the side walls: player 1 left, player 2 right. */
     for (uint8_t i = 0; i < NUM_PLAYERS; i++) {
         static const char letters[] = "BLASEN";
+        if (!(dirty & (HUD_LETTERS << i))) {
+            continue;
+        }
         for (uint8_t k = 0; k < 6; k++) {
             char s[2];
             uint8_t have = (uint8_t)((g_players[i].letters >> k) & 1u);
@@ -556,6 +596,7 @@ static void new_game(uint8_t starter)
         g_players[i].powers = 0;
         played[i] = 0;
         g_hud_changes++;
+        g_hud_letter_changes++;
     }
     g_count.blown = 0;
     g_count.popped = 0;
