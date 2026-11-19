@@ -15,6 +15,15 @@
 
 #include <stdint.h>
 
+/* Development builds (BB_DEBUG: the debug switches, the debug view's registrations, the views the
+ * tests and recordings read) are every build whose compiler is not dampf, unless the build says
+ * BB_NO_DEBUG: CMake does for the public builds (BB_DEBUG_SWITCHES off) and for the console's
+ * twin game_console. The ROM never has them; `superdevkit build linux|win64` always does
+ * (ADR-0010). */
+#if !defined(BB_DEBUG) && !defined(__DAMPF__) && !defined(BB_NO_DEBUG)
+#define BB_DEBUG 1
+#endif
+
 /* --- Version: major.minor.revision, shown on the title screen -------------- */
 #define GAME_VERSION "1.4.0"
 

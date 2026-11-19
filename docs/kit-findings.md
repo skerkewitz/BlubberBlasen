@@ -142,6 +142,7 @@ far pairs (an unsigned range compare instead of two `abs` and two compares).
 | 8 | `ExampleCheck` records the ROM's sound but does not write it | tool |
 | 9 | A benchmark for dampf's loop optimizations: the game's bubble separation in four variants | benchmark |
 | 10 | M7 for a game with its own converters and its own frontend | tool |
+| 11 | What Blubber Blasen still needs from the kit's desktop before its own frontend can go | frontend |
 
 ## 8. `ExampleCheck` records the ROM's sound but does not write it (2026-11-19)
 
@@ -222,3 +223,32 @@ matches the PC over 36,000 ticks in four scenarios. Two things came up:
    both files itself. A command that only does the conversions of the project file
    (`superdevkit gen [FOLDER]`: build/gen with graphics, sfx and music.h, and the music list)
    would let other build systems call the kit instead of copying what it writes.
+
+## 11. What Blubber Blasen still needs from the kit's desktop before its own frontend can go (2026-11-20)
+
+The game now builds and runs from the kit on Linux and Windows (`superdevkit build linux|win64`;
+both played 36,000-tick recordings with every checksum the same) and registers its switches,
+buttons and overlays with the debug view (ADR-0010 of the game). It keeps its own CMake desktop
+beside it for now, because these are missing, in the order they matter to the game:
+
+1. **Start options for the game.** The kit calls `game_init(0)` and the game gets nothing from the
+   command line. The game starts with `--seed`, `--round`, `--plus`, `--ending`, `--options` and
+   debug switches. One way: a `--seed` option, and `--set name=value` setting a registered toggle
+   or range by its name before the first tick (the game would then register its start options
+   like its switches).
+2. **A bot, or a pad source.** The game's `--autoplay` plays the game for screenshots and long
+   unattended runs. Since dampf has no function pointers, maybe a toggle the game registers
+   ("autoplay") and reads in `game_tick` to make its own pad; then only item 1 is needed to switch
+   it on from the command line.
+3. **Mute** in the window (`--mute`): every automated run of the game must be silent. `--check`
+   is silent already, so this is about runs with a window (screenshots, watching a bot).
+4. **Text in the view.** The game's ImGui panels show the objects (type, state, position, speed,
+   timer), the CPU partner's goal and chosen action, why lives were lost, the round status. A
+   read-only registration would do, for example `sdevkit_dbg_text(name, buffer)` (a string the game
+   fills, shown as a line) or `sdevkit_dbg_value(name, &u16)`.
+5. **Stepping back in a replay** (`Shift`+`F8` in the game: the replay runs again fast to the tick
+   before) and `--jump <tick>`.
+6. **Per-target defines in the project file**, for example `[desktop] defines = ["BB_DEBUG"]`. The
+   game now keys its debug code on `__DAMPF__` instead.
+7. **Box styles**: filled boxes (the CPU view's danger dots fade with distance in the game's view)
+   or a direction for an arrow (the air currents are colours now).

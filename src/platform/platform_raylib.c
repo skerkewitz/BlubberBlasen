@@ -1415,6 +1415,7 @@ static void game_step(void)
         }
         shown_pad[0] = pad[0];
         shown_pad[1] = pad[1];
+        sdevkit__dbg_nboxes = 0;   /* the boxes for the kit's debug view, which this frontend does not show */
         game_tick(pad);
         sdevkit__vblank();   /* the frame is done: OAM shadow to OAM */
         game_vblank();   /* the uploads, in the vertical blank */
@@ -1447,6 +1448,7 @@ static void game_step(void)
         game_debug_clear_round();
     }
 #endif
+    sdevkit__dbg_nboxes = 0;   /* the boxes for the kit's debug view, which this frontend does not show */
     game_tick(pad);
     sdevkit__vblank();   /* the frame is done: OAM shadow to OAM */
     game_vblank();     /* the uploads, in the vertical blank */

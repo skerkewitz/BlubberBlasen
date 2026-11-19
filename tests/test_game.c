@@ -1034,6 +1034,72 @@ static void test_special_items(void)
     CHECK(g_players[0].score[5] == 1, "Bubble Ring: +100 per shot");
 }
 
+/* superdevkit's debug view (ADR-0010): the switches and buttons are registered, a button does
+ * its work in the next tick and is cleared, and a switched-on overlay draws boxes. */
+static const sdevkit__dbg_entry *view_entry(const char *name)
+{
+    for (int i = 0; i < sdevkit__dbg_count; i++) {
+        if (strcmp(sdevkit__dbg_entries[i].name, name) == 0) {
+            return &sdevkit__dbg_entries[i];
+        }
+    }
+    return NULL;
+}
+
+static void test_debug_view(void)
+{
+    uint16_t idle[NUM_PLAYERS] = { 0, 0 };
+    uint16_t start[NUM_PLAYERS] = { PAD_START, 0 };
+
+    sdevkit__dbg_reset();
+    game_init(1);
+    game_debug_skip_story(1);
+    CHECK(sdevkit__dbg_count == 12, "7 switches, 2 ranges and 3 buttons are registered");
+    const sdevkit__dbg_entry *boxes = view_entry("hit boxes");
+    const sdevkit__dbg_entry *spawn = view_entry("spawn");
+    const sdevkit__dbg_entry *what = view_entry("spawn what");
+    const sdevkit__dbg_entry *clear = view_entry("clear round");
+    CHECK(boxes && boxes->kind == SDEVKIT__DBG_TOGGLE && boxes->p == &g_dbg[DBG_HITBOXES], "the hit box switch is g_dbg's");
+    CHECK(what && what->kind == SDEVKIT__DBG_RANGE && what->lo == 0 && what->hi == DEBUG_SPAWN_COUNT - 1,
+          "the spawn range covers every item and special bubble");
+    CHECK(view_entry("round") && view_entry("round")->hi > 1, "the round range reaches the boss");
+    if (!boxes || !spawn || !what || !clear) {
+        return;
+    }
+
+    game_tick(start);
+    for (int f = 0; f < 400 && g_state != GS_PLAY; f++) {
+        game_tick(idle);
+    }
+    CHECK(g_state == GS_PLAY, "the round starts");
+    sdevkit__dbg_nboxes = 0;
+    game_tick(idle);
+    CHECK(sdevkit__dbg_nboxes == 0, "no boxes while every overlay is off");
+
+    *(uint8_t *)boxes->p = 1;
+    sdevkit__dbg_nboxes = 0;
+    game_tick(idle);
+    CHECK(sdevkit__dbg_nboxes > 1, "hit boxes: one box per player and enemy at least");
+    *(uint8_t *)boxes->p = 0;
+
+    int items_before = 0, items_after = 0;
+    for (uint8_t i = 0; i < MAX_ITEMS; i++) {
+        items_before += g_items[i].kind == IT_POWERUP;
+    }
+    *(int16_t *)what->p = 0;   /* range candy */
+    *(uint8_t *)spawn->p = 1;
+    game_tick(idle);
+    for (uint8_t i = 0; i < MAX_ITEMS; i++) {
+        items_after += g_items[i].kind == IT_POWERUP;
+    }
+    CHECK(items_after == items_before + 1, "the spawn button places the item");
+    CHECK(*(uint8_t *)spawn->p == 0, "the game clears a button it has done");
+
+    *(uint8_t *)clear->p = 1;
+    game_tick(idle);
+    CHECK(enemies_count() == 0, "the clear button removes the enemies");
+}
+
 /* Title music around the title, game music in the rounds. */
 static void test_music(void)
 {
@@ -2890,6 +2956,7 @@ int main(void)
     test_dropper();
     test_story();
     test_music();
+    test_debug_view();
     test_special_items();
     test_round_limit();
     test_secret_room();

@@ -1382,6 +1382,9 @@ void game_init(uint16_t seed)
     enter_title();
     build_oam();
     build_windows();
+#ifdef BB_DEBUG
+    debug_register((uint8_t)(boss_level + 1));
+#endif
 }
 
 void game_tick(const uint16_t real_pad[NUM_PLAYERS])
@@ -1409,6 +1412,9 @@ void game_tick(const uint16_t real_pad[NUM_PLAYERS])
     }
     uint16_t any_pressed = (uint16_t)(pressed[0] | pressed[1]);
 
+#ifdef BB_DEBUG
+    debug_actions();
+#endif
     g_sfx = 0;
     g_frame++;
     (void)rng_next();   /* keep the RNG ticking every frame */
@@ -1526,6 +1532,9 @@ void game_tick(const uint16_t real_pad[NUM_PLAYERS])
     state_timer++;
     sfx_flush();
     music_update();
+#ifdef BB_DEBUG
+    debug_boxes();
+#endif
     build_oam();
     build_windows();
     video_frame();

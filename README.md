@@ -181,7 +181,23 @@ On both machines the game keeps the console's rhythm: `game_tick()` runs while t
 
 The game's line y is row y of the picture on both. The SNES draws row y from scanline y + 1 and never shows scanline 0, so `video.c` scrolls both backgrounds up by one line and writes a sprite's y as it is; HDMA's first table entry lands on row 0 by itself (measured in Mesen, ADR-0007).
 
-Sound effects work the same way on every platform (ADR-0008): the game asks for them with `sdevkit_sfx_play`, superdevkit chooses the voices, and on the PC and in the browser Rachael's model of the SNES's sound chip plays them through raylib, the same samples the console plays. The music (mp3) is still the PC's and the browser's alone.
+Sound effects work the same way on every platform (ADR-0008): the game asks for them with `sdevkit_sfx_play`, superdevkit chooses the voices, and on the PC and in the browser Rachael's model of the SNES's sound chip plays them through raylib, the same samples the console plays. The music (mp3) plays on the PC and in the browser; the game asks for it with `sdevkit_music_play`, and the SNES plays none yet (ADR-0009).
+
+### Desktop from superdevkit (Linux, Windows)
+
+The kit builds and runs the game on the desktop too, with its own frontend (ADR-0010). It needs the level and graphics data in `build/data` first, which `./build_snes.sh` writes (or copy `level_data.c`, `gfx_data.c` and `gfx_data.h` from a CMake build's `generated` folder):
+
+```bash
+"$SUPERDEVKIT_HOME/bin/superdevkit" build linux      # build/linux/blubberblasen
+"$SUPERDEVKIT_HOME/bin/superdevkit" build win64      # build/win64/blubberblasen.exe (MSVC, also from WSL)
+"$SUPERDEVKIT_HOME/bin/superdevkit" run              # builds and starts it
+```
+
+The window has the retro TV filter (`Tab`), sound and music, and keeps the save RAM in `blubberblasen.srm` next to the program. Every session is recorded in the kit's check format; `F11` marks the moment and saves it, and `--replay <file>` plays it (also on the ROM: `dev/replay.sh`). `F5` pauses, `F6` steps, `F7` runs fast, `F8` slowly. `--check <file>` runs a recording without a window and without sound and fails when a checksum differs: `snescheck`'s files work there too.
+
+`F1` opens the kit's debug view beside the picture: pause and step, CGRAM, VRAM's tiles and the sprites, and what the game registers (`src/game/debug.c`): the debug switches, "spawn what" with a "spawn" button, "round" with "go to round", and "clear round". Hit boxes are drawn per kind (player green, enemy red, bubble blue, item yellow, boss magenta), the CPU partner's dangers red, and the air currents as boxes coloured by direction (up cyan, down orange, left white, right magenta). A change made there is not recorded.
+
+The kit's desktop has no bot, no start options, no mute and no text panels yet; for those use the CMake build above with its developer options and debug view. Both builds are development builds: `BB_DEBUG` is on wherever the compiler is not dampf, unless a build defines `BB_NO_DEBUG` (`game.h`).
 
 ### Tests
 
@@ -384,6 +400,8 @@ grep -rnE 'raylib\.h|\bfloat\b|\bdouble\b|\b(malloc|calloc|realloc|free)\s*\(' s
 - [ADR-0006](docs/adr/0006-sprite-sheets-and-palettes.md): one sprite sheet per room group, and how the 8 sprite palettes are used
 - [ADR-0007](docs/adr/0007-built-with-superdevkit.md): the game is built with superdevkit: dampf and the kit's library for the ROM, Rachael for the PC and web
 - [ADR-0008](docs/adr/0008-sound-effects-through-superdevkit.md): sound effects through superdevkit, the same on every platform
+- [ADR-0009](docs/adr/0009-save-ram-music-and-rom-build-from-superdevkit.md): save RAM, music and the ROM build from superdevkit
+- [ADR-0010](docs/adr/0010-the-desktop-from-superdevkit-beside-the-games-own.md): the desktop from superdevkit, beside the game's own frontend
 - [Game Design Guide](docs/Blubber%20Blasen%20–%20Game%20Design%20Guide.md): the game we are building, Plus and Classic mode, and where it differs from the original
 - [Bubble Bobble (Arcade) – Game Design Reference Guide](docs/Bubble%20Bobble%20(Arcade)%20–%20Game%20Design%20Reference%20Guide.md): how the arcade original works, as reference
 - [Story](docs/story.md): the Blubber Factory, heroes, floors, secret rooms, boss and endings

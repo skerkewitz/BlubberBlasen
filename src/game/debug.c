@@ -1,11 +1,14 @@
 /*
  * Debug switches for development builds (design guide: "Debug switches").
- * The whole file is only compiled with BB_DEBUG; public builds contain none
- * of it, and every DBG() check in the game is then a constant 0.
+ * The whole file is only compiled with BB_DEBUG (game.h); public builds and
+ * the ROM contain none of it, and every DBG() check in the game is then a
+ * constant 0. The debug view of superdevkit's desktop reaches the switches and
+ * a few buttons through the registrations at the end (ADR-0010).
  * Frame step and slow motion live in the platform layer (they control the tick).
  */
 
 #include "game/internal.h"
+#include "sdevkit/snes.h"
 
 #ifdef BB_DEBUG
 
@@ -264,6 +267,88 @@ const char *game_debug_state_name(uint8_t kind, uint8_t state)
     case DOBJ_PLAYER: return PICK(player_states, state);
     case DOBJ_BUBBLE: return PICK(bubble_states, state);
     default:          return "";
+    }
+}
+
+/* --- superdevkit's debug view (F1 on the kit's desktop, ADR-0010) --------------------------- */
+/* The view sets these; the next tick does what they ask and clears the buttons. On the SNES the
+ * registrations are empty (and the ROM has no BB_DEBUG anyway). */
+static int16_t view_spawn;            /* what the spawn button places: 0..DEBUG_SPAWN_COUNT-1 */
+static int16_t view_round = 1;        /* where "go to round" goes */
+static uint8_t view_spawn_now, view_goto_now, view_clear_now;
+
+void debug_register(uint8_t rounds)
+{
+    sdevkit_dbg_toggle("invincible", &g_dbg[DBG_INVINCIBLE]);
+    sdevkit_dbg_toggle("infinite lives", &g_dbg[DBG_INFINITE_LIVES]);
+    sdevkit_dbg_toggle("hit boxes", &g_dbg[DBG_HITBOXES]);
+    sdevkit_dbg_toggle("air currents", &g_dbg[DBG_AIR]);
+    sdevkit_dbg_toggle("cpu view", &g_dbg[DBG_CPU_VIEW]);
+    sdevkit_dbg_toggle("vacuum walls", &g_dbg[DBG_VACUUM_WALLS]);
+    sdevkit_dbg_toggle("no sticky bubbles", &g_dbg[DBG_NO_STICKY]);
+    sdevkit_dbg_range("spawn what", &view_spawn, 0, DEBUG_SPAWN_COUNT - 1);
+    sdevkit_dbg_action("spawn", &view_spawn_now);
+    sdevkit_dbg_range("round", &view_round, 1, (int16_t)rounds);
+    sdevkit_dbg_action("go to round", &view_goto_now);
+    sdevkit_dbg_action("clear round", &view_clear_now);
+}
+
+void debug_actions(void)
+{
+    if (view_spawn_now) {
+        view_spawn_now = 0;
+        game_debug_spawn((uint8_t)view_spawn);
+    }
+    if (view_goto_now) {
+        view_goto_now = 0;
+        (void)game_debug_goto_round((uint8_t)view_round);
+    }
+    if (view_clear_now) {
+        view_clear_now = 0;
+        game_debug_clear_round();
+    }
+}
+
+/* The view's colours (kind 0..7): red, green, blue, yellow, magenta, cyan, orange, white. */
+static const uint8_t box_kind[5] = { 1, 0, 2, 3, 4 };   /* player green, enemy red, bubble blue, item yellow, boss magenta */
+
+void debug_boxes(void)
+{
+    DebugBox boxes[64];
+    uint8_t n;
+
+    if (g_dbg[DBG_AIR] && game_debug_room_shown()) {
+        /* a box over each run of cells with the same current in a row, its colour the direction
+         * (up cyan, down orange, left white, right magenta): the view draws no arrows */
+        static const uint8_t air_kind[5] = { 0, 5, 6, 7, 4 };
+        for (uint8_t ty = 0; ty < 26; ty++) {
+            uint8_t tx = 0;
+            while (tx < 32) {
+                uint8_t dir = (uint8_t)(level_cell(tx, ty) & CELL_AIR_MASK);
+                uint8_t end = (uint8_t)(tx + 1);
+                while (end < 32 && (level_cell(end, ty) & CELL_AIR_MASK) == dir) {
+                    end++;
+                }
+                if (dir >= 1 && dir <= 4) {
+                    sdevkit_dbg_box((int16_t)(tx * 8 + 1), (int16_t)(16 + ty * 8 + 1), (uint8_t)((end - tx) * 8 - 2), 6,
+                                    air_kind[dir]);
+                }
+                tx = end;
+            }
+        }
+    }
+    if (g_dbg[DBG_HITBOXES]) {
+        n = game_debug_boxes(boxes, 64);
+        for (uint8_t i = 0; i < n; i++) {
+            sdevkit_dbg_box(boxes[i].x, boxes[i].y, boxes[i].w, boxes[i].h, box_kind[boxes[i].kind % 5]);
+        }
+    }
+    if (g_dbg[DBG_CPU_VIEW]) {
+        const char *action;
+        n = game_debug_cpu_view(boxes, 64, &action);
+        for (uint8_t i = 0; i < n; i++) {
+            sdevkit_dbg_box(boxes[i].x, boxes[i].y, boxes[i].w, boxes[i].h, 0);   /* red: predicted danger */
+        }
     }
 }
 

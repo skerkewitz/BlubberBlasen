@@ -138,6 +138,8 @@ set_target_properties(game PROPERTIES C_EXTENSIONS OFF)
 option(BB_DEBUG_SWITCHES "Compile the debug switches and developer options" ON)
 if(BB_DEBUG_SWITCHES)
     target_compile_definitions(game PUBLIC BB_DEBUG=1)
+else()
+    target_compile_definitions(game PUBLIC BB_NO_DEBUG=1)   # game.h would switch them on otherwise
 endif()
 
 if(MSVC)
@@ -153,6 +155,7 @@ if(NOT EMSCRIPTEN)
     add_library(game_console STATIC ${GAME_SOURCES} ${LEVEL_DATA_C})
     target_include_directories(game_console PUBLIC src)
     target_link_libraries(game_console PUBLIC rachael gfxdata)
+    target_compile_definitions(game_console PUBLIC BB_NO_DEBUG=1)   # as on the SNES: no debug switches
     set_target_properties(game_console PROPERTIES C_EXTENSIONS OFF)
     add_executable(snescheck tools/snescheck/snescheck.c)
     target_link_libraries(snescheck PRIVATE game_console)

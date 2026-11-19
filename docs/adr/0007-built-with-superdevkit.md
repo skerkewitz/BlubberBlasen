@@ -2,7 +2,8 @@
 
 Date: 2026-11-19
 Status: accepted; amended by ADR-0008 (sound effects through superdevkit, the ROM included) and
-ADR-0009 (save RAM and music from the kit, the ROM built by `superdevkit build snes`)
+ADR-0009 (save RAM and music from the kit, the ROM built by `superdevkit build snes`) and ADR-0010
+(the desktop from the kit, beside the game's own frontend)
 
 ## Context
 

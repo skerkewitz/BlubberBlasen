@@ -240,6 +240,12 @@ extern uint8_t g_dbg[DBG_COUNT];
 extern uint16_t g_dbg_deaths[DEBUG_DEATH_CAUSES];
 extern uint8_t  g_dbg_touch;   /* what enemies_touch found last */
 #define DBG_TOUCH(cause) (g_dbg_touch = (uint8_t)(cause))
+/* The debug view of superdevkit's desktop (F1; sdevkit_dbg_*, ADR-0010): debug_register in
+ * game_init names the switches and buttons, debug_actions at the start of a tick does what a
+ * button asked for, debug_boxes at its end draws the switched-on overlays as boxes. */
+void debug_register(uint8_t rounds);
+void debug_actions(void);
+void debug_boxes(void);
 #else
 #define DBG(sw) 0
 #define DBG_TOUCH(cause) ((void)0)
