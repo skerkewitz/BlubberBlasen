@@ -16,7 +16,7 @@ halves, so that real 65816 measurements steer the second half instead of arrivin
 |---|---|---|
 | 1 | Playable prototype on PC (C99 + raylib) | Done |
 | 2a | Data and limits shaped like the SNES | Done (2026-11-16) |
-| 3-spike | Game code compiled for the 65816 and measured | Planned |
+| 3-spike | Game code compiled for the 65816 and measured | In progress: PVSnesLib builds a ROM; measuring next |
 | 2b | Fix what the spike found, finish the pseudo SNES layer | Planned |
 | 3-POC | One complete room group running on SNES | Planned |
 | Full game | The items in GAME-TODO.md | After the POC |
@@ -68,6 +68,11 @@ What:
 - Compile `src/game/` unchanged, with a minimal SNES platform layer: input, OAM and tile maps
   copied in vertical blank, no sound, placeholder graphics. If PVSnesLib is chosen, the
   platform layer is PVSnesLib itself, as ADR-0005 intends.
+- Done (2026-11-16): `src/game` compiles with PVSnesLib's 816-tcc after two small changes
+  (README, *SNES build*). The data goes into ROM as assembly (`map2c` / `gfx2c --snes`).
+  The game uploads to VRAM only in the vertical blank, and the pseudo SNES enforces that (the
+  first ROM showed what happens otherwise). Code about 120 KB, ROM 310 KB of 512 KB, RAM
+  about 25 KB.
 - Run round 1 in an emulator with a profiler (for example Mesen) and measure frame time in three
   cases: a quiet room, a room full of bubbles, and two players with the CPU partner.
 - Measure ROM and RAM use (the SNES has 128 KB of work RAM).

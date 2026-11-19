@@ -147,6 +147,18 @@ cd build-web && python3 -m http.server 8000      # then open http://localhost:80
 
 The result is `blubberblasen.html`, `.js`, `.wasm` and `.data` (the assets, about 13 MB, mostly music). The page needs a web server (opening the file directly does not work), shows a "click to start" layer (browsers only allow sound and keyboard focus after a click) and keeps high scores and options in the browser (IndexedDB). The page is `web/shell.html`. `#nostart` at the end of the address skips the click layer and runs the game on a plain timer, for automated checks in headless browsers. The tools (`map2c`, `mapview`) are compiled to JavaScript in this build and run under Node.js during the build.
 
+### SNES build (stage 3 spike, Linux or WSL)
+
+Needs PVSnesLib (its Linux release, nothing to compile: unpack it, e.g. to `~/devkit/pvsneslib-4.6.0`) and the host tools of a Windows or Linux CMake build:
+
+```bash
+PVSNESLIB_HOME=~/devkit/pvsneslib-4.6.0 src/platform/snes/build.sh
+```
+
+The result is `build/snes/blubberblasen.sfc`, a 512 KB LoROM image for an emulator (bsnes or Mesen for exact timing) or a flash cartridge. `src/platform/snes/` is the SNES platform layer: `main.c` (start-up, the main loop, the vertical blank), `glue.asm` (clearing RAM, register writes, HDMA) and `hdr.asm` (ROM header). The game code is the same as on the PC; `map2c --snes` and `gfx2c --snes` write the data as assembly in ROM (see `tools/README.md`). No sound yet.
+
+On both machines the game keeps the console's rhythm: `game_tick()` runs while the picture is drawn and only prepares; `game_vblank()` copies into VRAM and CGRAM in the vertical blank, within a budget. The pseudo SNES on the PC enforces this: writes outside the vertical blank or over about 5.7 KB are lost and counted, so tests notice them.
+
 ### Tests
 
 ```bash

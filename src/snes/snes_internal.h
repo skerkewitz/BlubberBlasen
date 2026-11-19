@@ -22,6 +22,8 @@ typedef struct {
     SnesHdma  hdma[8];
     u8        hdma_enabled;
     u16       dma_count;              /* bytes since the last vertical blank */
+    u16       dma_lost;               /* bytes that did not arrive since then */
+    u8        in_vblank;              /* between snes_vblank() and snes_render() */
     SnesStats stats;
 } SnesState;
 

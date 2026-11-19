@@ -216,36 +216,41 @@ uint8_t vacuum_move(uint16_t *x, uint16_t *y)
 
 /* Window i shows player i's vacuum: a soft blue glow that pulses gently,
  * in this frame's shape. It fades while the vacuum shrinks at the end.
- * Colours are SNES 5-bit (0..31). */
-void vacuums_windows(ColorWindow *w)
+ * Colours are SNES 5-bit (0..31). Returns bit i set for each window it
+ * wrote lines into. */
+uint8_t vacuums_windows(ColorWindow *w)
 {
     static const uint8_t pulse[8] = { 0, 1, 2, 3, 3, 2, 1, 0 };
-    uint8_t i;
+    uint8_t i, written = 0;
     for (i = 0; i < NUM_PLAYERS && i < NUM_WINDOWS; i++) {
         const Vacuum *v = &vacuums[i];
+        ColorWindow *wi = &w[i];   /* once: 816-tcc multiplies for every w[i] */
         int16_t cx, cy, dy;
         uint8_t amount;
         if (!v->timer) {
             continue;
         }
+        written = (uint8_t)(written | (1u << i));
         amount = (uint8_t)(3 + pulse[(g_frame >> 2) & 7]);
         if (v->timer < VACUUM_SHRINK) {
             amount = (uint8_t)(((uint16_t)amount * v->scale) >> 8);
         }
-        w[i].add_r = (uint8_t)(amount >> 1);
-        w[i].add_g = (uint8_t)(amount - (amount >> 2));
-        w[i].add_b = amount;
+        wi->add_r = (uint8_t)(amount >> 1);
+        wi->add_g = (uint8_t)(amount - (amount >> 2));
+        wi->add_b = amount;
         cx = (int16_t)(PX(v->x) + 8);
         cy = (int16_t)(PX(v->y) + 8);
         for (dy = (int16_t)-v->ry; dy <= v->ry; dy++) {
             int16_t line = (int16_t)(cy + dy);
-            int16_t hw = v->span[iabs(dy)];
+            uint8_t ady = (uint8_t)iabs(dy);   /* two steps: 816-tcc fails on v->span[iabs(dy)] (ICE 2) */
+            int16_t hw = v->span[ady];
             int16_t l = (int16_t)(cx - hw), r = (int16_t)(cx + hw);
             if (line < FIELD_Y || line >= FIELD_BOTTOM) {
                 continue;                /* not over the HUD */
             }
-            w[i].left[line] = (uint8_t)(l < 0 ? 0 : l);
-            w[i].right[line] = (uint8_t)(r > SCREEN_W - 1 ? SCREEN_W - 1 : r);
+            wi->left[line] = (uint8_t)(l < 0 ? 0 : l);
+            wi->right[line] = (uint8_t)(r > SCREEN_W - 1 ? SCREEN_W - 1 : r);
         }
     }
+    return written;
 }

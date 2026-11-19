@@ -67,6 +67,7 @@ void hiscore_init(void)
         }
         e[4 + 3] = (uint8_t)(HISCORE_COUNT - i);   /* 50000, 40000, ... */
     }
+    g_hud_changes++;
 }
 
 static const uint8_t opt_magic[4] = { 'O', 'P', 'T', '1' };
@@ -138,6 +139,7 @@ void hiscore_insert(uint8_t rank, const char *name, const uint8_t *score, uint8_
             e[4 + k] = score[k];
         }
     }
+    g_hud_changes++;
     sram_dirty = 1;
 }
 

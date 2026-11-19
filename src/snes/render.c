@@ -359,11 +359,10 @@ static u16 brighten(u16 c, u8 level)
 
 void snes_render(u16 *out)
 {
-    u16 dma = g_snes.stats.dma_bytes;
     u16 y, x;
 
     memset(&g_snes.stats, 0, sizeof g_snes.stats);
-    g_snes.stats.dma_bytes = dma;
+    g_snes.in_vblank = 0;   /* the picture is being drawn: VRAM and CGRAM are closed */
     hdma_start();
 
     for (y = 0; y < H; y++) {

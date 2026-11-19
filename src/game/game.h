@@ -142,6 +142,9 @@ enum { MUSIC_NONE, MUSIC_TITLE, MUSIC_GAME, MUSIC_COUNT };
 /* --- API called by the platform layer ------------------------------------ */
 void            game_init(uint16_t seed);                    /* after SRAM was filled */
 void            game_tick(const uint16_t pad[NUM_PLAYERS]);  /* exactly once per 60 Hz frame */
+/* In the vertical blank after each tick (after snes_vblank on the PC, from
+ * the vertical blank interrupt on the SNES): the uploads the tick prepared. */
+void            game_vblank(void);
 const Sprite   *game_oam(void);                              /* MAX_SPRITES entries */
 const ColorWindow *game_windows(void);                       /* NUM_WINDOWS entries */
 const uint16_t *game_bg(uint8_t layer);   /* layer 0: BG_W * BG0_ROWS, layer 1: BG_W * BG_H entries */

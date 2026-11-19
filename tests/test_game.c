@@ -2633,6 +2633,17 @@ static void test_hitboxes_match_touch(void)
 /* --- The picture on the pseudo SNES (src/game/video.c) ------------------------------ */
 static u16 pic_a[SNES_W * SNES_H], pic_b[SNES_W * SNES_H];
 
+/* Vertical blanks (without game ticks) until nothing waits to be uploaded. */
+static void settle_video(void)
+{
+    int k;
+    for (k = 0; k < 20; k++) {
+        snes_vblank();
+        game_vblank();
+        if (!video_pending()) break;
+    }
+}
+
 static u16 math_pixel(u16 c, uint8_t r, uint8_t g, uint8_t b, uint8_t sub, uint8_t half)
 {
     int ch[3], add[3], k;
@@ -2665,7 +2676,7 @@ static int window_effect(void)
             math = w[i].math;
         }
     }
-    snes_vblank();
+    settle_video();
     snes_render(pic_a);
     setColorEffect(CM_NEVER_ENABLE, 0);
     snes_render(pic_b);
@@ -2757,6 +2768,7 @@ static void test_video_palettes(void)
     CHECK(oam_palette_at(PX(e->x), PX(e->y)) == 5, "an angry enemy: palette 5 (red copy)");
     g_freeze = 100;
     game_tick(pad);
+    settle_video();
     CHECK(oam_palette_at(PX(e->x), PX(e->y)) == 6, "a frozen enemy: palette 6");
     CHECK(snes_cgram()[128 + 6 * 16 + 1] == gfx_pal_enemies[gfx_level_sheet[15]][GFX_TINT_GREY][1],
           "palette 6 holds the grey copy of the enemies");
@@ -2769,21 +2781,29 @@ static void test_video_palettes(void)
 static void test_video_consistency(void)
 {
     uint16_t pad[NUM_PLAYERS] = { 0, 0 };
-    uint32_t f;
+    uint32_t f, lost = 0, checked = 0;
     uint16_t worst = 0;
     game_debug_skip_story(0);
     game_init(99);
     g_video_missing = 0;
     for (f = 0; f < 60u * 60u * 6u; f++) {
         pad[0] = (uint16_t)((f % 90) < 3 ? PAD_START : (f / 40) % 3 == 0 ? PAD_LEFT | PAD_Y : (f / 40) % 3 == 1 ? PAD_RIGHT | PAD_B : PAD_Y);
+        snes_display();   /* the tick runs while the picture is drawn */
         game_tick(pad);
-        if (f % 7 == 0) {
+        lost += snes_stats().dma_lost;   /* writes during the picture */
+        snes_vblank();
+        game_vblank();
+        lost += snes_stats().dma_lost;   /* over the vertical blank's budget */
+        if (f % 7 == 0 && !video_pending()) {
             uint16_t bad = video_check_maps();
             if (bad > worst) worst = bad;
+            checked++;
         }
     }
     game_debug_skip_story(1);
+    CHECK(checked > 1000, "the uploads keep up: maps checked in %lu frames", (unsigned long)checked);
     CHECK(worst == 0, "VRAM maps differed from the game's maps (%u entries): a write was not marked", worst);
+    CHECK(lost == 0, "%lu bytes went to VRAM / CGRAM outside the vertical blank or over its budget", (unsigned long)lost);
     CHECK(g_video_missing == 0, "%u sprites were drawn with a cell that is not in the sprite sheet", g_video_missing);
 }
 

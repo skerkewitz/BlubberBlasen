@@ -1381,6 +1381,7 @@ static uint32_t game_step(void)
         shown_pad[1] = pad[1];
         game_tick(pad);
         snes_vblank();   /* the frame is done: OAM shadow to OAM */
+        game_vblank();   /* the uploads, in the vertical blank */
         if (replay_after_tick(&player, (uint32_t)ticks_total) && !desync_said) {
             desync_said = 1;
             TraceLog(LOG_WARNING, "REPLAY: drifted apart at tick %ld (the game changed since the recording)", ticks_total);
@@ -1411,6 +1412,7 @@ static uint32_t game_step(void)
 #endif
     game_tick(pad);
     snes_vblank();   /* the frame is done: OAM shadow to OAM */
+    game_vblank();     /* the uploads, in the vertical blank */
 #ifdef BB_REPLAY
     if (recording) {
         replay_write_tick(&rec, (uint32_t)ticks_total, pad);

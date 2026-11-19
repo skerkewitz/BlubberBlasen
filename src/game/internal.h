@@ -10,6 +10,22 @@
 #include "game/fixed.h"
 #include "game/level_data.h"
 
+/* --- Fast variables ---------------------------------------------------------
+ * BB_FAST marks a small variable the game uses very often. With Calypsi on
+ * the SNES it goes into the direct page: 2-byte instructions, the fastest
+ * access the 65816 has. The direct page has about 230 bytes free (Calypsi
+ * keeps its own registers there), so only small, hot variables, and the
+ * extern declaration carries BB_FAST as well. Other compilers ignore it.
+ * No arrays: Calypsi 5.18 stops with an internal error on a direct page
+ * array indexed by a variable (CGHelpers.hs, mem8Reg).
+ * For a pointer variable it goes after the star, `Sprite *BB_FAST p;`; in
+ * front of the type it would describe what the pointer points to. */
+#ifdef __CALYPSI_CC__
+#define BB_FAST __attribute__((tiny))
+#else
+#define BB_FAST
+#endif
+
 /* --- Playfield -------------------------------------------------------------
  * The level (32 x 26 tiles) sits below a two-row HUD. Map row 0 is drawn at
  * screen y FIELD_Y. All object positions are screen space. */
@@ -235,15 +251,15 @@ extern uint8_t  g_dbg_touch;   /* what enemies_touch found last */
 #endif
 
 /* --- Shared state (defined in game.c) -------------------------------------- */
-extern GameState g_state;
-extern uint16_t  g_frame;          /* global frame counter */
+extern BB_FAST GameState g_state;
+extern BB_FAST uint16_t  g_frame;          /* global frame counter */
 extern uint16_t  g_level_frames;   /* frames since the round started */
-extern uint8_t   g_level;          /* 0-based index into level_defs */
-extern uint8_t   g_round;          /* 1-based round number shown to the player */
-extern uint8_t   g_hurry;          /* hurry-up mode active */
-extern uint32_t  g_sfx;
+extern BB_FAST uint8_t   g_level;          /* 0-based index into level_defs */
+extern BB_FAST uint8_t   g_round;          /* 1-based round number shown to the player */
+extern BB_FAST uint8_t   g_hurry;          /* hurry-up mode active */
+extern BB_FAST uint32_t  g_sfx;
 extern uint8_t   g_skip_rounds;    /* >0: end the round now and advance that many (round_skip) */
-extern uint16_t  g_freeze;         /* frames left of the Steam Whistle */
+extern BB_FAST uint16_t  g_freeze;         /* frames left of the Steam Whistle */
 
 /* Hidden counters that unlock power-ups (shared by both players). */
 typedef struct {
@@ -259,7 +275,7 @@ typedef struct {
     uint8_t  candies;      /* candies collected      -> Bubble Ring  */
     uint16_t queued;       /* unlocked power-ups waiting (POWER_BIT mask) */
 } Counters;
-extern Counters  g_count;
+extern BB_FAST Counters  g_count;
 
 extern Player    g_players[NUM_PLAYERS];
 extern Enemy     g_enemies[MAX_ENEMIES];
@@ -268,8 +284,8 @@ extern Item      g_items[MAX_ITEMS];
 
 extern uint16_t  g_bg0[BG_W * BG0_ROWS];   /* level / title, scrolls */
 extern uint16_t  g_bg1[BG_W * BG_H];       /* text and HUD */
-extern uint16_t  g_scroll_y;               /* layer 0 scroll */
-extern uint8_t   g_window_top;             /* layer 0 hidden above this y */
+extern BB_FAST uint16_t  g_scroll_y;               /* layer 0 scroll */
+extern BB_FAST uint8_t   g_window_top;             /* layer 0 hidden above this y */
 
 /* Layer 0 holds two screens ("pages"), 32 rows apart. */
 #define PAGE_ROWS  32
@@ -303,11 +319,16 @@ uint8_t  level_can_gap_jump(uint16_t x, uint16_t y, int8_t dir);
 
 /* --- video.c: the frame on the (pseudo) SNES --------------------------------- */
 void     video_init(void);
-void     video_frame(const Sprite *oam, const ColorWindow *windows);   /* once per tick */
+void     video_frame(const Sprite *oam, uint8_t count, const ColorWindow *windows);   /* once per tick: prepare */
+void     video_vblank(void);                             /* in the vertical blank: upload (game_vblank) */
+uint8_t  video_pending(void);                            /* something still waits for a vertical blank */
 void     video_tileset(uint8_t page, uint8_t tileset);   /* level_load: the page's room tiles */
 void     video_title(void);                              /* the title logo's tiles */
 void     bg_mark_row(uint8_t layer, uint8_t row);        /* a map row changed: copy it to VRAM */
 void     bg_mark_all(uint8_t layer);
+extern BB_FAST uint16_t g_bg1_changes;   /* counts bg_mark_row(1, ..): any change to layer 1 */
+extern BB_FAST uint16_t g_hud_changes;   /* counts changes of what the HUD shows: scores, BLASEN
+                                            letters, the high score table (game.c, draw_hud_values) */
 extern uint8_t g_player_tint[NUM_PLAYERS];   /* PAL_NONE, PAL_YELLOW, PAL_ORANGE: a player's flash */
 #ifdef BB_DEBUG
 extern uint16_t g_video_missing;             /* sprites drawn whose cell is not in the sprite sheet */
@@ -385,7 +406,7 @@ void     vacuum_start(uint8_t player, uint16_t x, uint16_t y);   /* 8.8 centre (
 uint8_t  vacuum_active(uint8_t player);
 void     vacuums_tick(void);
 uint8_t  vacuum_move(uint16_t *x, uint16_t *y);   /* 1 = inside a vacuum: moved or held, skip the air */
-void     vacuums_windows(ColorWindow *w);   /* fills window i for player i's vacuum */
+uint8_t  vacuums_windows(ColorWindow *w);   /* fills window i for player i's vacuum; bit i: lines written */
 void     bubble_pop(Bubble *b, int8_t dir, uint8_t player);   /* starts a chain reaction */
 uint8_t  bubbles_trapped_count(void);
 void     bubbles_update(void);

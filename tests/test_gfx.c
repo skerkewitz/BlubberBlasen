@@ -62,7 +62,14 @@ static void setup(void)
     snes_reset();
     setMode(BG_MODE1, BG3_MODE1_PRIORITY_HIGH);
     setPaletteColor(0, BACKDROP);
+    /* the screen stays off while the test loads: no DMA limit (show() turns it on) */
+}
+
+static void show(void)
+{
     setScreenOn();
+    snes_vblank();
+    snes_render(frame);
 }
 
 static void map_entry(u16 map, u16 index, u16 entry)
@@ -89,8 +96,7 @@ static void test_font(void)
     for (g = 0; g < 64; g++) {
         map_entry(0x0800, (u16)((g / 32) * 32 + g % 32), (u16)g);
     }
-    snes_vblank();
-    snes_render(frame);
+    show();
     CHECK(compare(&img, 0, 0, 0, 0, 256, 16, "font") == 0, "the font differs from font.png");
     png_free(&img);
 }
@@ -113,8 +119,7 @@ static void test_tilesets(void)
         for (i = 0; i < GFX_TILESET_TILES; i++) {
             map_entry(0x0000, (u16)((i / 6) * 32 + i % 6), (u16)(i | BG_TIL_PAL(2)));
         }
-        snes_vblank();
-        snes_render(frame);
+        show();
         CHECK(compare(&img, 0, 0, 0, 0, 48, 24, name) == 0, "%s differs", name);
         png_free(&img);
     }
@@ -136,8 +141,7 @@ static void test_title(void)
     for (i = 0; i < GFX_TITLE_W * GFX_TITLE_H; i++) {
         map_entry(0x0000, (u16)((i / GFX_TITLE_W) * 32 + i % GFX_TITLE_W), gfx_title_map[i]);
     }
-    snes_vblank();
-    snes_render(frame);
+    show();
     CHECK(compare(&img, 0, 0, 0, 0, GFX_TITLE_W * 8, GFX_TITLE_H * 8, "title") == 0, "the title differs from title.png");
     png_free(&img);
 }
@@ -176,8 +180,7 @@ static void test_sprite_sheets(void)
                 oamSet((u16)(k * 4), (u16)((k % 16) * 16), (u16)((k / 16) * 16 - 1), 0, 0, 0, name, gfx_cell_pal[cell]);
                 oamSetEx((u16)(k * 4), OBJ_LARGE, OBJ_SHOW);
             }
-            snes_vblank();
-            snes_render(frame);
+            show();
             for (k = 0; k < n; k++) {
                 int cell = cells[first + k];
                 if (compare(&img, (cell % 16) * 16, (cell / 16) * 16, (k % 16) * 16, (k / 16) * 16, 16, 16, "cell")) {

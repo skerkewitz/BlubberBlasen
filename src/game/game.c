@@ -25,16 +25,16 @@
 #define STORY_PAGES     3
 
 /* --- Shared state ------------------------------------------------------------ */
-GameState g_state;
-uint16_t  g_frame;
+BB_FAST GameState g_state;
+BB_FAST uint16_t  g_frame;
 uint16_t  g_level_frames;
-uint8_t   g_level;
-uint8_t   g_round;
-uint8_t   g_hurry;
-uint32_t  g_sfx;
+BB_FAST uint8_t   g_level;
+BB_FAST uint8_t   g_round;
+BB_FAST uint8_t   g_hurry;
+BB_FAST uint32_t  g_sfx;
 uint8_t   g_skip_rounds;
-uint16_t  g_freeze;
-Counters  g_count;
+BB_FAST uint16_t  g_freeze;
+BB_FAST Counters  g_count;
 
 Player    g_players[NUM_PLAYERS];
 Enemy     g_enemies[MAX_ENEMIES];
@@ -42,18 +42,21 @@ Bubble    g_bubbles[MAX_BUBBLES];
 Item      g_items[MAX_ITEMS];
 uint16_t  g_bg0[BG_W * BG0_ROWS];
 uint16_t  g_bg1[BG_W * BG_H];
-uint16_t  g_scroll_y;
-uint8_t   g_window_top;
+BB_FAST uint16_t  g_scroll_y;
+BB_FAST uint8_t   g_window_top;
 
 /* --- Local state ------------------------------------------------------------- */
 static Sprite   oam[MAX_SPRITES];
-static uint8_t  oam_count;
+static BB_FAST uint8_t  oam_count;
+static Sprite  *BB_FAST oam_next;                    /* where oam_add writes (a pointer: 816-tcc multiplies for oam[i]) */
+static BB_FAST uint8_t  oam_prev = MAX_SPRITES;      /* entries used last frame; all before the first */
+static uint8_t  window_used[NUM_WINDOWS] = { 1, 1 };   /* lines written last frame: clear them */
 static ColorWindow windows[NUM_WINDOWS];
 static uint8_t  intro_box_l, intro_box_r;   /* darkened box behind "ROUND n", px; l > r = none */
 static uint8_t  intro_box_t, intro_box_b;   /* its first and last line */
 static uint8_t  skip_why, skip_player;      /* what ended the round early (round_skip) */
-static uint16_t state_timer;
-static uint16_t rng;
+static BB_FAST uint16_t state_timer;
+static BB_FAST uint16_t rng;
 static uint16_t prev_pad[NUM_PLAYERS];
 static uint16_t clear_timer;
 static uint8_t  hurry_text;
@@ -148,15 +151,26 @@ uint8_t chance(uint8_t p256)
     return (uint8_t)((rng_next() & 0xFFu) < p256);
 }
 
+/* The sound's bit, from a table: a 32-bit shift by a variable needs a helper
+ * routine the SNES C library (PVSnesLib's 816-tcc) does not have, and it
+ * would be slow on the 65816 anyway. */
+#define B32(n) ((uint32_t)1u << (n))
+static const uint32_t sfx_bit[32] = {
+    B32(0), B32(1), B32(2), B32(3), B32(4), B32(5), B32(6), B32(7), B32(8), B32(9), B32(10), B32(11),
+    B32(12), B32(13), B32(14), B32(15), B32(16), B32(17), B32(18), B32(19), B32(20), B32(21), B32(22),
+    B32(23), B32(24), B32(25), B32(26), B32(27), B32(28), B32(29), B32(30), B32(31)
+};
+
 void sfx(uint8_t id)
 {
-    g_sfx |= (uint32_t)1u << id;
+    g_sfx |= sfx_bit[id & 31];
 }
 
 void oam_add(uint8_t x, uint8_t y, uint8_t tile, uint8_t attr)
 {
     if (oam_count < MAX_SPRITES && y < SCREEN_H) {
-        Sprite *s = &oam[oam_count++];
+        Sprite *s = oam_next++;
+        oam_count++;
         s->x = x;
         s->y = y;
         s->tile = tile;
@@ -226,10 +240,46 @@ static const uint8_t *best_score(void)
     return best;
 }
 
+/* The HUD is drawn again only when something it shows changed, or when
+ * other text changed layer 1 since (text_clear_row on a row with BLASEN
+ * letters clears them too). Drawing it every tick cost a sixth of a tick on
+ * the SNES. Scores, letters and the high score table count their changes in
+ * g_hud_changes, which is cheaper than comparing their digits every tick;
+ * a player's state is compared here (it changes in too many places). */
+BB_FAST uint16_t g_hud_changes;
+static uint8_t  hud_show_seen[NUM_PLAYERS];   /* 0 in the game; out: 1 or 2, the START blink */
+static uint8_t  hud_round_seen;
+static uint16_t hud_bg1_seen;                 /* g_bg1_changes after the last draw */
+static uint16_t hud_changes_seen;             /* g_hud_changes at the last draw */
+static uint8_t  hud_valid;
+
+static uint8_t hud_changed(void)
+{
+    uint8_t i;
+    uint8_t changed = (uint8_t)(!hud_valid || hud_bg1_seen != g_bg1_changes || hud_changes_seen != g_hud_changes ||
+                                hud_round_seen != g_round);
+
+    hud_valid = 1;
+    hud_round_seen = g_round;
+    hud_changes_seen = g_hud_changes;
+    for (i = 0; i < NUM_PLAYERS; i++) {
+        uint8_t show = (uint8_t)(g_players[i].state != PS_OFF ? 0 : (g_frame & 32) ? 2 : 1);
+        if (hud_show_seen[i] != show) {
+            hud_show_seen[i] = show;
+            changed = 1;
+        }
+    }
+    return changed;
+}
+
 static void draw_hud_values(void)
 {
     static const uint8_t score_col[NUM_PLAYERS] = { 0, 24 };
     uint8_t i;
+
+    if (!hud_changed()) {
+        return;
+    }
 
     for (i = 0; i < NUM_PLAYERS; i++) {
         const Player *p = &g_players[i];
@@ -255,6 +305,7 @@ static void draw_hud_values(void)
                      g_players[i].state == PS_OFF ? " " : s, have ? PAL_YELLOW : PAL_GREY);
         }
     }
+    hud_bg1_seen = g_bg1_changes;   /* the HUD's own writes do not count */
 }
 
 /* --- Title ---------------------------------------------------------------------- */
@@ -537,6 +588,7 @@ static void new_game(uint8_t starter)
         g_players[i].letters = 0;
         g_players[i].powers = 0;
         played[i] = 0;
+        g_hud_changes++;
     }
     g_count.blown = 0;
     g_count.popped = 0;
@@ -1193,22 +1245,32 @@ static void intro_box_window(ColorWindow *w)
 /* Windows start empty every frame; the vacuums or the round intro fill theirs. */
 static void build_windows(void)
 {
-    uint8_t i;
-    uint16_t y;
-    for (i = 0; i < NUM_WINDOWS; i++) {
-        windows[i].add_r = 0;
-        windows[i].add_g = 0;
-        windows[i].add_b = 0;
-        windows[i].math = 0;
-        for (y = 0; y < SCREEN_H; y++) {
-            windows[i].left[y] = 255;
-            windows[i].right[y] = 0;
+    uint8_t i, written = 0;
+    ColorWindow *w = windows;
+    /* empty again; lines only where last frame wrote some (pointers: on the
+     * SNES each windows[i].left[y] would cost a multiplication) */
+    for (i = 0; i < NUM_WINDOWS; i++, w++) {
+        w->add_r = 0;
+        w->add_g = 0;
+        w->add_b = 0;
+        w->math = 0;
+        if (window_used[i]) {
+            uint8_t *l = w->left, *r = w->right;
+            uint8_t y = 0;
+            do {
+                *l++ = 255;
+                *r++ = 0;
+            } while (++y < SCREEN_H);
         }
     }
     if (g_state == GS_PLAY || g_state == GS_PAUSE) {
-        vacuums_windows(windows);
+        written = vacuums_windows(windows);
     } else if ((g_state == GS_ROUND_INTRO || g_state == GS_ROUND_SKIP) && intro_box_l <= intro_box_r) {
         intro_box_window(&windows[0]);
+        written = 1;
+    }
+    for (i = 0; i < NUM_WINDOWS; i++) {
+        window_used[i] = (uint8_t)((written >> i) & 1);
     }
 }
 
@@ -1216,6 +1278,7 @@ static void build_oam(void)
 {
     uint8_t i;
     oam_count = 0;
+    oam_next = oam;
     for (i = 0; i < NUM_PLAYERS; i++) {
         g_player_tint[i] = PAL_NONE;   /* player_draw sets it while a player flashes */
     }
@@ -1245,11 +1308,16 @@ static void build_oam(void)
         draw_ending();
     }
 
-    for (i = oam_count; i < MAX_SPRITES; i++) {
-        oam[i].x = 0;
-        oam[i].y = SPRITE_HIDDEN_Y;
-        oam[i].tile = 0;
-        oam[i].attr = 0;
+    /* hide what was used last frame and not this one (the rest is hidden already) */
+    {
+        Sprite *s = oam_next;
+        for (i = oam_count; i < oam_prev; i++, s++) {
+            s->x = 0;
+            s->y = SPRITE_HIDDEN_Y;
+            s->tile = 0;
+            s->attr = 0;
+        }
+        oam_prev = oam_count;
     }
 }
 
@@ -1419,7 +1487,10 @@ void game_tick(const uint16_t real_pad[NUM_PLAYERS])
         if (g_players[i].cpu) {
             uint8_t k;
             for (k = 0; k < 8; k++) {
-                g_players[i].score[k] = 0;
+                if (g_players[i].score[k]) {
+                    g_players[i].score[k] = 0;
+                    g_hud_changes++;
+                }
             }
         }
     }
@@ -1427,7 +1498,12 @@ void game_tick(const uint16_t real_pad[NUM_PLAYERS])
     state_timer++;
     build_oam();
     build_windows();
-    video_frame(oam, windows);
+    video_frame(oam, oam_count, windows);
+}
+
+void game_vblank(void)
+{
+    video_vblank();
 }
 
 

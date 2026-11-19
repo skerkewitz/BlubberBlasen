@@ -88,12 +88,15 @@ static void setup(void)
     oamInit();
     color(0, RGB5(1, 2, 3));   /* backdrop */
     setScreenOn();
+    snes_vblank();             /* VRAM and CGRAM only take writes in the vertical blank */
 }
 
+/* One frame, then the next vertical blank, so the test may write again. */
 static void render(void)
 {
     snes_vblank();
     snes_render(frame);
+    snes_vblank();
 }
 
 static void test_bg_tiles_palettes_flips(void)
@@ -209,6 +212,7 @@ static void test_sprites(void)
     /* the shadow only reaches the PPU at the vertical blank */
     oamSet(0, 100, 100, 0, 0, 0, 0, 1);
     snes_render(frame);
+    snes_vblank();
     CHECK(PX(100, 101) == RGB5(1, 2, 3), "oamSet before the vertical blank is not shown yet");
 
     /* the lower number is in front, whatever its priority */
@@ -338,6 +342,30 @@ static void test_brightness_and_blank(void)
     CHECK(PX(0, 0) == 0, "forced blank is black");
 }
 
+/* VRAM and CGRAM take writes only in the vertical blank, and only about
+ * 5.7 KB of them, unless the screen is off; the rest is lost and counted. */
+static void test_vblank_rules(void)
+{
+    static const u8 data[4096] = { 0x55, 0x55 };
+    setup();
+    snes_render(frame);                        /* the picture is drawn: VRAM is closed */
+    dmaCopyVram(data, 0x2000, 2);
+    CHECK(snes_vram()[0x2000] == 0, "a write while the picture is drawn must not arrive");
+    CHECK(snes_stats().dma_lost == 2, "and is counted as lost (%u)", snes_stats().dma_lost);
+    snes_vblank();
+    dmaCopyVram(data, 0x2000, 2);
+    CHECK(snes_vram()[0x2000] == 0x5555, "in the vertical blank it arrives");
+    dmaCopyVram(data, 0x3000, 4096);
+    dmaCopyVram(data, 0x4000, 4096);           /* 2 + 4096 + 4096 is over the budget */
+    CHECK(snes_vram()[0x4000] == 0 && snes_stats().dma_lost == 4096, "over the budget the rest is lost (%u)",
+          snes_stats().dma_lost);
+    setScreenOff();
+    snes_render(frame);
+    dmaCopyVram(data, 0x5000, 4096);
+    dmaCopyVram(data, 0x6000, 4096);
+    CHECK(snes_vram()[0x6000] == 0x5555, "with the screen off there is no limit");
+}
+
 static void test_dma_count(void)
 {
     static const u8 data[64] = { 0 };
@@ -345,8 +373,7 @@ static void test_dma_count(void)
     snes_vblank();
     dmaCopyVram(data, 0x2000, 64);
     dmaCopyCGram(data, 16, 32);
-    snes_vblank();
-    CHECK(snes_stats().dma_bytes == 96, "96 bytes this frame, counted %u", snes_stats().dma_bytes);
+    CHECK(snes_stats().dma_bytes == 96, "96 bytes in this vertical blank, counted %u", snes_stats().dma_bytes);
     snes_vblank();
     CHECK(snes_stats().dma_bytes == 0, "the count starts again each frame");
 }
@@ -362,6 +389,7 @@ int main(void)
     test_hdma_windows();
     test_brightness_and_blank();
     test_dma_count();
+    test_vblank_rules();
     if (failures) {
         printf("%d check(s) failed\n", failures);
         return 1;

@@ -59,13 +59,34 @@ void snes_reset(void)
 void snes_vblank(void)
 {
     memcpy(g_snes.oam, oamMemory, sizeof g_snes.oam);
-    g_snes.stats.dma_bytes = g_snes.dma_count;
     g_snes.dma_count = 0;
+    g_snes.dma_lost = 0;
+    g_snes.in_vblank = 1;
+}
+
+void snes_display(void)
+{
+    g_snes.in_vblank = 0;
+}
+
+/* May this many bytes go to VRAM / CGRAM now? Counts them either way. */
+static u8 dma_allowed(u16 size)
+{
+    u8 forced_blank = (u8)((g_snes.regs[PPU_INIDISP] & 0x80) != 0);
+    if (forced_blank || (g_snes.in_vblank && g_snes.dma_count + size <= SNES_VBLANK_DMA_BYTES)) {
+        g_snes.dma_count = (u16)(g_snes.dma_count + size);
+        return 1;
+    }
+    g_snes.dma_lost = (u16)(g_snes.dma_lost + size);
+    return 0;
 }
 
 SnesStats snes_stats(void)
 {
-    return g_snes.stats;
+    SnesStats s = g_snes.stats;
+    s.dma_bytes = g_snes.dma_count;   /* of the current / last vertical blank */
+    s.dma_lost = g_snes.dma_lost;
+    return s;
 }
 
 const u16 *snes_vram(void)
@@ -90,9 +111,10 @@ void setMode(u8 mode, u8 size)
     snes_write_reg(PPU_TM, BG1_ENABLE | BG2_ENABLE | BG3_ENABLE | OBJ_ENABLE);
 }
 
+/* As in PVSnesLib: 0 switches the screen off (forced blank), 1..15 on. */
 void setBrightness(u8 level)
 {
-    snes_write_reg(PPU_INIDISP, (u8)((g_snes.regs[PPU_INIDISP] & 0x80) | (level & 0x0F)));
+    snes_write_reg(PPU_INIDISP, (u8)(level ? (level & 0x0F) : 0x80));
 }
 
 void setScreenOn(void)
@@ -118,31 +140,39 @@ void setColorIntensity(u8 colorApply, u8 intensity)
 
 void setPaletteColor(u16 paletteEntry, u16 paletteColor)
 {
-    g_snes.cgram[paletteEntry & 0xFF] = (u16)(paletteColor & 0x7FFF);
+    if (dma_allowed(2)) {
+        g_snes.cgram[paletteEntry & 0xFF] = (u16)(paletteColor & 0x7FFF);
+    }
 }
 
 /* --- dma.h ---------------------------------------------------------------------------------- */
 void dmaCopyVram(const u8 *source, u16 address, u16 size)
 {
     u16 i;
+    if (!dma_allowed(size)) {
+        return;
+    }
     for (i = 0; i + 1 < size; i += 2) {
         g_snes.vram[(u16)(address + (i >> 1)) & (SNES_VRAM_WORDS - 1)] = (u16)(source[i] | (source[i + 1] << 8));
     }
-    g_snes.dma_count = (u16)(g_snes.dma_count + size);
 }
 
 void dmaCopyCGram(const u8 *source, u16 address, u16 size)
 {
     u16 i;
+    if (!dma_allowed(size)) {
+        return;
+    }
     for (i = 0; i + 1 < size; i += 2) {
         g_snes.cgram[(u16)(address + (i >> 1)) & 0xFF] = (u16)((source[i] | (source[i + 1] << 8)) & 0x7FFF);
     }
-    g_snes.dma_count = (u16)(g_snes.dma_count + size);
 }
 
 void dmaClearVram(void)
 {
-    memset(g_snes.vram, 0, sizeof g_snes.vram);
+    if (dma_allowed(0) && (g_snes.regs[PPU_INIDISP] & 0x80)) {
+        memset(g_snes.vram, 0, sizeof g_snes.vram);
+    }
 }
 
 /* --- background.h ------------------------------------------------------------------------------ */
@@ -277,6 +307,14 @@ void snesHdmaSet(u8 channel, u8 reg, u8 twoRegs, const u8 *table)
     h->reg = reg;
     h->two = twoRegs;
     h->table = table;
+}
+
+u8 snesDmaFits(u16 bytes)
+{
+    if (g_snes.regs[PPU_INIDISP] & 0x80) {
+        return 1;
+    }
+    return (u8)(g_snes.in_vblank && g_snes.dma_count + bytes <= SNES_VBLANK_DMA_BYTES);
 }
 
 void snesHdmaEnable(u8 channels)

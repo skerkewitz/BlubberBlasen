@@ -150,8 +150,8 @@ extern u8 oamMemory[128 * 4 + 8 * 4];
 /* --- PVSnesLib functions ------------------------------------------------------------ */
 /* video.h */
 void setMode(u8 mode, u8 size);            /* BGMODE; shows BG1..BG3 and sprites on the main screen */
-void setBrightness(u8 level);              /* 0 (black) .. 15 (full) */
-void setScreenOn(void);
+void setBrightness(u8 level);              /* 0: screen off (forced blank), 1..15: on, that bright */
+void setScreenOn(void);                    /* PVSnesLib waits for a vertical blank here: never call it in one */
 void setScreenOff(void);                   /* forced blank: black */
 void setColorEffect(u8 colorMathA, u8 colorMathB);    /* CGWSEL, CGADSUB */
 void setColorIntensity(u8 colorApply, u8 intensity);  /* COLDATA: the fixed colour */
@@ -194,14 +194,26 @@ void snesRegWrite(u8 reg, u8 value);
  * frame is drawn, so it must stay valid (a static or ROM array). */
 void snesHdmaSet(u8 channel, u8 reg, u8 twoRegs, const u8 *table);
 void snesHdmaEnable(u8 channels);          /* HDMAEN: which channels run */
+/* 1 if a copy of this many bytes to VRAM or CGRAM still ends inside the
+ * current vertical blank. On the SNES it reads the line counter, so the code
+ * around the copies counts too; with the screen off the caller does not ask.
+ * What does not fit waits for the next vertical blank instead of being lost. */
+u8   snesDmaFits(u16 bytes);
 
 /* --- PC side: platform layer, tests and debug view ------------------------------------ */
 #define SNES_VRAM_WORDS 0x8000
 #define SNES_W 256
 #define SNES_H 224
 
+/* What one vertical blank can copy into VRAM and CGRAM: NTSC lines 225..261
+ * are 37 x 1364 master cycles, DMA takes 8 per byte, less the 544 bytes of
+ * the OAM copy. Writes beyond it, or outside the vertical blank, are lost
+ * unless the screen is switched off (forced blank). */
+#define SNES_VBLANK_DMA_BYTES 5700
+
 typedef struct {
-    u16 dma_bytes;          /* bytes copied by DMA since the last vertical blank */
+    u16 dma_bytes;          /* bytes copied by DMA in the last vertical blank */
+    u16 dma_lost;           /* bytes written to VRAM / CGRAM that did not arrive (outside the vertical blank or over budget) */
     u8  range_over_lines;   /* lines with more than 32 sprites (the rest are not drawn) */
     u8  time_over_lines;    /* lines with more than 34 sprite tiles (some tiles are not drawn) */
     u8  most_sprites;       /* on the busiest line */
@@ -209,8 +221,13 @@ typedef struct {
 } SnesStats;
 
 void        snes_reset(void);              /* power on: memories cleared, screen off */
-void        snes_vblank(void);             /* vertical blank: OAM shadow to OAM, DMA count restarts */
+/* The frame rhythm of the console: snes_vblank() starts the vertical blank
+ * (OAM shadow to OAM, DMA budget restarts), snes_render() draws the picture,
+ * which ends it. VRAM and CGRAM accept writes only in between, within
+ * SNES_VBLANK_DMA_BYTES, or while the screen is off. */
+void        snes_vblank(void);
 void        snes_render(u16 *out);         /* SNES_W * SNES_H colours, BGR 5:5:5 */
+void        snes_display(void);            /* the picture is drawn, without making it (tests): VRAM closes */
 SnesStats   snes_stats(void);              /* of the last snes_render (DMA: of the last frame) */
 const u16  *snes_vram(void);               /* SNES_VRAM_WORDS words */
 const u16  *snes_cgram(void);              /* 256 colours */

@@ -17,8 +17,10 @@ from `assets/` into data the game uses.
 Converts level files from the GierzahnEditor (`*.map`), plus an optional settings file per round (`*.txt`), into `level_data.c`, which holds a `const` array per level.
 
 ```
-map2c -o <output.c> <level1.map> [<level2.map> ...]
+map2c -o <output.c> [--snes <output.asm>] <level1.map> [<level2.map> ...]
 ```
+
+With `--snes` (the SNES build, ROADMAP.md stage 3) the per-level arrays (cells, navigation, enemies) go into the assembly file instead, one ROM section per level, and the C file only declares them and holds `level_defs`. 816-tcc, PVSnesLib's compiler, would copy every initialised global into RAM at start-up and put all of a file's `static const` data into one ROM section, which has to fit a 32 KB bank. The assembly writes `NavSeg` as 6 bytes and `LevelEnemy` as 5, without gaps; the C file checks that the compiler agrees.
 
 The levels are numbered in argument order. The build passes all `assets/levels/*.map` files, sorted by name, so `round001.map` becomes level 1 and `round100.map` level 100 (the secret room, `secret.map`, sorts last).
 
@@ -60,8 +62,10 @@ One byte per cell (bit 7 = solid, bits 0..2 = airflow), an enemy table with spaw
 Converts the graphics in `assets/gfx` into SNES data (ADR-0004, ADR-0006): 4 bpp and 2 bpp planar tiles, 15-bit palettes, the title's tile map and one sprite sheet per room group, as `const` arrays in `gfx_data.c` with `gfx_data.h`.
 
 ```
-gfx2c -o <gfx_data.c> -H <gfx_data.h> <gfx.txt> <level1.map> [<level2.map> ...]
+gfx2c -o <gfx_data.c> -H <gfx_data.h> [--snes <gfx_data.asm>] <gfx.txt> <level1.map> [<level2.map> ...]
 ```
+
+With `--snes` the arrays go into the assembly file, one ROM section per array (each checked against 32 KB), for the same reason as `map2c --snes`; the C file then only holds `gfx_sheet_tiles`, the one table with pointers, which the compiler lays out itself. Both outputs are written by the same code from the same data.
 
 `assets/gfx/gfx.txt` says what each PNG is (the comments there explain every line): the font and its colours, the tilesets, the title and its number of palettes, and for the sprite sheet which cells use which palette, which cells belong to which enemy type and to the boss, player 2's colour swap, the tint colours and the sheets with their rounds. The level files tell which enemy types each round sheet needs.
 
