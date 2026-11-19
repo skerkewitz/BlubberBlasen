@@ -317,7 +317,12 @@ uint8_t  level_can_gap_jump(uint16_t x, uint16_t y, int8_t dir);
 
 /* --- video.c: the frame on the (pseudo) SNES --------------------------------- */
 void     video_init(void);
-void     video_frame(const Sprite *oam, uint8_t count, const ColorWindow *windows);   /* once per tick: prepare */
+void     video_sprites_begin(void);   /* before the frame's oam_add calls: the sprite sheet */
+void     video_sprites_end(void);     /* after them: the palettes that wait for the frame's tints, the rest hidden */
+void     video_frame(const ColorWindow *windows);   /* once per tick, after the sprites: prepare */
+#ifdef BB_DEBUG
+const Sprite *video_sprite_list(void);   /* the game's own list of this frame's sprites (game_oam) */
+#endif
 void     video_vblank(void);                             /* in the vertical blank: upload (game_vblank) */
 uint8_t  video_pending(void);                            /* something still waits for a vertical blank */
 void     video_tileset(uint8_t page, uint8_t tileset);   /* level_load: the page's room tiles */

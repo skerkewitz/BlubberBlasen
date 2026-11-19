@@ -7,8 +7,9 @@
  * superdevkit's console API (sdevkit/snes.h): each tick ends with video.c
  * writing OAM, VRAM, CGRAM and the registers, which the SNES shows, and on the
  * PC Rachael, the kit's SNES in C, renders (ADR-0007).
- * The game's own description of the frame (sprite table, tilemaps, colour
- * windows below) stays readable here for replay checksums and debugging.
+ * The game's own description of the frame (tilemaps, colour windows below,
+ * and in development builds its sprite list) stays readable here for replay
+ * checksums and debugging.
  * Sound requests out. This header must never include platform headers.
  */
 
@@ -147,7 +148,6 @@ void            game_tick(const uint16_t pad[NUM_PLAYERS]);  /* exactly once per
  * the kit's main loop on the SNES, which waits for it): the uploads the tick
  * prepared. */
 void            game_vblank(void);
-const Sprite   *game_oam(void);                              /* MAX_SPRITES entries */
 const ColorWindow *game_windows(void);                       /* NUM_WINDOWS entries */
 const uint16_t *game_bg(uint8_t layer);   /* layer 0: BG_W * BG0_ROWS, layer 1: BG_W * BG_H entries */
 uint16_t        game_bg_scroll_y(void);   /* layer 0 vertical scroll in pixels, 0..BG0_ROWS*8-1 */
@@ -157,6 +157,14 @@ uint8_t         game_music(void);  /* MUSIC_* that should be playing now */
 uint8_t        *game_sram(void);   /* SRAM_SIZE bytes; platform loads/saves them */
 uint8_t         game_sram_dirty(void); /* 1 once after the game changed SRAM */
 /* --- Debug switches (development builds only, BB_DEBUG) ------------------- */
+/* The frame's sprites as the game drew them, MAX_SPRITES entries (unused ones
+ * at SPRITE_HIDDEN_Y). Development builds only: on the console oam_add writes
+ * the SNES's sprite table directly (video.c), this list is for the recordings'
+ * checksums and the tests. */
+#ifdef BB_DEBUG
+const Sprite   *game_oam(void);
+#endif
+
 #ifdef BB_DEBUG
 enum {
     DBG_INFINITE_LIVES,   /* lives never decrease */

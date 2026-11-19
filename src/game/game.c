@@ -46,10 +46,6 @@ BB_FAST uint16_t  g_scroll_y;
 BB_FAST uint8_t   g_window_top;
 
 /* --- Local state ------------------------------------------------------------- */
-static Sprite   oam[MAX_SPRITES];
-static BB_FAST uint8_t  oam_count;
-static Sprite  *BB_FAST oam_next;                    /* where oam_add writes (a pointer: 816-tcc multiplies for oam[i]) */
-static BB_FAST uint8_t  oam_prev = MAX_SPRITES;      /* entries used last frame; all before the first */
 /* The lines each window may have filled (internal.h); all of them at power on, when the windows
  * are zeroes, not empty lines. */
 uint8_t g_window_from[NUM_WINDOWS] = { 0, 0 };
@@ -166,18 +162,6 @@ static const uint32_t sfx_bit[32] = {
 void sfx(uint8_t id)
 {
     g_sfx |= sfx_bit[id & 31];
-}
-
-void oam_add(uint8_t x, uint8_t y, uint8_t tile, uint8_t attr)
-{
-    if (oam_count < MAX_SPRITES && y < SCREEN_H) {
-        Sprite *s = oam_next++;
-        oam_count++;
-        s->x = x;
-        s->y = y;
-        s->tile = tile;
-        s->attr = attr;
-    }
 }
 
 uint8_t overlap(uint16_t ax, uint16_t ay, uint16_t bx, uint16_t by, uint8_t w, uint8_t h)
@@ -1240,13 +1224,13 @@ static void build_windows(void)
     }
 }
 
+/* The frame's sprites, written by oam_add straight into the OAM shadow (video.c). */
 static void build_oam(void)
 {
-    oam_count = 0;
-    oam_next = oam;
     for (uint8_t i = 0; i < NUM_PLAYERS; i++) {
         g_player_tint[i] = PAL_NONE;   /* player_draw sets it while a player flashes */
     }
+    video_sprites_begin();
 
     if (g_state == GS_TRANSITION || g_state == GS_ROUND_INTRO || g_state == GS_PLAY || g_state == GS_PAUSE ||
         g_state == GS_ROUND_SKIP || g_state == GS_CONTINUE || g_state == GS_GAME_OVER) {
@@ -1273,17 +1257,7 @@ static void build_oam(void)
         draw_ending();
     }
 
-    /* hide what was used last frame and not this one (the rest is hidden already) */
-    {
-        Sprite *s = oam_next;
-        for (uint8_t i = oam_count; i < oam_prev; i++, s++) {
-            s->x = 0;
-            s->y = SPRITE_HIDDEN_Y;
-            s->tile = 0;
-            s->attr = 0;
-        }
-        oam_prev = oam_count;
-    }
+    video_sprites_end();
 }
 
 /* --- API ------------------------------------------------------------------------- */
@@ -1458,7 +1432,7 @@ void game_tick(const uint16_t real_pad[NUM_PLAYERS])
     state_timer++;
     build_oam();
     build_windows();
-    video_frame(oam, oam_count, windows);
+    video_frame(windows);
 }
 
 void game_vblank(void)
@@ -1521,10 +1495,12 @@ uint8_t game_debug_goto_round(uint8_t round)
 }
 #endif /* BB_DEBUG */
 
+#ifdef BB_DEBUG
 const Sprite *game_oam(void)
 {
-    return oam;
+    return video_sprite_list();
 }
+#endif
 
 const ColorWindow *game_windows(void)
 {

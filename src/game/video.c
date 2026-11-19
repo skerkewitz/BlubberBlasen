@@ -1,16 +1,18 @@
 /*
  * Video: the game's picture on the SNES and on Rachael (ADR-0005, ADR-0006, ADR-0007).
  *
- * The game describes each frame as before: a sprite list with cell numbers
- * and logical palettes (oam_add, PAL_*), two tile maps (g_bg0 room or title,
+ * The game describes each frame as before: sprites with cell numbers and
+ * logical palettes (oam_add, PAL_*), two tile maps (g_bg0 room or title,
  * g_bg1 text) and two colour windows. This module turns that into what the
  * SNES needs, through superdevkit's console API (sdevkit/snes.h), in two
  * halves, as a SNES game must:
  *
- * video_frame(), at the end of game_tick, while the picture is drawn: it
- * prepares everything that takes time. The sprite list goes into the OAM
- * shadow (the console's vertical blank copies it): the cell's slot in the
- * sprite sheet, its SNES palette (table below). The game's line y is row y of
+ * While the game draws, at the end of game_tick: oam_add writes each sprite
+ * straight into the OAM shadow (the console's vertical blank copies it): the
+ * cell's slot in the sprite sheet, its SNES palette (table below).
+ *
+ * video_frame(), after the drawing, while the picture is drawn: it
+ * prepares everything else that takes time. The game's line y is row y of
  * the picture, which the SNES draws from scanline y + 1 (it never shows
  * scanline 0): a sprite at y appears there, HDMA's first entry lands there,
  * and both backgrounds are scrolled up by one line so that they do too.
@@ -290,80 +292,138 @@ static uint8_t sprite_palette(uint8_t base, uint8_t pal)
     }
 }
 
-/* Sprites into the OAM shadow, and which tints the per-frame palettes need
- * (grey wins over yellow when both are wanted in one frame). One pass over
- * the sprites the game drew, written straight into sdevkit_oam_memory (the SNES
- * layout, snes.h): calling sdevkit_oam_set and sdevkit_oam_set_ex for 128 sprites took most of
- * a frame on the console. All sprites are large (the high table is set once
- * in video_init) and x stays below 256. The entries used last frame and not
- * in this one are hidden.
+/* Sprites, written by oam_add straight into the OAM shadow
+ * (sdevkit_oam_memory, the SNES layout) while the game draws: a sprite list of
+ * the game's own, converted afterwards, cost a store and a load more per
+ * sprite and a second pass over all of them. video_sprites_begin() before the
+ * drawing picks the frame's sprite sheet; video_sprites_end() after it hides
+ * the entries used last frame and not in this one. All sprites are large (the
+ * high table is set once in video_init) and x stays below 256.
  *
- * Only an enemy drawn grey or yellow depends on the tint the whole frame
- * wants, which is known after the pass: those entries are noted and their
- * palette set afterwards (a second pass over all sprites cost a fifth of the
- * time). The game's flip bits are the SNES's (bits 7 and 6), so they are
- * copied as they are. */
-static BB_FAST uint8_t oam_shown;   /* entries filled last frame */
-static uint8_t tint_later[MAX_SPRITES];       /* OAM entries whose palette waits for the tint */
-static uint8_t tint_later_pal[MAX_SPRITES];   /* and their logical palettes (PAL_GREY or PAL_YELLOW) */
+ * Some palettes depend on what the whole frame draws, known only at the end:
+ * an enemy drawn grey or yellow (one tint palette for all enemies; grey wins
+ * over yellow) and a player flashing yellow or orange (player_draw sets
+ * g_player_tint while drawing). Those entries are noted and get their palette
+ * in video_sprites_end. The game's flip bits are the SNES's (bits 7 and 6), so
+ * they are copied as they are.
+ *
+ * Development builds also keep the game's own sprite list (game_oam), for the
+ * recordings' checksums and the tests; the console has only the OAM. */
+static BB_FAST uint8_t oam_shown;          /* entries filled last frame */
+static BB_FAST uint8_t sprites_added;      /* sprites drawn this frame (at most MAX_SPRITES) */
+static BB_FAST uint8_t sprites_filled;     /* OAM entries written this frame (those in the sheet) */
+static BB_FAST uint8_t later;              /* entries in tint_later */
+static uint8_t want6;                      /* the enemies' tint this frame asks for */
+static const uint8_t *slots;               /* the sheet's slot per cell */
+static uint8_t tint_later[MAX_SPRITES];       /* OAM entries whose palette waits for the frame's tints */
+static uint8_t tint_later_base[MAX_SPRITES];  /* and their palette class (OP_ENEMIES or OP_P1) */
+static uint8_t tint_later_pal[MAX_SPRITES];   /* and their logical palette */
 typedef char flip_bits_are_the_snes[SPR_ATTR_FLIP_Y == 0x80u && SPR_ATTR_FLIP_X == 0x40u ? 1 : -1];
+#ifdef BB_DEBUG
+static Sprite sprite_list[MAX_SPRITES];
+static uint8_t sprite_list_prev = MAX_SPRITES;   /* entries used last frame; all before the first */
 
-static void build_sprites(const Sprite *oam, uint8_t count)
+const Sprite *video_sprite_list(void)
 {
-    const uint8_t *slots = gfx_sheet_slot[sheet];
-    uint8_t *o = sdevkit_oam_memory;
-    uint8_t want6 = GFX_TINT_NONE, filled = 0, later = 0;
+    return sprite_list;
+}
+#endif
 
+void video_sprites_begin(void)
+{
+    uint8_t s = wanted_sheet();
+    if (s != sheet) {
+        sheet = s;   /* the sprites below already refer to it; its rows follow in the vertical blanks */
+        sheet_rows_left = (uint8_t)(gfx_sheet_bytes[s] >> 10);
+    }
+    slots = gfx_sheet_slot[sheet];
+    sprites_added = 0;
+    sprites_filled = 0;
+    later = 0;
+    want6 = GFX_TINT_NONE;
+}
+
+void oam_add(uint8_t x, uint8_t y, uint8_t tile, uint8_t attr)
+{
+    if (sprites_added >= MAX_SPRITES || y >= SCREEN_H) {
+        return;
+    }
+#ifdef BB_DEBUG
+    {
+        Sprite *sp = &sprite_list[sprites_added];
+        sp->x = x;
+        sp->y = y;
+        sp->tile = tile;
+        sp->attr = attr;
+    }
+#endif
+    sprites_added++;
+    uint8_t base = gfx_cell_pal[tile];
+    uint8_t pal = (uint8_t)((attr & SPR_ATTR_PAL_MASK) >> SPR_ATTR_PAL_SHIFT);
+    uint8_t tinted = 0;
+    if (base == OP_ENEMIES) {
+        if (pal == PAL_GREY) {
+            want6 = GFX_TINT_GREY;
+            tinted = 1;
+        } else if (pal == PAL_YELLOW) {
+            if (want6 == GFX_TINT_NONE) want6 = GFX_TINT_YELLOW;
+            tinted = 1;
+        }
+    } else if (base == OP_P1 && (pal == PAL_YELLOW || pal == PAL_ORANGE)) {
+        tinted = 1;
+    }
+    uint8_t slot = slots[tile];
+    if (slot == 0xFF) {
+#ifdef BB_DEBUG
+        g_video_missing++;
+#endif
+        return;
+    }
+    if (tinted) {
+        tint_later[later] = sprites_filled;   /* its palette once the frame's tints are known */
+        tint_later_base[later] = base;
+        tint_later_pal[later] = pal;
+        later++;
+    }
+    uint16_t name = (uint16_t)(((slot & 7u) << 1) | ((uint16_t)(slot >> 3) << 5));
+    uint8_t palette = (uint8_t)(tinted ? 0 : sprite_palette(base, pal));   /* tinted: set in video_sprites_end */
+    uint8_t *o = sdevkit_oam_memory + ((uint16_t)sprites_filled << 2);
+    o[0] = x;
+    o[1] = y;
+    o[2] = (uint8_t)name;
+    o[3] = (uint8_t)((attr & (SPR_ATTR_FLIP_Y | SPR_ATTR_FLIP_X)) | ((uint8_t)SPR_PRIORITY << 4) |
+                     ((uint8_t)palette << 1) | ((name >> 8) & 1u));
+    sprites_filled++;
+}
+
+void video_sprites_end(void)
+{
     for (uint8_t i = 0; i < NUM_PLAYERS; i++) {
         tint_p[i] = (uint8_t)(g_player_tint[i] == PAL_YELLOW ? GFX_TINT_YELLOW
                             : g_player_tint[i] == PAL_ORANGE ? GFX_TINT_ORANGE : GFX_TINT_NONE);
-    }
-
-    for (uint8_t i = 0; i < count; i++, oam++) {
-        uint8_t base = gfx_cell_pal[oam->tile];
-        uint8_t pal = (uint8_t)((oam->attr & SPR_ATTR_PAL_MASK) >> SPR_ATTR_PAL_SHIFT);
-        uint8_t slot = slots[oam->tile];
-        uint8_t tinted = 0;
-        if (base == OP_ENEMIES) {
-            if (pal == PAL_GREY) {
-                want6 = GFX_TINT_GREY;
-                tinted = 1;
-            } else if (pal == PAL_YELLOW) {
-                if (want6 == GFX_TINT_NONE) want6 = GFX_TINT_YELLOW;
-                tinted = 1;
-            }
-        }
-        if (slot == 0xFF) {
-#ifdef BB_DEBUG
-            g_video_missing++;
-#endif
-            continue;
-        }
-        if (tinted) {
-            tint_later[later] = filled;     /* its palette once the frame's tint is known */
-            tint_later_pal[later] = pal;
-            later++;
-        }
-        uint16_t name = (uint16_t)(((slot & 7u) << 1) | ((uint16_t)(slot >> 3) << 5));
-        o[0] = oam->x;
-        o[1] = oam->y;
-        o[2] = (uint8_t)name;
-        o[3] = (uint8_t)((oam->attr & (SPR_ATTR_FLIP_Y | SPR_ATTR_FLIP_X)) | ((uint8_t)SPR_PRIORITY << 4) |
-                         ((uint8_t)sprite_palette(base, pal) << 1) | ((name >> 8) & 1u));
-        o += 4;
-        filled++;
     }
     if (want6 != GFX_TINT_NONE) {
         tint6 = want6;
     }
     for (uint8_t i = 0; i < later; i++) {
         uint8_t *e = sdevkit_oam_memory + ((uint16_t)tint_later[i] << 2);
-        e[3] = (uint8_t)((e[3] & 0xF1u) | (sprite_palette(OP_ENEMIES, tint_later_pal[i]) << 1));   /* bits 1..3 */
+        e[3] = (uint8_t)((e[3] & 0xF1u) | (sprite_palette(tint_later_base[i], tint_later_pal[i]) << 1));   /* bits 1..3 */
     }
-    for (uint8_t i = filled; i < oam_shown; i++, o += 4) {
+    uint8_t *o = sdevkit_oam_memory + ((uint16_t)sprites_filled << 2);
+    for (uint8_t i = sprites_filled; i < oam_shown; i++, o += 4) {
         o[1] = SPR_OFF_Y;
     }
-    oam_shown = filled;
+    oam_shown = sprites_filled;
+#ifdef BB_DEBUG
+    /* the list: hide what was used last frame and not this one (the rest is hidden already) */
+    for (uint8_t i = sprites_added; i < sprite_list_prev; i++) {
+        sprite_list[i].x = 0;
+        sprite_list[i].y = SPRITE_HIDDEN_Y;
+        sprite_list[i].tile = 0;
+        sprite_list[i].attr = 0;
+    }
+    sprite_list_prev = sprites_added;
+#endif
 }
 
 /* --- Windows and the HUD line ---------------------------------------------------- */
@@ -508,14 +568,8 @@ void video_init(void)
     bg_mark_all(1);
 }
 
-void video_frame(const Sprite *oam, uint8_t count, const ColorWindow *windows)
+void video_frame(const ColorWindow *windows)
 {
-    uint8_t s = wanted_sheet();
-    if (s != sheet) {
-        sheet = s;   /* the sprites below already refer to it; its rows follow in the vertical blanks */
-        sheet_rows_left = (uint8_t)(gfx_sheet_bytes[s] >> 10);
-    }
-    build_sprites(oam, count);
     regs.scroll_y = g_scroll_y;
     build_windows(windows);
     build_hud_line();
