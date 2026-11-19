@@ -18,14 +18,15 @@
  * changes the order the pairs are handled in, so A and B may differ; on these 32 frames all four
  * agree, so each variant checks the others.
  *
- * Measured with dampf 0.5.2 (bench_game.c beside this file: a superdevkit game whose tick loads
+ * Measured with dampf 0.5.2 and 0.7.1 (bench_game.c beside this file: a superdevkit game whose tick loads
  * one frame and runs one variant; the work per tick minus that of loading alone, averaged over
  * the 32 frames), in master cycles per frame of data (a frame of the SNES has 357,368):
  *
- *   A counter, struct array (the game)    93,999   0.263 frames
- *   B sorted list, struct array           93,763   0.262 frames
- *   C counter, one array per field       109,381   0.306 frames
- *   D sorted list, one array per field    94,843   0.265 frames
+ *                                        0.5.2           0.7.1
+ *   A counter, struct array (the game)    93,999  0.263   93,991  0.263
+ *   B sorted list, struct array           93,763  0.262   93,497  0.262
+ *   C counter, one array per field       109,381  0.306  109,374  0.306
+ *   D sorted list, one array per field    94,843  0.265   93,973  0.263
  *
  * So today neither the list (about a third of the pairs) nor one array per field pays: what they
  * save, the code around them costs. What the variants show of dampf (see the game's

@@ -206,6 +206,47 @@ The goal for these optimizations, as a number to watch: D clearly below A (it ha
 the pairs), and C no slower than A. The game would then switch to the sorted list, which changes
 its behaviour (the pairs are handled in another order) and so needs its recordings recorded again.
 
+### Measured again with 0.7.1 (2026-11-20)
+
+0.7.1 brought SinkCompares (a compare that several branches use is computed again before each,
+so compare and branch fuse) and IndexParams (a byte parameter used only as an index into an
+array of structs is passed as the multiplied offset). The same measurement, master cycles per
+frame of data:
+
+| Variant | 0.5.2 | 0.7.1 | Change |
+| --- | ---: | ---: | ---: |
+| A counter, struct array (the game) | 93,999 | 93,991 | −8 |
+| B sorted list, struct array | 93,763 | 93,497 | −266 |
+| C counter, one array per field | 109,381 | 109,374 | −7 |
+| D sorted list, one array per field | 94,843 | 93,973 | −870 |
+
+IndexParams works where it applies: in the timing report `pair_s` went from 114 to 86 cycles at
+best (576 to 538 at worst), and `pair_f` from 74 to 66. But B and D call those functions only for
+the pairs that pass the cheap rejects, so their totals move by under 1 %. A and C, the game's form
+with the pair code inline, are unchanged, and SinkCompares shows nothing here either.
+
+A correction to point 1 above: in A, `j * 23` is **not** computed per pair. Both 0.5.2 and
+0.7.1 multiply once when the inner loop starts and then step the offset by 23. The multiply per
+pair exists only where a slot comes from a list (point 3, B and D) and in the pair functions,
+which IndexParams now fixes. The kit's `exec/pair_loops.c`, whose pair code is a function called
+per pair, gains from that; this benchmark and the game hardly do.
+
+Two things the assembly of 0.7.1 shows instead, both in the inner loops that A and C spend their
+time in:
+
+6. **Two equal induction variables in A.** `%14` and `%15` both start at `%13` (`j * 23`) and
+   both step by 23 (`phi i16 [b6_endif, %13], [b11_step, %22]` and the same with `%21`). One
+   lives in X, the other in the direct page, so each pair pays for both steps (9 and 13 cycles).
+   Merging phis with the same inputs would drop one.
+7. **One stepped offset per element size in C.** With one array per field the inner loop keeps
+   `j` for the byte array `fld_state` and `2 * j` for the word arrays `fld_x` and `fld_y`, each a
+   variable in the direct page stepped with `lda / adc / sta` (13 cycles) per pair, and each load
+   then reloads its offset into Y. That is most of why C is slower than A (point 4).
+
+So the order for this benchmark is unchanged: register allocation (point 2) is where A's and C's
+cycles go, with the two items above as smaller pieces of the same work, and the slot multiply
+(point 3) is what keeps D from being clearly below A.
+
 ## 10. M7 for a game with its own converters and its own frontend (2026-11-19)
 
 Blubber Blasen moved to superdevkit 0.7.0: `sdevkit_sram()`, `sdevkit_music_play`/`stop`,
