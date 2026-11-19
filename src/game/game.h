@@ -130,14 +130,16 @@ typedef struct {
  * The effects and their numbers come from assets/sfx/sfx.json (the generated
  * sfx.h, internal.h). */
 
-/* --- Music (a track ID; the platform streams the file) --------------------- */
-enum { MUSIC_NONE, MUSIC_TITLE, MUSIC_GAME, MUSIC_COUNT };
+/* --- Music -----------------------------------------------------------------
+ * The game plays it through superdevkit (sdevkit_music_play, sdevkit_music_stop);
+ * the tracks are listed in superdevkit.toml, their numbers (MUSIC_TITLE,
+ * MUSIC_GAME) come from the generated music.h (internal.h). */
 
 /* --- Battery-backed save RAM (high score table) --------------------------- */
 #define SRAM_SIZE 128   /* high scores (64 bytes) + options (from byte 64) */
 
 /* --- API called by the platform layer ------------------------------------ */
-void            game_init(uint16_t seed);                    /* after SRAM was filled */
+void            game_init(uint16_t seed);                    /* after the save RAM (sdevkit_sram) was filled */
 void            game_tick(const uint16_t pad[NUM_PLAYERS]);  /* exactly once per 60 Hz frame */
 /* In the vertical blank after each tick (after sdevkit__vblank on the PC, from
  * the kit's main loop on the SNES, which waits for it): the uploads the tick
@@ -146,9 +148,6 @@ void            game_vblank(void);
 const uint16_t *game_bg(uint8_t layer);   /* layer 0: BG_W * BG0_ROWS, layer 1: BG_W * BG_H entries */
 uint16_t        game_bg_scroll_y(void);   /* layer 0 vertical scroll in pixels, 0..BG0_ROWS*8-1 */
 uint8_t         game_bg_window_top(void); /* layer 0 is only shown from this screen y down */
-uint8_t         game_music(void);  /* MUSIC_* that should be playing now */
-uint8_t        *game_sram(void);   /* SRAM_SIZE bytes; platform loads/saves them */
-uint8_t         game_sram_dirty(void); /* 1 once after the game changed SRAM */
 /* --- Debug switches (development builds only, BB_DEBUG) ------------------- */
 /* The frame's sprites as the game drew them, MAX_SPRITES entries (unused ones
  * at SPRITE_HIDDEN_Y). Development builds only: on the console oam_add writes

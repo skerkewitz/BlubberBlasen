@@ -145,7 +145,7 @@ static RunResult run(uint16_t seed, uint32_t frames, int check_invariants)
 
     bot_rng = 0x1234;
     for (i = 0; i < SRAM_SIZE; i++) {
-        game_sram()[i] = 0;
+        sdevkit_sram()[i] = 0;
     }
     game_init(seed);
 
@@ -423,7 +423,7 @@ static void test_two_players(void)
 
     bot_rng = 0x4321;
     for (i = 0; i < SRAM_SIZE; i++) {
-        game_sram()[i] = 0;
+        sdevkit_sram()[i] = 0;
     }
     game_init(99);
     for (f = 0; f < 60u * 60u * 5u; f++) {
@@ -540,7 +540,7 @@ static void test_special_emit(void)
     int f, i, seen = 0;
 
     for (i = 0; i < SRAM_SIZE; i++) {
-        game_sram()[i] = 0;
+        sdevkit_sram()[i] = 0;
     }
     game_init(5);
     game_debug_start_round(2);
@@ -668,7 +668,7 @@ static void test_transition(void)
     int f, i, saw_transition = 0, scroll_moved = 0;
 
     for (i = 0; i < SRAM_SIZE; i++) {
-        game_sram()[i] = 0;
+        sdevkit_sram()[i] = 0;
     }
     game_init(3);
     pad[0] = PAD_START;
@@ -850,7 +850,7 @@ static void start_at_round(uint8_t round, int two_players)
     uint16_t pad[NUM_PLAYERS] = { PAD_START, 0 };
     int i;
     for (i = 0; i < SRAM_SIZE; i++) {
-        game_sram()[i] = 0;
+        sdevkit_sram()[i] = 0;
     }
     game_init(7);
     game_debug_start_round(round);
@@ -1037,13 +1037,16 @@ static void test_special_items(void)
 /* Title music around the title, game music in the rounds. */
 static void test_music(void)
 {
+    uint16_t idle[NUM_PLAYERS] = { 0, 0 };
     uint16_t pad[NUM_PLAYERS] = { PAD_START, 0 };
     game_init(1);
-    CHECK(game_music() == MUSIC_TITLE, "title screen should ask for the title music");
+    game_tick(idle);   /* the title asks for its music in its first tick */
+    CHECK(sdevkit__music.track == MUSIC_TITLE, "title screen should ask for the title music");
     game_tick(pad);
-    CHECK(game_music() == MUSIC_GAME, "the round should ask for the game music");
+    CHECK(sdevkit__music.track == MUSIC_GAME, "the round should ask for the game music");
     g_state = GS_GAME_OVER;
-    CHECK(game_music() == MUSIC_NONE, "game over is silent");
+    game_tick(pad);
+    CHECK(sdevkit__music.track < 0, "game over is silent");
 }
 
 /* Every room can be played (design guide "CPU partner"): the CPU plays both
@@ -1075,7 +1078,7 @@ static int try_room(uint8_t round, uint8_t plus, uint16_t seed, int *deaths)
     int i, left = 0;
 
     for (i = 0; i < SRAM_SIZE; i++) {
-        game_sram()[i] = 0;
+        sdevkit_sram()[i] = 0;
     }
     game_init(seed);
     g_opt.plus = plus;
@@ -1453,7 +1456,6 @@ static void test_options(void)
     g_opt.p2_cpu = 0;
     game_init(1);
     CHECK(g_opt.plus && g_opt.rescue && g_opt.p2_cpu, "options should survive in SRAM");
-    CHECK(game_sram_dirty(), "saving options marks SRAM dirty");
     g_opt.plus = 0;
     g_opt.rescue = 0;
     g_opt.p2_cpu = 0;
@@ -1681,7 +1683,7 @@ static void test_push_bubble(void)
         const Sprite *oam;
         int drawn = 0;
         for (i = 0; i < SRAM_SIZE; i++) {
-            game_sram()[i] = 0;
+            sdevkit_sram()[i] = 0;
         }
         game_init(5);
         game_debug_options(1, 0, 0);
@@ -1907,7 +1909,7 @@ static void test_vacuum(void)
     {
         uint16_t pad[NUM_PLAYERS] = { PAD_START, 0 };
         for (f = 0; f < SRAM_SIZE; f++) {
-            game_sram()[f] = 0;
+            sdevkit_sram()[f] = 0;
         }
         game_init(5);
         game_debug_options(1, 0, 0);

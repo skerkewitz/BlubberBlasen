@@ -26,6 +26,8 @@
  */
 
 #include "replay/replay.h"
+#include "sdevkit/snes.h"
+#include "rachael.h"   /* sdevkit__music: the track the game asked for */
 
 #include <stdlib.h>
 #include <string.h>
@@ -56,7 +58,7 @@ static int switch_by_name(const char *name)
 void replay_apply_setup(const ReplaySetup *s)
 {
     uint8_t k;
-    memcpy(game_sram(), s->sram, SRAM_SIZE);
+    memcpy(sdevkit_sram(), s->sram, SRAM_SIZE);
     game_debug_cpu(0);
     game_init(s->seed);
     game_debug_start_round(s->round);
@@ -116,7 +118,7 @@ uint32_t replay_hash(void)
     }
     h = fnv16(h, game_bg_scroll_y());
     h = fnv(h, game_bg_window_top());
-    h = fnv(h, game_music());
+    h = fnv(h, (uint8_t)(sdevkit__music.track + 1));   /* 0: none, as the recordings have it */
     return h;
 }
 

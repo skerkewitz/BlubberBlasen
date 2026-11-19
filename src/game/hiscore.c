@@ -1,13 +1,17 @@
 /*
- * High score table, kept in battery-backed save RAM (SRAM) like on a
- * cartridge. The platform loads the bytes before game_init() and saves
- * them when game_sram_dirty() reports a change.
+ * High score table and options, kept in the cartridge's battery-backed save
+ * RAM: superdevkit's sdevkit_sram(), SRAM_SIZE bytes (sram in
+ * superdevkit.toml). The kit keeps it: the battery on the SNES, a file on the
+ * desktop, written when it changed. On a new cartridge it holds whatever the
+ * RAM held, so the table and the options each start with a magic word and are
+ * set up again without it.
  *
  * Layout: 4 bytes magic, then 5 entries of 12 bytes:
  *   name[3] (ASCII), round, score[8] (decimal digits, most significant first)
  */
 
 #include "game/internal.h"
+#include "sdevkit/snes.h"
 
 #define ENTRY_SIZE 12
 #define TABLE_OFS  4
@@ -15,26 +19,14 @@
 
 Options g_opt;
 
-static uint8_t sram[SRAM_SIZE];
-static uint8_t sram_dirty;
+typedef char sram_is_big_enough[SDEVKIT_SRAM_SIZE >= SRAM_SIZE ? 1 : -1];
+#define sram (sdevkit_sram())
 
 static const uint8_t magic[4] = { 'B', 'B', 'H', '1' };
 
 static uint8_t *entry(uint8_t rank)
 {
     return &sram[TABLE_OFS + (rank << 3) + (rank << 2)];   /* rank * ENTRY_SIZE */
-}
-
-uint8_t *game_sram(void)
-{
-    return sram;
-}
-
-uint8_t game_sram_dirty(void)
-{
-    uint8_t d = sram_dirty;
-    sram_dirty = 0;
-    return d;
 }
 
 void hiscore_init(void)
@@ -95,7 +87,6 @@ void options_save(void)
     sram[OPTIONS_OFS + 4] = g_opt.plus;
     sram[OPTIONS_OFS + 5] = g_opt.rescue;
     sram[OPTIONS_OFS + 6] = g_opt.p2_cpu;
-    sram_dirty = 1;
 }
 
 const uint8_t *hiscore_best(void)
@@ -136,7 +127,6 @@ void hiscore_insert(uint8_t rank, const char *name, const uint8_t *score, uint8_
         }
     }
     g_hud_changes++;
-    sram_dirty = 1;
 }
 
 void hiscore_draw_table(uint8_t first_row, uint8_t highlight)

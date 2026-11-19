@@ -16,6 +16,7 @@
 #include "rlgl.h"       /* rlGetShaderIdDefault: detect a failed shader compile */
 #include "game/game.h"
 #include "rachael.h"
+#include "music.h"      /* MUSIC_COUNT: the tracks of superdevkit.toml */
 
 #ifdef __EMSCRIPTEN__
 #include <emscripten/emscripten.h>
@@ -44,15 +45,12 @@ static uint16_t       snes_frame[SDEVKIT__W * SDEVKIT__H];
 static uint32_t  snes_rgba[SDEVKIT__W * SDEVKIT__H];
 static Music     music[MUSIC_COUNT];
 static int       music_loaded[MUSIC_COUNT];
-static int       music_playing = MUSIC_NONE;
+static int       music_playing = -1;   /* the track playing, -1: none */
 static long      ticks_total;   /* game ticks run so far */
 
-/* Temporary tracks (royalty free, see assets/README.md); swap the files here. */
-static const char *const music_files[MUSIC_COUNT] = {
-    NULL,
-    "music/zephiramusic-lofi-gaming-606302.mp3",                         /* MUSIC_TITLE */
-    "music/bouncyrunner-retro-games-flower-hill-stage-two-400495.mp3"     /* MUSIC_GAME */
-};
+/* The game asks for a track with sdevkit_music_play, Rachael keeps the request (sdevkit__music),
+ * this plays it from its file: sdevkit__music_files, written from superdevkit.toml's [sound] music
+ * (music_files.c), as the kit's desktop does. The tracks are temporary (assets/README.md). */
 #define MUSIC_VOLUME 0.5f
 
 /* --- Sound effects: Rachael's sound chip ---------------------------------------
@@ -153,7 +151,7 @@ static void start_audio(void)
     int i;
 
     audio_started = 1;
-    music_playing = MUSIC_NONE;   /* so the track the game wants starts now */
+    music_playing = -1;   /* so the track the game wants starts now */
     InitAudioDevice();
     if (IsAudioDeviceReady()) {
         SetAudioStreamBufferSizeDefault(AUDIO_CHUNK);
@@ -166,8 +164,8 @@ static void start_audio(void)
 
     for (i = 0; i < MUSIC_COUNT; i++) {
         music_loaded[i] = 0;
-        if (music_files[i] && IsAudioDeviceReady()) {
-            const char *path = asset_path(music_files[i]);
+        if (sdevkit__music_files[i] && IsAudioDeviceReady()) {
+            const char *path = asset_path(sdevkit__music_files[i]);
             if (FileExists(path)) {
                 music[i] = LoadMusicStream(path);
                 music[i].looping = true;
@@ -184,15 +182,15 @@ static void start_audio(void)
 static void update_music(int wanted)
 {
     if (wanted != music_playing) {
-        if (music_playing != MUSIC_NONE && music_loaded[music_playing]) {
+        if (music_playing >= 0 && music_loaded[music_playing]) {
             StopMusicStream(music[music_playing]);
         }
         music_playing = wanted;
-        if (wanted != MUSIC_NONE && music_loaded[wanted]) {
+        if (wanted >= 0 && wanted < MUSIC_COUNT && music_loaded[wanted]) {
             PlayMusicStream(music[wanted]);
         }
     }
-    if (music_playing != MUSIC_NONE && music_loaded[music_playing]) {
+    if (music_playing >= 0 && music_playing < MUSIC_COUNT && music_loaded[music_playing]) {
         UpdateMusicStream(music[music_playing]);
     }
 }
@@ -258,6 +256,10 @@ static const char *save_path(void)
 }
 #endif
 
+/* The save RAM as last loaded or saved: it is written again when the game changed it, as the
+ * kit's frontend does with its <game>.srm. */
+static uint8_t sram_kept[SRAM_SIZE];
+
 static void sram_load(void)
 {
     int size = 0;
@@ -269,7 +271,8 @@ static void sram_load(void)
     if (data) {
         /* older, shorter save files keep their high scores */
         if (size > 0 && size <= SRAM_SIZE) {
-            memcpy(game_sram(), data, (size_t)size);
+            memcpy(sdevkit_sram(), data, (size_t)size);
+            memcpy(sram_kept, data, (size_t)size);
         }
         UnloadFileData(data);
     }
@@ -277,7 +280,8 @@ static void sram_load(void)
 
 static void sram_save(void)
 {
-    if (!SaveFileData(save_path(), game_sram(), SRAM_SIZE)) {
+    memcpy(sram_kept, sdevkit_sram(), SRAM_SIZE);
+    if (!SaveFileData(save_path(), sdevkit_sram(), SRAM_SIZE)) {
         TraceLog(LOG_WARNING, "SRAM: could not write %s", save_path());
     }
 #ifdef __EMSCRIPTEN__
@@ -1350,7 +1354,7 @@ static void start_game(void)
         memset(&s, 0, sizeof s);
         snprintf(s.version, sizeof s.version, "%s", GAME_VERSION);
         s.seed = seed;
-        memcpy(s.sram, game_sram(), SRAM_SIZE);
+        memcpy(s.sram, sdevkit_sram(), SRAM_SIZE);
         s.round = round;
         s.skip_story = skip;
         s.set_options = (uint8_t)opt_set_options;
@@ -1452,7 +1456,7 @@ static void game_step(void)
         replay_write_tick(&rec, (uint32_t)ticks_total, pad);
     }
 #endif
-    if (game_sram_dirty()) {
+    if (memcmp(sram_kept, sdevkit_sram(), SRAM_SIZE) != 0) {
         sram_save();
     }
     ticks_total++;
@@ -1537,7 +1541,7 @@ static int frame(void)
     if (ticks == MAX_CATCHUP) {
         accumulator = 0.0;   /* drop time after a long stall */
     }
-    update_music(game_music());
+    update_music(sdevkit__music.track);
     sfx_feed();
 
     /* Render into the 256x224 "SNES" framebuffer. */

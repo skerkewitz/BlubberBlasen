@@ -141,6 +141,7 @@ far pairs (an unsigned range compare instead of two `abs` and two compares).
 | --- | --- | --- |
 | 8 | `ExampleCheck` records the ROM's sound but does not write it | tool |
 | 9 | A benchmark for dampf's loop optimizations: the game's bubble separation in four variants | benchmark |
+| 10 | M7 for a game with its own converters and its own frontend | tool |
 
 ## 8. `ExampleCheck` records the ROM's sound but does not write it (2026-11-19)
 
@@ -203,3 +204,21 @@ separation took about 99,000 master cycles a tick):
 The goal for these optimizations, as a number to watch: D clearly below A (it handles a third of
 the pairs), and C no slower than A. The game would then switch to the sorted list, which changes
 its behaviour (the pairs are handled in another order) and so needs its recordings recorded again.
+
+## 10. M7 for a game with its own converters and its own frontend (2026-11-19)
+
+Blubber Blasen moved to superdevkit 0.7.0: `sdevkit_sram()`, `sdevkit_music_play`/`stop`,
+`superdevkit.toml` and `superdevkit build snes`. It works: the game behaves as before, and the ROM
+matches the PC over 36,000 ticks in four scenarios. Two things came up:
+
+1. **A game with converters of its own** (Blubber Blasen's `map2c` and `gfx2c`, which check the
+   game's limits and write its formats) has to run them before `superdevkit build`, into a folder
+   it lists in `sources`. The game's `build_snes.sh` does that now. A step in the project file
+   that runs a command first (`[build] before = ["..."]`, say) would make `superdevkit build snes`
+   the whole build. Not urgent.
+2. **A CMake build next to the kit's** (the game keeps its own frontend until M8) needs
+   `music.h`, and for its frontend `music_files.c`, just as `superdevkit build` writes them. The
+   game's CMake now reads the tracks from `superdevkit.toml` with a regular expression and writes
+   both files itself. A command that only does the conversions of the project file
+   (`superdevkit gen [FOLDER]`: build/gen with graphics, sfx and music.h, and the music list)
+   would let other build systems call the kit instead of copying what it writes.

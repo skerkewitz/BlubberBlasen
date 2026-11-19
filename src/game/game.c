@@ -170,6 +170,28 @@ void sfx(uint8_t id)
 
 typedef char sfx_fit_the_mask[SFX_COUNT <= 32 ? 1 : -1];
 
+/* Title music around the title screen, game music in the rounds, silence
+ * for the game over jingle. Asked for every tick: the kit goes on playing a
+ * track asked for again (and on the SNES the calls do nothing yet). */
+static void music_update(void)
+{
+    switch (g_state) {
+    case GS_TITLE:
+    case GS_STORY:
+    case GS_HISCORES:
+    case GS_NAME_ENTRY:
+    case GS_ENDING:
+        sdevkit_music_play(MUSIC_TITLE);
+        break;
+    case GS_GAME_OVER:
+        sdevkit_music_stop();
+        break;
+    default:
+        sdevkit_music_play(MUSIC_GAME);
+        break;
+    }
+}
+
 static void sfx_flush(void)
 {
     if (g_sfx == 0) {
@@ -1503,6 +1525,7 @@ void game_tick(const uint16_t real_pad[NUM_PLAYERS])
 
     state_timer++;
     sfx_flush();
+    music_update();
     build_oam();
     build_windows();
     video_frame();
@@ -1604,20 +1627,4 @@ uint32_t game_sfx(void)
 }
 #endif
 
-/* Title music around the title screen, game music in the rounds,
- * silence for the game over jingle. */
-uint8_t game_music(void)
-{
-    switch (g_state) {
-    case GS_TITLE:
-    case GS_STORY:
-    case GS_HISCORES:
-    case GS_NAME_ENTRY:
-    case GS_ENDING:
-        return MUSIC_TITLE;
-    case GS_GAME_OVER:
-        return MUSIC_NONE;
-    default:
-        return MUSIC_GAME;
-    }
-}
+

@@ -10,6 +10,7 @@
 #include "game/fixed.h"
 #include "game/level_data.h"
 #include "sfx.h"           /* SFX_<ID>, sfx_bank: written from assets/sfx/sfx.json by superdevkit sfx */
+#include "music.h"         /* MUSIC_TITLE, MUSIC_GAME: written from superdevkit.toml's [sound] music */
 
 /* --- Fast variables ---------------------------------------------------------
  * BB_FAST marks a small variable the game uses very often, a candidate for the

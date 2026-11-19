@@ -1,0 +1,17 @@
+# Blubber Blasen's project file for superdevkit (ADR-0009): `superdevkit build snes` makes the ROM
+# build/snes/blubberblasen.sfc. build_snes.sh converts the levels and the graphics into build/data
+# first (the game's own map2c and gfx2c), then calls it. The PC and web builds (CMake) read the
+# music list below too, so the tracks and their numbers are listed only here.
+name = "blubberblasen"
+superdevkit = "0.7"
+sram = 128                    # the high score table and the options (SRAM_SIZE, src/game/hiscore.c)
+sources = ["src/game", "build/data"]
+include = ["src", "build/data"]
+
+[sound]
+sfx = "assets/sfx/sfx.json"   # the sound effects (ADR-0008)
+# the tracks: build/gen/music.h, MUSIC_TITLE and MUSIC_GAME. Temporary, royalty free (assets/README.md).
+music = [
+    { file = "assets/music/zephiramusic-lofi-gaming-606302.mp3", name = "title" },
+    { file = "assets/music/bouncyrunner-retro-games-flower-hill-stage-two-400495.mp3", name = "game" },
+]

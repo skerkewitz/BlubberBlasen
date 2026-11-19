@@ -1,7 +1,7 @@
 # ADR-0008: Sound effects through superdevkit, the same on every platform
 
 Date: 2026-11-19
-Status: accepted
+Status: accepted; the music moved to the kit as well (ADR-0009)
 
 ## Context
 

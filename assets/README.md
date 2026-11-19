@@ -132,7 +132,7 @@ WAV files, listed with their settings in `sfx.json`, the file superdevkit's soun
 
 ## Music (`music/`)
 
-Two temporary tracks, streamed by the platform layer (`music_files` in `src/platform/platform_raylib.c` names the files). The game only says which track should play (`game_music()`): the title track on the title screen, the intro, the high scores and the ending; the game track in the rounds; nothing during game over. They are placeholders and will be replaced.
+Two temporary tracks, listed in `superdevkit.toml` (`[sound] music`, which numbers them: `MUSIC_TITLE`, `MUSIC_GAME`) and streamed by the platform layer. The game only says which track should play (`sdevkit_music_play`, ADR-0009): the title track on the title screen, the intro, the high scores and the ending; the game track in the rounds; nothing during game over. They are placeholders and will be replaced.
 
 | File | Plays | Note |
 |---|---|---|

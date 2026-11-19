@@ -50,7 +50,7 @@ BlubberBlasen/
 │   └── adr/                 # Architecture Decision Records
 ├── src/
 │   ├── game/                # Portable game code (no raylib, no float, no malloc)
-│   │   ├── game.h           #   interface to the platform (pad in; OAM, tilemaps, sound, SRAM out)
+│   │   ├── game.h           #   interface to the platform (pad in; game_init, game_tick, game_vblank)
 │   │   ├── internal.h       #   shared state and object tables
 │   │   ├── game.c           #   state machine, screens, HUD
 │   │   ├── level.c          #   tile collision, airflow, auto-tiling
@@ -67,7 +67,7 @@ BlubberBlasen/
 ├── tools/                   # Host tools: map2c (levels -> const C arrays), gfx2c (graphics -> SNES tiles and
 │                            #   palettes, checks the SNES limits), mapview (room previews), snescheck (the ROM
 │                            #   against the PC, tick by tick); see tools/README.md
-├── blubberblasen.args       # the SNES build's options for dampf (superdevkit's compiler)
+├── superdevkit.toml         # the project for superdevkit: sources, save RAM, sound effects, music
 ├── build_snes.sh            # builds the SNES ROM with superdevkit
 └── tests/                   # Headless tests of the game library; replays/: stored recordings
 ```
@@ -168,7 +168,7 @@ Needs a superdevkit home (see *superdevkit*) and the host tools of a Windows or 
 SUPERDEVKIT_HOME=~/superdevkit ./build_snes.sh
 ```
 
-The result is `build/snes/blubberblasen.sfc`, a 512 KB LoROM image for an emulator (Mesen for exact timing) or a flash cartridge, with `blubberblasen.dbg` next to it, which lets Mesen show the C source and the globals, and `blubberblasen.timing.txt`, the best and worst case of every function in CPU cycles. `build_snes.sh` converts the data as plain C (`build/snes/gen`) and calls dampf with `blubberblasen.args` and the kit's library for the SNES, `lib/snes`: its start-up, the kit's splash screen and the main loop that calls `game_init`, `game_tick` and `game_vblank`. The game code is the same as on the PC. It also converts the sound effects with `superdevkit sfx`; the samples are uploaded to the sound chip in `game_init`, about two seconds of black screen after the kit's splash. No music and no save RAM yet (the kit has neither on the SNES).
+The result is `build/snes/blubberblasen.sfc`, a 512 KB LoROM image for an emulator (Mesen for exact timing) or a flash cartridge, with `blubberblasen.dbg` next to it, which lets Mesen show the C source and the globals, and `blubberblasen.timing.txt`, the best and worst case of every function in CPU cycles. `build_snes.sh` converts the levels and graphics as plain C (`build/data`) and calls `superdevkit build snes`, which does the rest as `superdevkit.toml` says (ADR-0009): it converts the sound effects and writes `music.h` into `build/gen`, and dampf compiles the game, the data and the kit's library for the SNES, `lib/snes`: its start-up, the kit's splash screen and the main loop that calls `game_init`, `game_tick` and `game_vblank`. Options of `build_snes.sh` go to `superdevkit build` (`--verbose`, `--plan`). The game code is the same as on the PC. The sound samples are uploaded to the sound chip in `game_init`, about two seconds of black screen after the kit's splash. The cartridge has 128 bytes of battery-backed save RAM for the high scores and options. No music yet (the kit plays none on the SNES so far).
 
 **The ROM against the PC.** `snescheck` plays the game on Rachael as the kit's main loop plays the ROM (seed 0, no save RAM, no debug switches) with a simple bot on pad 1, and writes the pads and the checksum of every tick (the sprite table and both tilemaps) as a recording in the kit's format. The kit's `dev/replay.sh` plays it on the ROM in dampf's emulator and names the first tick whose checksum differs:
 

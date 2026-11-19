@@ -14,6 +14,7 @@
 #include <string.h>
 
 #include "replay/replay.h"
+#include "sdevkit/snes.h"
 
 static int failures;
 
@@ -47,7 +48,7 @@ static uint32_t record_run(const char *path)
     memset(&s, 0, sizeof s);
     snprintf(s.version, sizeof s.version, "%s", GAME_VERSION);
     s.seed = 777;
-    memcpy(s.sram, game_sram(), SRAM_SIZE);
+    memcpy(s.sram, sdevkit_sram(), SRAM_SIZE);
     s.round = 3;
     s.skip_story = 1;
     s.set_options = 1;
