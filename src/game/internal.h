@@ -279,6 +279,11 @@ extern uint16_t  g_bg0[BG_W * BG0_ROWS];   /* level / title, scrolls */
 extern uint16_t  g_bg1[BG_W * BG_H];       /* text and HUD */
 extern BB_FAST uint16_t  g_scroll_y;               /* layer 0 scroll */
 extern BB_FAST uint8_t   g_window_top;             /* layer 0 hidden above this y */
+/* The lines of colour window i that this frame may have filled: from g_window_from[i] to
+ * g_window_to[i] - 1. Every other line is empty (left > right), so the HDMA tables in video.c
+ * and the clearing in game.c only touch these (on the SNES a loop over all 224 lines is not
+ * cheap). */
+extern uint8_t   g_window_from[NUM_WINDOWS], g_window_to[NUM_WINDOWS];
 
 /* Layer 0 holds two screens ("pages"), 32 rows apart. */
 #define PAGE_ROWS  32
@@ -399,7 +404,9 @@ void     vacuum_start(uint8_t player, uint16_t x, uint16_t y);   /* 8.8 centre (
 uint8_t  vacuum_active(uint8_t player);
 void     vacuums_tick(void);
 uint8_t  vacuum_move(uint16_t *x, uint16_t *y);   /* 1 = inside a vacuum: moved or held, skip the air */
-uint8_t  vacuums_windows(ColorWindow *w);   /* fills window i for player i's vacuum; bit i: lines written */
+/* Fills window i for player i's vacuum, lines from[i] to to[i] - 1 (the others it leaves as
+ * they are, and from and to too for a window without a vacuum). */
+void     vacuums_windows(ColorWindow *w, uint8_t *from, uint8_t *to);
 void     bubble_pop(Bubble *b, int8_t dir, uint8_t player);   /* starts a chain reaction */
 uint8_t  bubbles_trapped_count(void);
 void     bubbles_update(void);

@@ -86,9 +86,13 @@ PNGs are read by `tools/common/pngread.c` (8-bit RGB, RGBA or palette, not inter
 Plays the game on Rachael, the kit's SNES in C, as superdevkit's main loop plays the ROM (`game_init(0)`, no save RAM, no debug switches; the game is linked without `BB_DEBUG`), with a simple bot on pad 1, and writes the session as a recording in the kit's check format: the pad per tick (`press`) and the checksum of every tick (`hash`), which covers the sprite table and the two tilemaps the game names with `sdevkit_dbg_hash` in `video.c`.
 
 ```
-snescheck [--ticks N] -o build/snes/check.txt
+snescheck [--ticks N] [--cpu] [--plus] [--trace FILE] -o build/snes/check.txt
 <superdevkit home>/dev/replay.sh build/snes/blubberblasen.sfc build/snes/check.txt
 ```
+
+The bot only presses buttons, so the ROM plays the same game from the same pads, but it looks at the game's state to choose them. On the title screen it sets the options first: `--cpu` makes player 2 the CPU partner, `--plus` picks Plus mode, in which the bot also places a vacuum every 5 seconds. Then it starts a game, continues after a game over, and in play walks, jumps and shoots without ever pressing Start (which would pause). `--trace FILE` writes one line per tick, `tick state round bubbles enemies items vacuums` (the `GameState`, the round, the bubbles, enemies and items in use, bit i set while player i's vacuum is on), to put measurements of the ROM per tick in context.
+
+The same recording measures the ROM: the kit's `dampf.emu.ExampleBench` prints the work per tick (on average and in the busiest 60 ticks), `dampf.emu.ExampleProfile rom.sfc rom.lbl check.txt FROM TO` the functions and C lines the time of those ticks goes to (`docs/kit-findings.md`, finding 6: today `ExampleBench` needs the ROM built beside a copy of the kit's `lib/`).
 
 `replay.sh` plays the same pads on the ROM in dampf's emulator and names the first tick whose checksum differs, so a ROM that computes something else than the PC shows at once (ADR-0007). Built by CMake with the game (not in the web build); `--ticks` defaults to 3600, one minute of play.
 

@@ -50,7 +50,10 @@ static Sprite   oam[MAX_SPRITES];
 static BB_FAST uint8_t  oam_count;
 static Sprite  *BB_FAST oam_next;                    /* where oam_add writes (a pointer: 816-tcc multiplies for oam[i]) */
 static BB_FAST uint8_t  oam_prev = MAX_SPRITES;      /* entries used last frame; all before the first */
-static uint8_t  window_used[NUM_WINDOWS] = { 1, 1 };   /* lines written last frame: clear them */
+/* The lines each window may have filled (internal.h); all of them at power on, when the windows
+ * are zeroes, not empty lines. */
+uint8_t g_window_from[NUM_WINDOWS] = { 0, 0 };
+uint8_t g_window_to[NUM_WINDOWS] = { SCREEN_H, SCREEN_H };
 static ColorWindow windows[NUM_WINDOWS];
 static uint8_t  intro_box_l, intro_box_r;   /* darkened box behind "ROUND n", px; l > r = none */
 static uint8_t  intro_box_t, intro_box_b;   /* its first and last line */
@@ -1239,37 +1242,37 @@ static void intro_box_window(ColorWindow *w)
         w->left[y] = intro_box_l;
         w->right[y] = intro_box_r;
     }
+    g_window_from[0] = intro_box_t;
+    g_window_to[0] = (uint8_t)(intro_box_b + 1);
 }
 
 /* Windows start empty every frame; the vacuums or the round intro fill theirs. */
 static void build_windows(void)
 {
-    uint8_t i, written = 0;
+    uint8_t i;
     ColorWindow *w = windows;
-    /* empty again; lines only where last frame wrote some (pointers: on the
-     * SNES each windows[i].left[y] would cost a multiplication) */
+    /* empty again: only the lines last frame filled, the others are empty
+     * already (pointers: on the SNES each windows[i].left[y] would cost a
+     * multiplication) */
     for (i = 0; i < NUM_WINDOWS; i++, w++) {
         w->add_r = 0;
         w->add_g = 0;
         w->add_b = 0;
         w->math = 0;
-        if (window_used[i]) {
-            uint8_t *l = w->left, *r = w->right;
-            uint8_t y = 0;
+        if (g_window_from[i] < g_window_to[i]) {
+            uint8_t *l = w->left + g_window_from[i], *r = w->right + g_window_from[i];
+            uint8_t y = g_window_from[i], end = g_window_to[i];
             do {
                 *l++ = 255;
                 *r++ = 0;
-            } while (++y < SCREEN_H);
+            } while (++y < end);
         }
+        g_window_from[i] = g_window_to[i] = 0;
     }
     if (g_state == GS_PLAY || g_state == GS_PAUSE) {
-        written = vacuums_windows(windows);
+        vacuums_windows(windows, g_window_from, g_window_to);
     } else if ((g_state == GS_ROUND_INTRO || g_state == GS_ROUND_SKIP) && intro_box_l <= intro_box_r) {
         intro_box_window(&windows[0]);
-        written = 1;
-    }
-    for (i = 0; i < NUM_WINDOWS; i++) {
-        window_used[i] = (uint8_t)((written >> i) & 1);
     }
 }
 

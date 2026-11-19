@@ -4,12 +4,22 @@
  * pad 1, and writes the session as a recording in the kit's check format: the pad per tick and
  * the checksum of every tick (sdevkit_dbg_hash: the sprite table and the tilemaps).
  *
- *   snescheck [--ticks N] -o build/snes/check.txt
+ *   snescheck [--ticks N] [--cpu] [--plus] [--trace FILE] -o build/snes/check.txt
  *   <home>/dev/replay.sh build/snes/blubberblasen.sfc build/snes/check.txt
  *
  * replay.sh plays the same pads on the ROM in dampf's emulator and names the first tick whose
  * checksum differs: dampf's code and gcc's (or MSVC's), the kit's lib/snes and Rachael must
  * compute the same game. Host code; the game is linked without BB_DEBUG, as on the SNES.
+ *
+ * The bot only presses buttons, so the ROM, which gets the same pads, plays the same game; it may
+ * look at the game's state to decide. On the title it sets the options first (--cpu: player 2 is
+ * the CPU partner, --plus: Plus mode), then starts a game, and it continues after a game over.
+ * In play it walks, jumps and shoots (in Plus mode it also places a vacuum every 5 seconds), and
+ * never presses Start, which would pause.
+ *
+ * --trace FILE writes one line per tick, "tick state round bubbles enemies items vacuums"
+ * (GameState, the round, the bubbles, enemies and items in use, bit i: player i's vacuum is on), to put a ROM's measurements per tick in
+ * context.
  */
 
 #include <stdio.h>
@@ -18,6 +28,7 @@
 
 #include "game/game.h"
 #include "rachael.h"
+#include "game/internal.h"
 
 static const struct { const char *name; uint16_t bit; } BUTTONS[] = {
     { "b", PAD_B }, { "y", PAD_Y }, { "select", PAD_SELECT }, { "start", PAD_START },
@@ -26,12 +37,49 @@ static const struct { const char *name; uint16_t bit; } BUTTONS[] = {
 };
 #define NBUTTONS (sizeof BUTTONS / sizeof BUTTONS[0])
 
-/* The frontend's --autoplay bot, with its own random numbers so that every run is the same. */
+static uint8_t want_cpu, want_plus;
+
+/* A button pressed for 2 ticks, then released for 4: the menus react to a new press only. */
+static uint16_t tap(long t, uint16_t button)
+{
+    return (uint16_t)((t % 6) < 2 ? button : 0);
+}
+
+/* The bot: in play the frontend's --autoplay pattern (with its own random numbers, so that every
+ * run is the same), around it the menus. */
 static uint16_t rng = 0x1234;
 static uint16_t bot_pad(long t)
 {
     static uint16_t dir = PAD_RIGHT;
+    static uint8_t option_row;       /* where the options screen's cursor is */
     uint16_t pad;
+    switch (g_state) {
+    case GS_PLAY:
+        break;
+    case GS_TITLE:
+        if (g_opt.p2_cpu != want_cpu || g_opt.plus != want_plus) {
+            option_row = 0;
+            return tap(t, PAD_SELECT);
+        }
+        return tap(t, PAD_START);
+    case GS_OPTIONS:
+        if ((t % 6) != 0) {
+            return 0;                /* one press every 6 ticks, released in between */
+        }
+        if (g_opt.plus != want_plus) {
+            if (option_row == 0) return PAD_RIGHT;
+            option_row = (uint8_t)(option_row - 1);
+            return PAD_UP;
+        }
+        if (g_opt.p2_cpu != want_cpu) {
+            if (option_row == 2) return PAD_RIGHT;
+            option_row = (uint8_t)(option_row + 1);
+            return PAD_DOWN;
+        }
+        return PAD_START;
+    default:                         /* story, round skip, continue, name entry, high scores */
+        return tap(t, PAD_START);
+    }
     if ((t % 180) == 0) {
         rng = (uint16_t)(rng * 25173u + 13849u);
         dir = (uint16_t)((rng & 0x100) ? PAD_LEFT : PAD_RIGHT);
@@ -39,14 +87,15 @@ static uint16_t bot_pad(long t)
     pad = dir;
     if ((t % 20) < 2)   pad |= PAD_Y;
     if ((t % 90) < 10)  pad |= PAD_B;
-    if ((t % 1200) < 2) pad |= PAD_START;   /* title, name entry */
+    if (want_plus && (t % 300) < 2) pad |= PAD_A;   /* a vacuum */
     return pad;
 }
 
 int main(int argc, char **argv)
 {
     long ticks = 3600, t, start;
-    const char *out = NULL;
+    const char *out = NULL, *trace_path = NULL;
+    FILE *trace = NULL;
     uint16_t *pads;
     uint32_t *hashes;
     FILE *f;
@@ -55,6 +104,12 @@ int main(int argc, char **argv)
     for (i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--ticks") == 0 && i + 1 < argc) {
             ticks = strtol(argv[++i], NULL, 10);
+        } else if (strcmp(argv[i], "--cpu") == 0) {
+            want_cpu = 1;
+        } else if (strcmp(argv[i], "--plus") == 0) {
+            want_plus = 1;
+        } else if (strcmp(argv[i], "--trace") == 0 && i + 1 < argc) {
+            trace_path = argv[++i];
         } else if (strcmp(argv[i], "-o") == 0 && i + 1 < argc) {
             out = argv[++i];
         } else {
@@ -63,7 +118,7 @@ int main(int argc, char **argv)
         }
     }
     if (out == NULL || ticks <= 0) {
-        fprintf(stderr, "usage: snescheck [--ticks N] -o check.txt\n");
+        fprintf(stderr, "usage: snescheck [--ticks N] [--cpu] [--plus] [--trace FILE] -o check.txt\n");
         return 2;
     }
     pads = calloc((size_t)ticks, sizeof pads[0]);
@@ -73,6 +128,10 @@ int main(int argc, char **argv)
         return 1;
     }
 
+    if (trace_path != NULL && (trace = fopen(trace_path, "w")) == NULL) {
+        fprintf(stderr, "snescheck: cannot write %s\n", trace_path);
+        return 1;
+    }
     sdevkit__reset();
     game_init(0);
     for (t = 0; t < ticks; t++) {
@@ -82,11 +141,22 @@ int main(int argc, char **argv)
         pads[t] = pad[0];
         game_tick(pad);
         hashes[t] = sdevkit__tick_hash();
+        if (trace != NULL) {
+            int b = 0, e = 0, it = 0, k;
+            for (k = 0; k < MAX_BUBBLES; k++) b += g_bubbles[k].state != BS_OFF;
+            for (k = 0; k < MAX_ENEMIES; k++) e += g_enemies[k].active != 0;
+            for (k = 0; k < MAX_ITEMS; k++) it += g_items[k].kind != IT_OFF;
+            fprintf(trace, "%ld %d %d %d %d %d %d\n", t, (int)g_state, (int)g_round, b, e, it,
+                    vacuum_active(0) | (vacuum_active(1) << 1));
+        }
         sdevkit__vblank();
         game_vblank();
         sdevkit__display();
     }
 
+    if (trace != NULL) {
+        fclose(trace);
+    }
     f = fopen(out, "w");
     if (f == NULL) {
         fprintf(stderr, "snescheck: cannot write %s\n", out);

@@ -6,13 +6,14 @@ installed on 2026-11-19, and from the game's repository at the commit that adds 
 
 | # | Finding | Kind |
 | --- | --- | --- |
-| 1 | The MIR code generator miscompiles the game: the ROM differs from the PC from tick 24,950 on | bug, dampf |
+| 1 | The MIR code generator miscompiles the game: the ROM differs from the PC from tick 2,623 on (CPU partner) | bug, dampf |
 | 2 | Blubber Blasen uses the new names: the compatibility headers can go | handover |
 | 3 | The game's tests of the pseudo SNES now run on Rachael and can move to the kit | handover |
 | 4 | Rachael's HDMA timing matches Mesen, but no example checks it | test gap |
 | 5 | `sdevkit_rename.py` also renames raylib's `KEY_*` in a frontend file | tool |
+| 6 | `ExampleBench` finds the main loop's waiting code only in a ROM built inside the kit's repository | tool |
 
-## 1. The MIR code generator miscompiles the game (tick 24,950)
+## 1. The MIR code generator miscompiles the game (tick 2,623, or 24,950)
 
 The game's ROM, built with the defaults, gives the PC's checksums for 24,950 ticks of bot play
 and then differs. With `--backend naive` the same ROM matches all 36,000 ticks. The PC side is not
@@ -28,6 +29,16 @@ SUPERDEVKIT_HOME=<home> ./build_snes.sh
 build/Debug/snescheck.exe --ticks 36000 -o build/snes/check_long.txt   # or a Linux build's snescheck
 <home>/dev/replay.sh build/snes/blubberblasen.sfc build/snes/check_long.txt
 #   tick 24950 has checksum 079f8e3e on the SNES, the recording 51adb3f9
+```
+
+A shorter case, found later the same day: with the CPU partner playing player 2 (`snescheck
+--cpu`, which sets the option on the title screen), the ROM differs from tick 2,623 on; alone with
+the bot's improved menus (no pausing), from tick 3,340; in Plus mode with the partner, from 3,253:
+
+```sh
+build/Debug/snescheck.exe --ticks 3000 --cpu -o build/snes/check_cpu.txt
+<home>/dev/replay.sh build/snes/blubberblasen.sfc build/snes/check_cpu.txt
+#   tick 2623 has checksum e6cdd138 on the SNES, the recording 16c2c0fc
 ```
 
 The checksum of a tick is the game's two tilemaps (`g_bg0`, `g_bg1`, named with `sdevkit_dbg_hash`
@@ -93,3 +104,14 @@ Run over the game's raylib frontend (`src/platform/platform_raylib.c`) as well a
 the script turned raylib's `KEY_A`, `KEY_UP`, ... into `SDEVKIT_KEY_*`, which did not compile. The
 script is meant for game code, so this was a misuse, but a file that includes `raylib.h` could be
 skipped, or warned about, cheaply.
+
+## 6. `ExampleBench` needs a ROM built inside the kit's repository
+
+`dampf.emu.ExampleBench` finds the main loop's waiting code by the C lines of `lib/snes/snes.c`,
+under exactly that name, read from the current folder. A game outside the repository names the
+file in its debug file by its path relative to the ROM's folder
+(`../../../../home/.../lib/snes/snes.c`), so `ExampleBench` stops with "no code of the main loop's
+waiting functions". The game measured by building a second ROM beside a copy of the kit's `lib/`
+(the same bytes, other names in the debug file). Matching the file by the end of its path, or
+by the debug file's file id of `snes.c`, would let a game use it as it is; a game needs it, since
+`dampf bench` is for the old benchmark's ports.

@@ -31,7 +31,7 @@
 typedef struct {
     uint8_t  timer;                   /* frames left, 0 = off */
     uint16_t scale;                   /* size this frame, 0..256 = full */
-    uint8_t  ry;                      /* half height this frame (px) */
+    uint8_t  rx, ry;                  /* half width and height this frame (px); span is for these */
     uint16_t x, y;                    /* 8.8, top left of the player who placed it */
     uint8_t  span[VACUUM_MAX + 1];    /* half width at each distance from the middle line */
 } Vacuum;
@@ -72,12 +72,24 @@ static const fx8_8 ring_speed[6] = {
     FX(3, 0), FX(2, 128), FX(2, 0), FX(1, 128), FX(1, 64), FX(1, 0)
 };
 
-/* This frame's size (0..256) and the span table of its ellipse. */
+/* This frame's size (0..256) and the span table of its ellipse.
+ *
+ * No division and, at full size, no multiplication: on the 65816 each is a
+ * runtime call of hundreds of cycles, and this runs every frame for every
+ * line of the ellipse (a vacuum made a tick 7 times dearer). The results are
+ * the same as with the divisions written out:
+ *   rx = ((RADIUS * 16 - w) * s + 2048) >> 12, which is (RADIUS * 16 - w + 8) >> 4 when s = 256,
+ *   row(dy) = (dy * RADIUS + ry / 2) / ry,   span[dy] = (half_width[row] * rx + RADIUS / 2) / RADIUS,
+ * both quotients stepped: the numerator grows by a constant per step, and the
+ * quotient by one each time the remainder reaches the divisor. The table
+ * depends on rx and ry only, so it is built only when they change. */
 static void shape(Vacuum *v)
 {
     uint8_t age = (uint8_t)(VACUUM_FRAMES - v->timer);
     uint16_t s = 256;
-    int16_t w = 0, rx, ry, dy;
+    int16_t w = 0, rx, ry;
+    uint8_t times_rx[VACUUM_RADIUS + 1];   /* (h * rx + RADIUS / 2) / RADIUS, for h = 0..RADIUS */
+    uint8_t h, q, rem, dy, row;
 
     if (age < VACUUM_GROW) {
         s = grow_scale[age];
@@ -87,16 +99,42 @@ static void shape(Vacuum *v)
     if (age >= VACUUM_GROW) {
         w = (int16_t)(wobble[((age - VACUUM_GROW) >> 1) & 15] * VACUUM_WOBBLE / 4);
     }
-    rx = (int16_t)(((int32_t)(VACUUM_RADIUS * 16 - w) * s + 2048) >> 12);
-    ry = (int16_t)(((int32_t)(VACUUM_RADIUS * 16 + w) * s + 2048) >> 12);
+    if (s == 256) {
+        rx = (int16_t)((VACUUM_RADIUS * 16 - w + 8) >> 4);
+        ry = (int16_t)((VACUUM_RADIUS * 16 + w + 8) >> 4);
+    } else {
+        rx = (int16_t)(((int32_t)(VACUUM_RADIUS * 16 - w) * s + 2048) >> 12);
+        ry = (int16_t)(((int32_t)(VACUUM_RADIUS * 16 + w) * s + 2048) >> 12);
+    }
     if (rx < 1) rx = 1;
     if (ry < 1) ry = 1;
 
     v->scale = s;
+    if (rx == v->rx && ry == v->ry) {
+        return;                          /* the same ellipse as last frame */
+    }
+    v->rx = (uint8_t)rx;
     v->ry = (uint8_t)ry;
+
+    q = 0;
+    rem = VACUUM_RADIUS / 2;
+    for (h = 0; h <= VACUUM_RADIUS; h++) {
+        times_rx[h] = q;
+        rem = (uint8_t)(rem + rx);
+        while (rem >= VACUUM_RADIUS) {
+            rem = (uint8_t)(rem - VACUUM_RADIUS);
+            q++;
+        }
+    }
+    row = 0;
+    rem = (uint8_t)(ry / 2);
     for (dy = 0; dy <= ry; dy++) {
-        int16_t row = (int16_t)((dy * VACUUM_RADIUS + ry / 2) / ry);   /* row of the round table */
-        v->span[dy] = (uint8_t)((half_width[row] * rx + VACUUM_RADIUS / 2) / VACUUM_RADIUS);
+        v->span[dy] = times_rx[half_width[row]];
+        rem = (uint8_t)(rem + VACUUM_RADIUS);
+        while (rem >= ry) {
+            rem = (uint8_t)(rem - ry);
+            row++;
+        }
     }
 }
 
@@ -218,19 +256,18 @@ uint8_t vacuum_move(uint16_t *x, uint16_t *y)
  * in this frame's shape. It fades while the vacuum shrinks at the end.
  * Colours are SNES 5-bit (0..31). Returns bit i set for each window it
  * wrote lines into. */
-uint8_t vacuums_windows(ColorWindow *w)
+void vacuums_windows(ColorWindow *w, uint8_t *from, uint8_t *to)
 {
     static const uint8_t pulse[8] = { 0, 1, 2, 3, 3, 2, 1, 0 };
-    uint8_t i, written = 0;
+    uint8_t i;
     for (i = 0; i < NUM_PLAYERS && i < NUM_WINDOWS; i++) {
         const Vacuum *v = &vacuums[i];
         ColorWindow *wi = &w[i];   /* once: 816-tcc multiplies for every w[i] */
-        int16_t cx, cy, dy;
+        int16_t cx, cy, line, first, end;
         uint8_t amount;
         if (!v->timer) {
             continue;
         }
-        written = (uint8_t)(written | (1u << i));
         amount = (uint8_t)(3 + pulse[(g_frame >> 2) & 7]);
         if (v->timer < VACUUM_SHRINK) {
             amount = (uint8_t)(((uint16_t)amount * v->scale) >> 8);
@@ -240,17 +277,20 @@ uint8_t vacuums_windows(ColorWindow *w)
         wi->add_b = amount;
         cx = (int16_t)(PX(v->x) + 8);
         cy = (int16_t)(PX(v->y) + 8);
-        for (dy = (int16_t)-v->ry; dy <= v->ry; dy++) {
-            int16_t line = (int16_t)(cy + dy);
-            uint8_t ady = (uint8_t)iabs(dy);   /* two steps: 816-tcc fails on v->span[iabs(dy)] (ICE 2) */
+        /* the ellipse's lines, not over the HUD */
+        first = (int16_t)(cy - v->ry);
+        end = (int16_t)(cy + v->ry + 1);
+        if (first < FIELD_Y) first = FIELD_Y;
+        if (end > FIELD_BOTTOM) end = FIELD_BOTTOM;
+        if (end < first) end = first;
+        from[i] = (uint8_t)first;
+        to[i] = (uint8_t)end;
+        for (line = first; line < end; line++) {
+            uint8_t ady = (uint8_t)iabs((int16_t)(line - cy));
             int16_t hw = v->span[ady];
             int16_t l = (int16_t)(cx - hw), r = (int16_t)(cx + hw);
-            if (line < FIELD_Y || line >= FIELD_BOTTOM) {
-                continue;                /* not over the HUD */
-            }
             wi->left[line] = (uint8_t)(l < 0 ? 0 : l);
             wi->right[line] = (uint8_t)(r > SCREEN_W - 1 ? SCREEN_W - 1 : r);
         }
     }
-    return written;
 }

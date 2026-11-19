@@ -85,9 +85,10 @@ static struct {
 } regs;
 
 /* HDMA tables: built in one buffer while the other is read by the picture
- * being drawn; the vertical blank switches. Window tables: two runs of 112
- * lines in repeat mode, two bytes per line. */
-#define WINDOW_TABLE_BYTES (2 + SCREEN_H * 2 + 1)
+ * being drawn; the vertical blank switches. Window tables: the lines above
+ * and below the window's lines held empty (3 bytes per run of up to 127
+ * lines), its lines in repeat mode (two bytes per line, a count per 127). */
+#define WINDOW_TABLE_BYTES (2 * 3 + 2 + SCREEN_H * 2 + 2 * 3 + 1)
 static uint8_t window_table[2][NUM_WINDOWS][WINDOW_TABLE_BYTES];
 static uint8_t tm_table[2][8];
 static BB_FAST uint8_t hdma_back;              /* the buffer video_frame fills */
@@ -353,17 +354,37 @@ static void build_sprites(const Sprite *oam, uint8_t count)
 }
 
 /* --- Windows and the HUD line ---------------------------------------------------- */
-static void build_window_table(const ColorWindow *w, uint8_t *t)
+/* n lines of an empty window (left 255, right 0), held: one write per run. */
+static uint8_t *hold_empty(uint8_t *t, uint8_t n)
 {
-    const uint8_t *l = w->left, *r = w->right;
-    uint8_t half, y;
-    for (half = 0; half < 2; half++) {
-        *t++ = 0x80 + 112;
-        for (y = 0; y < 112; y++) {
+    while (n) {
+        uint8_t k = n > 127 ? 127 : n;
+        *t++ = k;
+        *t++ = 255;
+        *t++ = 0;
+        n = (uint8_t)(n - k);
+    }
+    return t;
+}
+
+/* The window's table: empty above line `from` and from line `to` on, which
+ * internal.h promises; in between the edges line by line. The same values on
+ * every line as a table of all 224 lines, in a fraction of the time. */
+static void build_window_table(const ColorWindow *w, uint8_t *t, uint8_t from, uint8_t to)
+{
+    const uint8_t *l = w->left + from, *r = w->right + from;
+    uint8_t n = (uint8_t)(to - from);
+    t = hold_empty(t, from);
+    while (n) {
+        uint8_t k = n > 127 ? 127 : n, y;
+        *t++ = (uint8_t)(0x80 + k);
+        for (y = 0; y < k; y++) {
             *t++ = *l++;
             *t++ = *r++;
         }
+        n = (uint8_t)(n - k);
     }
+    t = hold_empty(t, (uint8_t)(SCREEN_H - to));
     *t = 0;
 }
 
@@ -394,7 +415,7 @@ static void build_windows(const ColorWindow *w)
         if (w->add_g > regs.g) regs.g = w->add_g;
         if (w->add_b > regs.b) regs.b = w->add_b;
         regs.wobjsel = (uint8_t)(regs.wobjsel | (i == 0 ? 0x20 : 0x80));   /* colour window = window 1 / 2 */
-        build_window_table(w, t);
+        build_window_table(w, t, g_window_from[i], g_window_to[i]);
     }
     regs.cgwsel = (uint8_t)(on ? SDEVKIT_CM_MATWIN_ENABLE : SDEVKIT_CM_NEVER_ENABLE);
     regs.cgadsub = (uint8_t)(SDEVKIT_CM_MSCR_BG1 | SDEVKIT_CM_MSCR_BACK | ((math & CMATH_SUB) ? SDEVKIT_CM_SUB_MAINSUB : 0) |

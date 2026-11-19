@@ -1722,6 +1722,9 @@ static void vacuum_grown(void)
     }
 }
 
+/* Where vacuums_windows says it wrote; the tests clear whole windows themselves. */
+static uint8_t vac_from[NUM_WINDOWS], vac_to[NUM_WINDOWS];
+
 static void vacuum_clear_windows(ColorWindow *w)
 {
     int f, y;
@@ -1764,7 +1767,7 @@ static void test_vacuum_animation(void)
     cyp = PX(g_players[0].y) + 8;
     vacuum_start(0, g_players[0].x, g_players[0].y);
     vacuum_clear_windows(w);
-    vacuums_windows(w);
+    vacuums_windows(w, vac_from, vac_to);
     hw = vacuum_half_w(w, cyp);
     CHECK(hw >= 0 && hw <= 1 && w[0].left[cyp] <= cxp && w[0].right[cyp] >= cxp, "a new vacuum starts as a point (%d px)", hw);
 
@@ -1772,14 +1775,14 @@ static void test_vacuum_animation(void)
         vacuums_tick();
     }
     vacuum_clear_windows(w);
-    vacuums_windows(w);
+    vacuums_windows(w, vac_from, vac_to);
     hw = vacuum_half_w(w, cyp);
     CHECK(hw > 10 && hw < 40, "halfway through growing it is part size (%d px)", hw);
     for (; k < VACUUM_GROW; k++) {
         vacuums_tick();
     }
     vacuum_clear_windows(w);
-    vacuums_windows(w);
+    vacuums_windows(w, vac_from, vac_to);
     full_b = w[0].add_b;
     CHECK(vacuum_half_w(w, cyp) == 40 && vacuum_half_h(w, cyp) == 40, "after %d frames it is full and round", VACUUM_GROW);
 
@@ -1789,14 +1792,14 @@ static void test_vacuum_animation(void)
         vacuums_tick();
     }
     vacuum_clear_windows(w);
-    vacuums_windows(w);
+    vacuums_windows(w, vac_from, vac_to);
     CHECK(vacuum_half_h(w, cyp) > 40 && vacuum_half_w(w, cyp) < 40, "it wobbles taller (%d x %d)", vacuum_half_w(w, cyp),
           vacuum_half_h(w, cyp));
     for (k = 0; k < 16; k++) {
         vacuums_tick();
     }
     vacuum_clear_windows(w);
-    vacuums_windows(w);
+    vacuums_windows(w, vac_from, vac_to);
     CHECK(vacuum_half_h(w, cyp) < 40 && vacuum_half_w(w, cyp) > 40, "and then wider (%d x %d)", vacuum_half_w(w, cyp),
           vacuum_half_h(w, cyp));
 
@@ -1804,7 +1807,7 @@ static void test_vacuum_animation(void)
     while (vacuum_active(0)) {
         vacuums_tick();
         vacuum_clear_windows(w);
-        vacuums_windows(w);
+        vacuums_windows(w, vac_from, vac_to);
         if (vacuum_half_h(w, cyp) < 25) {
             break;
         }
@@ -1868,7 +1871,7 @@ static void test_vacuum(void)
         g_players[0].y = TO_POS(FIELD_Y + 100);
         vacuum_start(0, g_players[0].x, g_players[0].y);
         vacuum_grown();
-        vacuums_windows(w);
+        vacuums_windows(w, vac_from, vac_to);
         cxp = PX(g_players[0].x) + 8;
         cyp = PX(g_players[0].y) + 8;
         for (y = 0; y < cyp - 40; y++) {
@@ -1878,6 +1881,18 @@ static void test_vacuum(void)
         CHECK(w[0].left[cyp - 40] == cxp && w[0].right[cyp - 40] == cxp, "the window closes to a point at the top");
         CHECK(empty_above && w[1].add_b == 0, "nothing outside the circle, no second window");
         CHECK(w[0].add_b > 0, "the window adds a colour");
+        {
+            /* the lines it reports are the ellipse's, so clearing and the HDMA table can skip the rest */
+            int outside_empty = 1;
+            for (y = 0; y < SCREEN_H; y++) {
+                if (y < vac_from[0] || y >= vac_to[0]) {
+                    outside_empty &= w[0].left[y] > w[0].right[y];
+                }
+            }
+            CHECK(vac_from[0] == cyp - 40 && vac_to[0] == cyp + 41 && outside_empty,
+                  "it reports its lines %d to %d (want %d to %d), and nothing outside them", vac_from[0], vac_to[0],
+                  cyp - 40, cyp + 41);
+        }
 
         bubble_spawn_special(BK_NORMAL, 0, (uint16_t)(g_players[0].x + TO_POS(39)), g_players[0].y);
         bubble_spawn_special(BK_NORMAL, 0, (uint16_t)(g_players[0].x - TO_POS(42)), g_players[0].y);
