@@ -38,7 +38,7 @@ What, in this order:
   palettes, with no asset over 32 KB, and one sprite sheet per room group within 128 cells of
   16 × 16 (ADR-0006). The platform no longer loads PNGs or tints anything.
 - Done: the art checker from ADR-0004, as part of `gfx2c`.
-- Done in the same library, tested headless (`tests/test_snes.c`): a software renderer that
+- Done in the same library, tested headless (`tests/test_snes.c`, since 2026-11-19 in superdevkit with Rachael): a software renderer that
   draws the picture line by line from that memory, with
   three background layers as in mode 1 (walls and platforms, background, HUD and text) and the
   sprite limits of 32 sprites and 272 px per line, so that overflows are visible on the PC.

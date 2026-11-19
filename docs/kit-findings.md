@@ -1,5 +1,7 @@
 # Findings for superdevkit
 
+**Status (2026-11-19): all seven findings are done in superdevkit (kit commit 02fa308): the miscompilation is fixed, and the game's ROM matches the PC for 36,000 ticks in all four `snescheck` scenarios. New findings start a new table below.**
+
 Things noticed in Blubber Blasen while moving it to superdevkit (2026-11-19), written for whoever
 works on the kit. The user forwards this file. Numbers are from the kit's home at version 0.5.0 as
 installed on 2026-11-19, and from the game's repository at the commit that adds ADR-0007.

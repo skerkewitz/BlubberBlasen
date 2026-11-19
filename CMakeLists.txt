@@ -207,10 +207,6 @@ if(BB_DEBUG_SWITCHES)
     target_include_directories(test_game PRIVATE ${RACHAEL_INCLUDE})
     add_test(NAME game COMMAND test_game)
 
-    add_executable(test_snes tests/test_snes.c)
-    target_link_libraries(test_snes PRIVATE rachael)   # Rachael's tests, until the kit has them
-    target_include_directories(test_snes PRIVATE ${RACHAEL_INCLUDE})
-    add_test(NAME snes COMMAND test_snes)
 
     add_executable(test_gfx tests/test_gfx.c)
     target_link_libraries(test_gfx PRIVATE rachael gfxdata toolcommon)

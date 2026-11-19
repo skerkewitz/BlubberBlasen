@@ -68,7 +68,8 @@ development kit for SNES games in C. The kit has:
 - Every build needs a superdevkit home. MSVC on Windows reaches one inside WSL by its UNC path.
 - On the PC the picture is unchanged, pixel for pixel (compared at five moments of bot play). On
   the console the whole 224 lines the game draws are now visible, and the HDMA effects line up.
-- `tests/test_snes.c` now tests Rachael. The tests stay here until the kit takes them over.
+- `tests/test_snes.c` tested Rachael until the kit took the tests over (2026-11-19, the kit's
+  `rachael_test.c`); the game no longer has them.
 - With dampf's naive code generator the ROM matches the PC for 36,000 ticks of bot play. The
   optimizing one differs from tick 24,950 on, which is a dampf bug (`docs/kit-findings.md`).
 - The ROM has no sound and no save RAM until the kit's library for the SNES has them.
