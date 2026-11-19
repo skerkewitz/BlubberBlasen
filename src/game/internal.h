@@ -280,10 +280,12 @@ extern uint16_t  g_bg0[BG_W * BG0_ROWS];   /* level / title, scrolls */
 extern uint16_t  g_bg1[BG_W * BG_H];       /* text and HUD */
 extern BB_FAST uint16_t  g_scroll_y;               /* layer 0 scroll */
 extern BB_FAST uint8_t   g_window_top;             /* layer 0 hidden above this y */
-/* The lines of colour window i that this frame may have filled: from g_window_from[i] to
- * g_window_to[i] - 1. Every other line is empty (left > right), so the HDMA tables in video.c
- * and the clearing in game.c only touch these (on the SNES a loop over all 224 lines is not
- * cheap). */
+/* This frame's colour windows. Their colours always; their lines (left[], right[]) only in
+ * development builds, for game_windows (the recordings' checksums, the tests): the console
+ * reads the lines from the HDMA tables, which the code that draws a window writes directly
+ * (video_window_lines). In those builds g_window_from[i] .. g_window_to[i] - 1 are the lines
+ * window i may have filled this frame; every other line is empty (left > right). */
+extern ColorWindow g_windows[NUM_WINDOWS];
 extern uint8_t   g_window_from[NUM_WINDOWS], g_window_to[NUM_WINDOWS];
 
 /* Layer 0 holds two screens ("pages"), 32 rows apart. */
@@ -320,7 +322,14 @@ uint8_t  level_can_gap_jump(uint16_t x, uint16_t y, int8_t dir);
 void     video_init(void);
 void     video_sprites_begin(void);   /* before the frame's oam_add calls: the sprite sheet */
 void     video_sprites_end(void);     /* after them: the palettes that wait for the frame's tints, the rest hidden */
-void     video_frame(const ColorWindow *windows);   /* once per tick, after the sprites: prepare */
+void     video_frame(void);   /* once per tick, after the sprites: prepare */
+/* Window i's HDMA table for this frame, written while the window is drawn: video_window_lines
+ * writes the empty lines above `from` and returns where the lines go, two bytes each (left,
+ * right) for from .. to - 1, at most WINDOW_MAX_LINES (one HDMA run); video_window_done, given
+ * the byte after them, writes the empty lines from `to` on. */
+#define WINDOW_MAX_LINES 127
+uint8_t *video_window_lines(uint8_t i, uint8_t from, uint8_t to);
+void     video_window_done(uint8_t *after, uint8_t to);
 #ifdef BB_DEBUG
 const Sprite *video_sprite_list(void);   /* the game's own list of this frame's sprites (game_oam) */
 #endif

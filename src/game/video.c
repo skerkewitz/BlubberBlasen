@@ -427,7 +427,12 @@ void video_sprites_end(void)
 }
 
 /* --- Windows and the HUD line ---------------------------------------------------- */
-/* n lines of an empty window (left 255, right 0), held: one write per run. */
+/* The windows' HDMA tables are written straight by whoever draws a window (the vacuums, the
+ * round intro's box) while they compute the lines: a copy from the game's ColorWindow arrays
+ * cost about 130 CPU cycles a line with dampf, and clearing them as much again. A table: the
+ * lines above the window held empty (3 bytes per run of up to 127 lines), its lines in one run
+ * in repeat mode (a count, then two bytes per line), the lines below held empty, then 0. The
+ * same values on every line as a table of all 224 lines. */
 static uint8_t *hold_empty(uint8_t *t, uint8_t n)
 {
     while (n) {
@@ -440,25 +445,19 @@ static uint8_t *hold_empty(uint8_t *t, uint8_t n)
     return t;
 }
 
-/* The window's table: empty above line `from` and from line `to` on, which
- * internal.h promises; in between the edges line by line. The same values on
- * every line as a table of all 224 lines, in a fraction of the time. */
-static void build_window_table(const ColorWindow *w, uint8_t *t, uint8_t from, uint8_t to)
+uint8_t *video_window_lines(uint8_t i, uint8_t from, uint8_t to)
 {
-    const uint8_t *l = w->left + from, *r = w->right + from;
-    uint8_t n = (uint8_t)(to - from);
-    t = hold_empty(t, from);
-    while (n) {
-        uint8_t k = n > 127 ? 127 : n;
-        *t++ = (uint8_t)(0x80 + k);
-        for (uint8_t y = 0; y < k; y++) {
-            *t++ = *l++;
-            *t++ = *r++;
-        }
-        n = (uint8_t)(n - k);
+    uint8_t *t = hold_empty(window_table[hdma_back][i], from);
+    if (to > from) {
+        *t++ = (uint8_t)(0x80 + (to - from));   /* at most WINDOW_MAX_LINES (internal.h) */
     }
-    t = hold_empty(t, (uint8_t)(SCREEN_H - to));
-    *t = 0;
+    return t;
+}
+
+void video_window_done(uint8_t *after, uint8_t to)
+{
+    after = hold_empty(after, (uint8_t)(SCREEN_H - to));
+    *after = 0;
 }
 
 static uint8_t window_on(const ColorWindow *w)
@@ -466,8 +465,9 @@ static uint8_t window_on(const ColorWindow *w)
     return (uint8_t)(w->add_r || w->add_g || w->add_b || (w->math & CMATH_HALF));
 }
 
-static void build_windows(const ColorWindow *w)
+static void build_windows(void)
 {
+    const ColorWindow *w = g_windows;
     uint8_t on = 0, math = 0;
     uint8_t *t = window_table[hdma_back][0];
     regs.r = regs.g = regs.b = 0;
@@ -488,7 +488,7 @@ static void build_windows(const ColorWindow *w)
         if (w->add_g > regs.g) regs.g = w->add_g;
         if (w->add_b > regs.b) regs.b = w->add_b;
         regs.wobjsel = (uint8_t)(regs.wobjsel | (i == 0 ? 0x20 : 0x80));   /* colour window = window 1 / 2 */
-        build_window_table(w, t, g_window_from[i], g_window_to[i]);
+        /* its table: written while the window was drawn (video_window_lines) */
     }
     regs.cgwsel = (uint8_t)(on ? SDEVKIT_CM_MATWIN_ENABLE : SDEVKIT_CM_NEVER_ENABLE);
     regs.cgadsub = (uint8_t)(SDEVKIT_CM_MSCR_BG1 | SDEVKIT_CM_MSCR_BACK | ((math & CMATH_SUB) ? SDEVKIT_CM_SUB_MAINSUB : 0) |
@@ -568,10 +568,10 @@ void video_init(void)
     bg_mark_all(1);
 }
 
-void video_frame(const ColorWindow *windows)
+void video_frame(void)
 {
     regs.scroll_y = g_scroll_y;
-    build_windows(windows);
+    build_windows();
     build_hud_line();
     stage_rows();
     hdma_ready = 1;

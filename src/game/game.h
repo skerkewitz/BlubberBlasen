@@ -143,7 +143,6 @@ void            game_tick(const uint16_t pad[NUM_PLAYERS]);  /* exactly once per
  * the kit's main loop on the SNES, which waits for it): the uploads the tick
  * prepared. */
 void            game_vblank(void);
-const ColorWindow *game_windows(void);                       /* NUM_WINDOWS entries */
 const uint16_t *game_bg(uint8_t layer);   /* layer 0: BG_W * BG0_ROWS, layer 1: BG_W * BG_H entries */
 uint16_t        game_bg_scroll_y(void);   /* layer 0 vertical scroll in pixels, 0..BG0_ROWS*8-1 */
 uint8_t         game_bg_window_top(void); /* layer 0 is only shown from this screen y down */
@@ -159,6 +158,9 @@ uint8_t         game_sram_dirty(void); /* 1 once after the game changed SRAM */
 const Sprite   *game_oam(void);
 /* The sound effects the last tick asked for: bit SFX_<ID> (sfx.h) of each. For the tests. */
 uint32_t        game_sfx(void);
+/* The colour windows, NUM_WINDOWS entries: their lines are kept in these builds only (on the
+ * console the HDMA tables are written directly, video.c). */
+const ColorWindow *game_windows(void);
 #endif
 
 #ifdef BB_DEBUG

@@ -27,6 +27,7 @@
 #define VACUUM_SHRINK 12    /* last frames: shrink to a point and fade */
 #define VACUUM_WOBBLE 4     /* px the ellipse leans each way */
 #define VACUUM_MAX    (VACUUM_RADIUS + VACUUM_WOBBLE)
+typedef char vacuum_fits_one_run[2 * VACUUM_MAX + 1 <= WINDOW_MAX_LINES ? 1 : -1];
 
 typedef struct {
     uint8_t  timer;                   /* frames left, 0 = off */
@@ -37,6 +38,7 @@ typedef struct {
 } Vacuum;
 
 static Vacuum vacuums[NUM_PLAYERS];
+static uint8_t edge_l[VACUUM_MAX + 1], edge_r[VACUUM_MAX + 1];   /* vacuums_windows: the edges at each distance */
 
 /* Half width of the round circle (px) at each distance from its middle line. */
 static const uint8_t half_width[VACUUM_RADIUS + 1] = {
@@ -274,12 +276,40 @@ void vacuums_windows(ColorWindow *w, uint8_t *from, uint8_t *to)
         if (end < first) end = first;
         from[i] = (uint8_t)first;
         to[i] = (uint8_t)end;
-        for (int16_t line = first; line < end; line++) {
-            uint8_t ady = (uint8_t)iabs((int16_t)(line - cy));
-            int16_t hw = v->span[ady];
+        /* the edges at each distance from the middle line, once: the ellipse is symmetric */
+        for (uint8_t dy = 0; dy <= v->ry; dy++) {
+            int16_t hw = v->span[dy];
             int16_t l = (int16_t)(cx - hw), r = (int16_t)(cx + hw);
-            wi->left[line] = (uint8_t)(l < 0 ? 0 : l);
-            wi->right[line] = (uint8_t)(r > SCREEN_W - 1 ? SCREEN_W - 1 : r);
+            edge_l[dy] = (uint8_t)(l < 0 ? 0 : l);
+            edge_r[dy] = (uint8_t)(r > SCREEN_W - 1 ? SCREEN_W - 1 : r);
         }
+        /* the HDMA table, directly (at most 2 * VACUUM_MAX + 1 lines, one run): the lines above
+         * the middle with the distance counting down, then the middle and below counting up */
+        uint8_t *t = video_window_lines(i, (uint8_t)first, (uint8_t)end);
+        uint16_t k = 0;
+        int16_t up_end = end < cy ? end : cy;             /* lines first .. up_end - 1: above the middle */
+        int16_t down = first > cy ? first : cy;            /* lines down .. end - 1: the middle and below */
+        uint8_t n_up = (uint8_t)(up_end > first ? up_end - first : 0);
+        uint8_t n_down = (uint8_t)(end > down ? end - down : 0);
+        uint8_t dy_up = (uint8_t)(cy - first);             /* the distance of line first */
+        uint8_t dy0 = (uint8_t)(down - cy);                /* the distance of line down */
+        for (uint8_t c = 0; c < n_up; c++, dy_up--) {
+            t[k] = edge_l[dy_up];
+            t[k + 1] = edge_r[dy_up];
+            k = (uint16_t)(k + 2);
+        }
+        for (uint8_t dy = dy0; dy < (uint8_t)(dy0 + n_down); dy++) {
+            t[k] = edge_l[dy];
+            t[k + 1] = edge_r[dy];
+            k = (uint16_t)(k + 2);
+        }
+#ifdef BB_DEBUG
+        for (int16_t line = first; line < end; line++) {   /* game_windows: the recordings, the tests */
+            uint8_t ady = (uint8_t)(line < cy ? cy - line : line - cy);
+            wi->left[line] = edge_l[ady];
+            wi->right[line] = edge_r[ady];
+        }
+#endif
+        video_window_done(t + k, (uint8_t)end);
     }
 }

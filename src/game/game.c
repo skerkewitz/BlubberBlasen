@@ -51,7 +51,7 @@ BB_FAST uint8_t   g_window_top;
  * are zeroes, not empty lines. */
 uint8_t g_window_from[NUM_WINDOWS] = { 0, 0 };
 uint8_t g_window_to[NUM_WINDOWS] = { SCREEN_H, SCREEN_H };
-static ColorWindow windows[NUM_WINDOWS];
+ColorWindow g_windows[NUM_WINDOWS];   /* internal.h */
 static uint8_t  intro_box_l, intro_box_r;   /* darkened box behind "ROUND n", px; l > r = none */
 static uint8_t  intro_box_t, intro_box_b;   /* its first and last line */
 static uint8_t  skip_why, skip_player;      /* what ended the round early (round_skip) */
@@ -1246,18 +1246,28 @@ static void intro_box_window(ColorWindow *w)
 {
     w->add_r = w->add_g = w->add_b = INTRO_BOX_DARKEN;
     w->math = CMATH_SUB | CMATH_HALF;
+    uint8_t *t = video_window_lines(0, intro_box_t, (uint8_t)(intro_box_b + 1));   /* a few rows of text */
+    uint16_t k = 0;
     for (uint8_t y = intro_box_t; y <= intro_box_b; y++) {
+        t[k] = intro_box_l;
+        t[k + 1] = intro_box_r;
+        k = (uint16_t)(k + 2);
+#ifdef BB_DEBUG
         w->left[y] = intro_box_l;
         w->right[y] = intro_box_r;
+#endif
     }
+    video_window_done(t + k, (uint8_t)(intro_box_b + 1));
     g_window_from[0] = intro_box_t;
     g_window_to[0] = (uint8_t)(intro_box_b + 1);
 }
 
-/* Windows start empty every frame; the vacuums or the round intro fill theirs. */
+/* Windows start empty every frame; the vacuums or the round intro fill theirs
+ * (their HDMA tables directly, and in development builds the lines of
+ * g_windows too, internal.h). */
 static void build_windows(void)
 {
-    ColorWindow *w = windows;
+    ColorWindow *w = g_windows;
     /* empty again: only the lines last frame filled, the others are empty
      * already (pointers: on the SNES each windows[i].left[y] would cost a
      * multiplication) */
@@ -1266,6 +1276,7 @@ static void build_windows(void)
         w->add_g = 0;
         w->add_b = 0;
         w->math = 0;
+#ifdef BB_DEBUG
         if (g_window_from[i] < g_window_to[i]) {
             uint8_t *l = w->left + g_window_from[i], *r = w->right + g_window_from[i];
             uint8_t y = g_window_from[i], end = g_window_to[i];
@@ -1274,12 +1285,13 @@ static void build_windows(void)
                 *r++ = 0;
             } while (++y < end);
         }
+#endif
         g_window_from[i] = g_window_to[i] = 0;
     }
     if (g_state == GS_PLAY || g_state == GS_PAUSE) {
-        vacuums_windows(windows, g_window_from, g_window_to);
+        vacuums_windows(g_windows, g_window_from, g_window_to);
     } else if ((g_state == GS_ROUND_INTRO || g_state == GS_ROUND_SKIP) && intro_box_l <= intro_box_r) {
-        intro_box_window(&windows[0]);
+        intro_box_window(&g_windows[0]);
     }
 }
 
@@ -1493,7 +1505,7 @@ void game_tick(const uint16_t real_pad[NUM_PLAYERS])
     sfx_flush();
     build_oam();
     build_windows();
-    video_frame(windows);
+    video_frame();
 }
 
 void game_vblank(void)
@@ -1563,10 +1575,12 @@ const Sprite *game_oam(void)
 }
 #endif
 
+#ifdef BB_DEBUG
 const ColorWindow *game_windows(void)
 {
-    return windows;
+    return g_windows;
 }
+#endif
 
 const uint16_t *game_bg(uint8_t layer)
 {
