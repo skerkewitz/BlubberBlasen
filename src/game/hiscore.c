@@ -42,7 +42,7 @@ void hiscore_init(void)
     static const char names[HISCORE_COUNT][3] = {
         { 'B', 'L', 'U' }, { 'B', 'B', 'E' }, { 'R', 'B', 'L' }, { 'A', 'S', 'E' }, { 'N', '!', '!' }
     };
-    uint8_t i, k;
+    uint8_t i;
 
     for (i = 0; i < 4; i++) {
         if (sram[i] != magic[i]) {
@@ -62,7 +62,7 @@ void hiscore_init(void)
         e[1] = (uint8_t)names[i][1];
         e[2] = (uint8_t)names[i][2];
         e[3] = (uint8_t)(HISCORE_COUNT - i);
-        for (k = 0; k < 8; k++) {
+        for (uint8_t k = 0; k < 8; k++) {
             e[4 + k] = 0;
         }
         e[4 + 3] = (uint8_t)(HISCORE_COUNT - i);   /* 50000, 40000, ... */
@@ -74,8 +74,7 @@ static const uint8_t opt_magic[4] = { 'O', 'P', 'T', '1' };
 
 void options_load(void)
 {
-    uint8_t i;
-    for (i = 0; i < 4; i++) {
+    for (uint8_t i = 0; i < 4; i++) {
         if (sram[OPTIONS_OFS + i] != opt_magic[i]) {
             g_opt.plus = 0;
             g_opt.rescue = 0;
@@ -90,8 +89,7 @@ void options_load(void)
 
 void options_save(void)
 {
-    uint8_t i;
-    for (i = 0; i < 4; i++) {
+    for (uint8_t i = 0; i < 4; i++) {
         sram[OPTIONS_OFS + i] = opt_magic[i];
     }
     sram[OPTIONS_OFS + 4] = g_opt.plus;
@@ -107,8 +105,7 @@ const uint8_t *hiscore_best(void)
 
 uint8_t hiscore_rank(const uint8_t *score)
 {
-    uint8_t i;
-    for (i = 0; i < HISCORE_COUNT; i++) {
+    for (uint8_t i = 0; i < HISCORE_COUNT; i++) {
         if (score_cmp(score, entry(i) + 4) > 0) {
             return i;
         }
@@ -118,14 +115,13 @@ uint8_t hiscore_rank(const uint8_t *score)
 
 void hiscore_insert(uint8_t rank, const char *name, const uint8_t *score, uint8_t round)
 {
-    uint8_t i, k;
     if (rank >= HISCORE_COUNT) {
         return;
     }
-    for (i = HISCORE_COUNT - 1; i > rank; i--) {
+    for (uint8_t i = HISCORE_COUNT - 1; i > rank; i--) {
         uint8_t *dst = entry(i);
         const uint8_t *src = entry((uint8_t)(i - 1));
-        for (k = 0; k < ENTRY_SIZE; k++) {
+        for (uint8_t k = 0; k < ENTRY_SIZE; k++) {
             dst[k] = src[k];
         }
     }
@@ -135,7 +131,7 @@ void hiscore_insert(uint8_t rank, const char *name, const uint8_t *score, uint8_
         e[1] = (uint8_t)name[1];
         e[2] = (uint8_t)name[2];
         e[3] = round;
-        for (k = 0; k < 8; k++) {
+        for (uint8_t k = 0; k < 8; k++) {
             e[4 + k] = score[k];
         }
     }
@@ -146,10 +142,9 @@ void hiscore_insert(uint8_t rank, const char *name, const uint8_t *score, uint8_
 void hiscore_draw_table(uint8_t first_row, uint8_t highlight)
 {
     static const char *const ranks[HISCORE_COUNT] = { "1ST", "2ND", "3RD", "4TH", "5TH" };
-    uint8_t i;
 
     text_put(4, first_row, "RANK   SCORE  RD  NAME", PAL_CYAN);
-    for (i = 0; i < HISCORE_COUNT; i++) {
+    for (uint8_t i = 0; i < HISCORE_COUNT; i++) {
         const uint8_t *e = entry(i);
         uint8_t row = (uint8_t)(first_row + 2 + (i << 1));
         uint8_t pal = (uint8_t)(i == highlight ? PAL_YELLOW : PAL_NONE);

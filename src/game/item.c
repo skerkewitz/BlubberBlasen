@@ -33,8 +33,7 @@ static uint8_t bonus_placed;
 
 void items_clear(void)
 {
-    uint8_t i;
-    for (i = 0; i < MAX_ITEMS; i++) {
+    for (uint8_t i = 0; i < MAX_ITEMS; i++) {
         g_items[i].kind = IT_OFF;
     }
     bonus_placed = 0;
@@ -42,8 +41,7 @@ void items_clear(void)
 
 static Item *alloc_item(uint8_t kind, uint16_t x, uint16_t y, uint8_t tier)
 {
-    uint8_t i;
-    for (i = 0; i < MAX_ITEMS; i++) {
+    for (uint8_t i = 0; i < MAX_ITEMS; i++) {
         Item *it = &g_items[i];
         if (it->kind == IT_OFF) {
             it->kind = kind;
@@ -134,8 +132,7 @@ static void collect_powerup(Item *it, Player *p)
     case POWER_STAR:
     case POWER_WAVE:
         if (it->tier == POWER_WAVE) {
-            uint8_t k;
-            for (k = 0; k < 3; k++) {
+            for (uint8_t k = 0; k < 3; k++) {
                 effect_start(BK_WATER, TO_POS(40 + k * 80), TO_POS(FIELD_Y + 8), (int8_t)(k & 1 ? -1 : 1), p->id);
             }
         }
@@ -169,18 +166,16 @@ static void collect_powerup(Item *it, Player *p)
 void bonus_round_tick(void)
 {
     const LevelDef *def = &level_defs[g_level];
-    const LevelEnemy *slot;
-    Item *it;
 
     if (bonus_placed || g_level_frames != BONUS_DELAY || def->enemy_count == 0) {
         return;
     }
     bonus_placed = 1;
-    slot = &def->enemies[def->enemy_count - 1];
+    const LevelEnemy *slot = &def->enemies[def->enemy_count - 1];
     if (slot->type == ENEMY_TYPE_BOUNCER) {
         slot = &def->enemies[0];   /* bouncers may start in mid-air */
     }
-    it = alloc_item(IT_BONUS, TO_POS(slot->x << 3), TO_POS(FIELD_Y + (slot->y << 3) - 8),
+    Item *it = alloc_item(IT_BONUS, TO_POS(slot->x << 3), TO_POS(FIELD_Y + (slot->y << 3) - 8),
                     (uint8_t)(g_level & (BONUS_TYPES - 1)));
     if (it) {
         it->timer = BONUS_FRAMES;
@@ -189,8 +184,7 @@ void bonus_round_tick(void)
 
 void items_clear_rocks(void)
 {
-    uint8_t i;
-    for (i = 0; i < MAX_ITEMS; i++) {
+    for (uint8_t i = 0; i < MAX_ITEMS; i++) {
         if (g_items[i].kind == IT_ROCK) {
             g_items[i].kind = IT_OFF;
         }
@@ -201,11 +195,10 @@ void items_clear_rocks(void)
  * shot passes through platforms and ends at the floor. */
 static void update_rock(Item *it)
 {
-    uint8_t cx;
     if (it->tier == SHOT_SOOT) {
         it->x = (uint16_t)(it->x + (uint16_t)it->vx);
         it->y = (uint16_t)(it->y + (uint16_t)it->vy);
-        cx = (uint8_t)(PX(it->x) + 8);
+        uint8_t cx = (uint8_t)(PX(it->x) + 8);
         if (cx < 16 || cx > SCREEN_W - 16 || PX(it->y) >= FIELD_BOTTOM - 16 || PX(it->y) < FIELD_Y) {
             it->kind = IT_OFF;
         }
@@ -219,7 +212,7 @@ static void update_rock(Item *it)
         return;
     }
     it->x = (uint16_t)(it->x + (uint16_t)it->vx);
-    cx = (uint8_t)(PX(it->x) + 8);
+    uint8_t cx = (uint8_t)(PX(it->x) + 8);
     if (cx < BODY_MIN_CX || cx > BODY_MAX_CX || PX(it->x) >= 0xF0u ||
         level_solid_px((int16_t)cx, (int16_t)(PX(it->y) + 8))) {
         it->kind = IT_BURST;
@@ -229,11 +222,9 @@ static void update_rock(Item *it)
 
 static void update_thrown(Item *it)
 {
-    uint8_t cx;
-
     /* Horizontal: bounce off the side walls. */
     it->x = (uint16_t)(it->x + (uint16_t)it->vx);
-    cx = (uint8_t)(PX(it->x) + 8);
+    uint8_t cx = (uint8_t)(PX(it->x) + 8);
     if (cx < BODY_MIN_CX || cx > BODY_MAX_CX || PX(it->x) >= 0xF0u) {
         it->vx = (fx8_8)-it->vx;
         it->x = TO_POS(it->vx > 0 ? BODY_MIN_CX - 8 : BODY_MAX_CX - 8);
@@ -280,8 +271,7 @@ static void collect_food(Item *it, Player *p)
 
 void items_update(void)
 {
-    uint8_t i;
-    for (i = 0; i < MAX_ITEMS; i++) {
+    for (uint8_t i = 0; i < MAX_ITEMS; i++) {
         Item *it = &g_items[i];
         switch (it->kind) {
         case IT_THROWN:
@@ -293,8 +283,7 @@ void items_update(void)
             break;
 
         case IT_BONUS: {
-            uint8_t k;
-            for (k = 0; k < NUM_PLAYERS && it->kind == IT_BONUS; k++) {
+            for (uint8_t k = 0; k < NUM_PLAYERS && it->kind == IT_BONUS; k++) {
                 Player *p = &g_players[k];
                 if (p->state == PS_ALIVE && overlap(p->x, p->y, it->x, it->y, 12, 12)) {
                     score_add(p->score, bonus_value[it->tier][0], bonus_value[it->tier][1]);
@@ -311,8 +300,7 @@ void items_update(void)
         }
 
         case IT_POWERUP: {
-            uint8_t k;
-            for (k = 0; k < NUM_PLAYERS && it->kind == IT_POWERUP; k++) {
+            for (uint8_t k = 0; k < NUM_PLAYERS && it->kind == IT_POWERUP; k++) {
                 Player *p = &g_players[k];
                 if (p->state == PS_ALIVE && overlap(p->x, p->y, it->x, it->y, 12, 12)) {
                     collect_powerup(it, p);
@@ -325,8 +313,7 @@ void items_update(void)
         }
 
         case IT_FOOD: {
-            uint8_t k;
-            for (k = 0; k < NUM_PLAYERS && it->kind == IT_FOOD; k++) {
+            for (uint8_t k = 0; k < NUM_PLAYERS && it->kind == IT_FOOD; k++) {
                 Player *p = &g_players[k];
                 if (p->state == PS_ALIVE && overlap(p->x, p->y, it->x, it->y, 12, 12)) {
                     collect_food(it, p);
@@ -359,8 +346,7 @@ void items_update(void)
 
 void items_draw(void)
 {
-    uint8_t i;
-    for (i = 0; i < MAX_ITEMS; i++) {
+    for (uint8_t i = 0; i < MAX_ITEMS; i++) {
         const Item *it = &g_items[i];
         switch (it->kind) {
         case IT_THROWN:

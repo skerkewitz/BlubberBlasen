@@ -122,8 +122,7 @@ static struct {
 
 void cpu_reset(void)
 {
-    uint8_t i;
-    for (i = 0; i < NUM_PLAYERS; i++) {
+    for (uint8_t i = 0; i < NUM_PLAYERS; i++) {
         cpu[i].pad = 0;
         cpu[i].think = 0;
         cpu[i].stuck = 0;
@@ -151,8 +150,7 @@ static int16_t dist16(int16_t a, int16_t b)
 
 static int16_t seg_find(const LevelDef *d, int16_t c, int16_t r)
 {
-    uint8_t i;
-    for (i = 0; i < d->nav_count; i++) {
+    for (uint8_t i = 0; i < d->nav_count; i++) {
         const NavSeg *s = &d->nav[i];
         if (s->row == r && c >= (int16_t)s->x0 - 1 && c <= (int16_t)s->x1 + 1) {
             return i;
@@ -165,8 +163,7 @@ static int16_t seg_find(const LevelDef *d, int16_t c, int16_t r)
 static int16_t seg_for_target(const LevelDef *d, int16_t c, int16_t r)
 {
     int16_t best = -1, best_cost = 0x7FFF;
-    uint8_t i;
-    for (i = 0; i < d->nav_count; i++) {
+    for (uint8_t i = 0; i < d->nav_count; i++) {
         const NavSeg *s = &d->nav[i];
         int16_t dx = c < s->x0 ? (int16_t)(s->x0 - c) : c > s->x1 ? (int16_t)(c - s->x1) : 0;
         int16_t dy = (int16_t)(s->row - r);
@@ -185,13 +182,14 @@ static int16_t first_hop(const LevelDef *d, uint8_t from, uint8_t to)
     static uint8_t prev[MAX_NAV];
     static uint8_t queue[MAX_NAV];
     static uint8_t seen[MAX_NAV];
-    uint8_t head = 0, tail = 0, i, k;
 
-    for (i = 0; i < d->nav_count; i++) {
+    for (uint8_t i = 0; i < d->nav_count; i++) {
         seen[i] = 0;
     }
     seen[from] = 1;
+    uint8_t tail = 0;
     queue[tail++] = from;
+    uint8_t head = 0;
     while (head < tail) {
         uint8_t s = queue[head++];
         if (s == to) {
@@ -200,7 +198,7 @@ static int16_t first_hop(const LevelDef *d, uint8_t from, uint8_t to)
             }
             return s;
         }
-        for (k = 0; k < d->nav[s].edge_count; k++) {
+        for (uint8_t k = 0; k < d->nav[s].edge_count; k++) {
             uint8_t t = d->nav_edges[d->nav[s].edge_first + k];
             if (!seen[t]) {
                 seen[t] = 1;
@@ -230,13 +228,12 @@ static uint16_t move_to(const Player *p, uint16_t tx, uint16_t ty)
     int16_t c = col_of(p->x), r = row_of(p->y);
     int16_t tc = col_of(tx), tr = row_of(ty);
     int16_t px = PX(p->x), gx = PX(tx);
-    int16_t s, t, n;
 
     if (!p->on_ground || d->nav_count == 0) {
         return toward(px, gx, 2);                 /* steer in the air */
     }
-    s = seg_find(d, c, r);
-    t = seg_for_target(d, tc, tr);
+    int16_t s = seg_find(d, c, r);
+    int16_t t = seg_for_target(d, tc, tr);
     if (s < 0 || t < 0 || s == t) {
         uint16_t pad = toward(px, gx, 3);
         /* the target hangs above us (a bubble): jump up into it */
@@ -245,7 +242,7 @@ static uint16_t move_to(const Player *p, uint16_t tx, uint16_t ty)
         }
         return pad;
     }
-    n = first_hop(d, (uint8_t)s, (uint8_t)t);
+    int16_t n = first_hop(d, (uint8_t)s, (uint8_t)t);
     if (n < 0) {
         return (uint16_t)(toward(px, gx, 3) | ((g_frame & 63) == 0 ? PAD_B : 0));
     }
@@ -275,14 +272,12 @@ static const Enemy *nearest_enemy(const Player *p)
 {
     const Enemy *best = 0;
     uint16_t best_d = 0xFFFFu;
-    uint8_t i;
-    for (i = 0; i < MAX_ENEMIES; i++) {
+    for (uint8_t i = 0; i < MAX_ENEMIES; i++) {
         const Enemy *e = &g_enemies[i];
-        uint16_t dd;
         if (!e->active || e->entering) {
             continue;
         }
-        dd = (uint16_t)(dist16(PX(e->x), PX(p->x)) + dist16(PX(e->y), PX(p->y)));
+        uint16_t dd = (uint16_t)(dist16(PX(e->x), PX(p->x)) + dist16(PX(e->y), PX(p->y)));
         if (dd < best_d) {
             best_d = dd;
             best = e;
@@ -297,11 +292,10 @@ static const Bubble *bubble_to_pop(const Player *p)
 {
     const Bubble *best = 0, *urgent = 0;
     uint16_t best_d = 0xFFFFu;
-    uint8_t i, trapped = 0;
+    uint8_t trapped = 0;
     uint8_t boss = (uint8_t)(level_defs[g_level].kind == LEVEL_BOSS);
-    for (i = 0; i < MAX_BUBBLES; i++) {
+    for (uint8_t i = 0; i < MAX_BUBBLES; i++) {
         const Bubble *b = &g_bubbles[i];
-        uint16_t dd;
         uint8_t wanted = (uint8_t)(b->state == BS_TRAPPED || (boss && b->state == BS_FLOAT && b->kind == BK_LIGHTNING));
         if (!wanted) {
             continue;
@@ -310,7 +304,7 @@ static const Bubble *bubble_to_pop(const Player *p)
         if (b->state == BS_TRAPPED && b->age > 180) {
             urgent = b;
         }
-        dd = (uint16_t)(dist16(PX(b->x), PX(p->x)) + dist16(PX(b->y), PX(p->y)));
+        uint16_t dd = (uint16_t)(dist16(PX(b->x), PX(p->x)) + dist16(PX(b->y), PX(p->y)));
         if (dd < best_d) {
             best_d = dd;
             best = b;
@@ -327,14 +321,12 @@ static const Bubble *letter_to_take(const Player *p)
 {
     const Bubble *best = 0;
     uint16_t best_d = 0xFFFFu;
-    uint8_t i;
-    for (i = 0; i < MAX_BUBBLES; i++) {
+    for (uint8_t i = 0; i < MAX_BUBBLES; i++) {
         const Bubble *b = &g_bubbles[i];
-        uint16_t dd;
         if (b->state != BS_FLOAT || b->kind != BK_LETTER || (p->letters & (1u << b->letter))) {
             continue;
         }
-        dd = (uint16_t)(dist16(PX(b->x), PX(p->x)) + dist16(PX(b->y), PX(p->y)));
+        uint16_t dd = (uint16_t)(dist16(PX(b->x), PX(p->x)) + dist16(PX(b->y), PX(p->y)));
         if (dd < best_d) {
             best_d = dd;
             best = b;
@@ -349,8 +341,7 @@ static uint8_t dash_wastes_letter(const Player *p, int8_t dir)
 {
     int16_t x0 = (int16_t)PX(p->x), x1 = (int16_t)(x0 + dir * DASH_REACH);
     int16_t lo = (int16_t)((x0 < x1 ? x0 : x1) - DASH_POP_X), hi = (int16_t)((x0 < x1 ? x1 : x0) + DASH_POP_X);
-    uint8_t i;
-    for (i = 0; i < MAX_BUBBLES; i++) {
+    for (uint8_t i = 0; i < MAX_BUBBLES; i++) {
         const Bubble *b = &g_bubbles[i];
         int16_t bx = (int16_t)PX(b->x);
         if (b->state == BS_FLOAT && b->kind == BK_LETTER && (p->letters & (1u << b->letter)) &&
@@ -365,14 +356,12 @@ static const Item *food_to_take(const Player *p)
 {
     const Item *best = 0;
     uint16_t best_d = 0xFFFFu;
-    uint8_t i;
-    for (i = 0; i < MAX_ITEMS; i++) {
+    for (uint8_t i = 0; i < MAX_ITEMS; i++) {
         const Item *it = &g_items[i];
-        uint16_t dd;
         if (it->kind != IT_FOOD && it->kind != IT_BONUS && it->kind != IT_POWERUP) {
             continue;
         }
-        dd = (uint16_t)(dist16(PX(it->x), PX(p->x)) + dist16(PX(it->y), PX(p->y)));
+        uint16_t dd = (uint16_t)(dist16(PX(it->x), PX(p->x)) + dist16(PX(it->y), PX(p->y)));
         if (dd < best_d) {
             best_d = dd;
             best = it;
@@ -384,9 +373,6 @@ static const Item *food_to_take(const Player *p)
 static uint16_t decide(Player *p)
 {
     const Player *o = &g_players[p->id ^ 1];
-    const Bubble *b;
-    const Enemy *e;
-    const Item *f;
     /* 1. free the partner */
     if (o->state == PS_RESCUE) {
         VIEW_GOAL(GOAL_RESCUE);
@@ -394,13 +380,13 @@ static uint16_t decide(Player *p)
     }
     /* 2. danger: handled every frame in cpu_pad (look-ahead) */
     /* 3. pop trapped enemies */
-    b = bubble_to_pop(p);
+    const Bubble *b = bubble_to_pop(p);
     if (b) {
         VIEW_GOAL(GOAL_POP);
         return move_to(p, b->x, b->y);
     }
     /* 4. hunt */
-    e = nearest_enemy(p);
+    const Enemy *e = nearest_enemy(p);
     if (e) {
         VIEW_GOAL(GOAL_HUNT);
         int16_t ex = PX(e->x), mx = PX(p->x);
@@ -430,7 +416,7 @@ static uint16_t decide(Player *p)
     }
     /* 6. food, but leave it for a human partner */
     if (o->state == PS_OFF || o->cpu) {
-        f = food_to_take(p);
+        const Item *f = food_to_take(p);
         if (f) {
             VIEW_GOAL(GOAL_FOOD);
             return move_to(p, f->x, f->y);
@@ -451,8 +437,6 @@ typedef char samples_are_five[SAMPLES == 5 ? 1 : -1];   /* add_danger writes the
 
 static void add_danger(uint16_t x, uint16_t y, fx8_8 vx, fx8_8 vy, uint8_t reach)
 {
-    Danger *d;
-    int16_t px, py;
     if (danger_count >= MAX_DANGERS) {
         return;
     }
@@ -461,10 +445,10 @@ static void add_danger(uint16_t x, uint16_t y, fx8_8 vx, fx8_8 vy, uint8_t reach
         vx = 0;
         vy = 0;
     }
-    d = &dangers[danger_count++];
+    Danger *d = &dangers[danger_count++];
     d->reach = reach;
-    px = (int16_t)PX(x);
-    py = (int16_t)PX(y);
+    int16_t px = (int16_t)PX(x);
+    int16_t py = (int16_t)PX(y);
     /* v * t fits 16 bits (|v| <= 3 px, t <= 26 frames): the same values as in 32 bits */
 #define AHEAD(v, t) ((int16_t)((v) * (t)) >> 8)
     d->x[0] = (int16_t)(px + AHEAD(vx, SAMPLE_0));
@@ -487,8 +471,6 @@ static void add_coming_shot(const Enemy *e)
     uint8_t in = enemy_shot_in(e);
     int8_t dir = (int8_t)(e->facing_left ? -1 : 1);
     int16_t x0 = (int16_t)PX(e->x), y0 = (int16_t)PX(e->y);
-    Danger *d;
-    uint8_t k;
 
     if (!in || danger_count >= MAX_DANGERS) {
         return;
@@ -498,9 +480,9 @@ static void add_coming_shot(const Enemy *e)
     } else if (e->type != ENEMY_TYPE_THROWER) {
         y0 = (int16_t)(y0 + DOWN_SHOT_OFFSET);
     }
-    d = &dangers[danger_count++];
+    Danger *d = &dangers[danger_count++];
     d->reach = 0;
-    for (k = 0; k < SAMPLES; k++) {
+    for (uint8_t k = 0; k < SAMPLES; k++) {
         int16_t t = (int16_t)sample_t[k] - in;
         if (t < 0) {
             d->x[k] = NOT_YET;
@@ -530,15 +512,12 @@ static void add_coming_shot(const Enemy *e)
  * chasers and the boss come from their position one frame ago. */
 static void predict_dangers(void)
 {
-    uint8_t i;
-    uint16_t x, y;
-
     if (predicted_frame == g_frame) {
         return;
     }
     predicted_frame = g_frame;
     danger_count = 0;
-    for (i = 0; i < MAX_ENEMIES; i++) {
+    for (uint8_t i = 0; i < MAX_ENEMIES; i++) {
         const Enemy *e = &g_enemies[i];
         if (e->active && !e->entering && !g_freeze) {
             add_danger(e->x, e->y, (fx8_8)(e->x - prev_ex[i]), (fx8_8)(e->y - prev_ey[i]), 0);
@@ -547,13 +526,14 @@ static void predict_dangers(void)
         prev_ex[i] = e->x;
         prev_ey[i] = e->y;
     }
-    for (i = 0; i < MAX_ITEMS; i++) {
+    for (uint8_t i = 0; i < MAX_ITEMS; i++) {
         const Item *it = &g_items[i];
         if (it->kind == IT_ROCK) {
             add_danger(it->x, it->y, it->vx, it->vy, 0);
         }
     }
-    for (i = 0; i < NUM_PLAYERS; i++) {
+    uint16_t x, y;
+    for (uint8_t i = 0; i < NUM_PLAYERS; i++) {
         if (chaser_get(i, &x, &y)) {
             add_danger(x, y, (fx8_8)(x - prev_cx[i]), (fx8_8)(y - prev_cy[i]), 2);
             prev_cx[i] = x;
@@ -580,9 +560,8 @@ static int16_t evaluate(const Player *p, uint8_t act, uint8_t samples)
                           act == ACT_RIGHT || act == ACT_JUMP_RIGHT || act == ACT_DASH_RIGHT ? 1 : 0);
     uint8_t jump = (uint8_t)(act >= ACT_JUMP && act <= ACT_JUMP_RIGHT && p->on_ground);
     uint8_t dash = (uint8_t)(act >= ACT_DASH_LEFT);
-    uint8_t k, i;
 
-    for (k = 0; k < samples; k++) {
+    for (uint8_t k = 0; k < samples; k++) {
         int16_t t = sample_t[k];
         int16_t ox, oy = (int16_t)PX(p->y);
         if (dash) {
@@ -601,7 +580,7 @@ static int16_t evaluate(const Player *p, uint8_t act, uint8_t samples)
         }
         if (ox < BODY_MIN_CX - 8) ox = BODY_MIN_CX - 8;
         if (ox > BODY_MAX_CX - 8) ox = BODY_MAX_CX - 8;
-        for (i = 0; i < danger_count; i++) {
+        for (uint8_t i = 0; i < danger_count; i++) {
             int16_t ddx = dist16(ox, dangers[i].x[k]);
             int16_t ddy = dist16(oy, dangers[i].y[k]);
             int16_t dd = (int16_t)((ddx > ddy ? ddx : ddy) - TOUCH_DIST - dangers[i].reach + (t >> 1));
@@ -627,12 +606,11 @@ static uint8_t act_of(uint16_t pad)
  * turning in the same frame) removes the danger. */
 static uint16_t shoot_back(const Player *p)
 {
-    uint8_t i;
     int16_t range = (p->powers & POWER_BIT(POWER_RANGE)) ? SHOOT_RANGE_FAR : SHOOT_RANGE;
     if (p->shoot_cooldown || (cpu[p->id].last_out & PAD_Y) || g_freeze) {
         return 0;
     }
-    for (i = 0; i < MAX_ENEMIES; i++) {
+    for (uint8_t i = 0; i < MAX_ENEMIES; i++) {
         const Enemy *e = &g_enemies[i];
         if (e->active && !e->entering && dist16(PX(e->y), PX(p->y)) < 12 && dist16(PX(e->x), PX(p->x)) < range) {
             return (uint16_t)(PAD_Y | (PX(e->x) < PX(p->x) ? PAD_LEFT : PAD_RIGHT));
@@ -644,19 +622,17 @@ static uint16_t shoot_back(const Player *p)
 /* Keeps the goal's buttons if they are safe, else the safest action. */
 static uint16_t dodge(const Player *p, uint16_t goal)
 {
-    uint8_t a, best_act;
-    int16_t best;
     uint8_t can_dash = player_can_dash(p);
 
     predict_dangers();
-    best_act = act_of(goal);
+    uint8_t best_act = act_of(goal);
     /* still invulnerable after a respawn, or a shot about to go off: trust the goal */
     if (p->invulnerable > 20 || ((goal & PAD_Y) && p->shoot_cooldown == 0)) {
         VIEW_ACTION(best_act);
         return goal;
     }
     /* shooting takes care of the danger itself: only the next frames must be safe */
-    best = evaluate(p, best_act, (uint8_t)((goal & PAD_Y) ? NEAR_SAMPLES : SAMPLES));
+    int16_t best = evaluate(p, best_act, (uint8_t)((goal & PAD_Y) ? NEAR_SAMPLES : SAMPLES));
     if (best >= SAFE_DIST || danger_count == 0) {
         VIEW_ACTION(best_act);
         return goal;
@@ -669,13 +645,12 @@ static uint16_t dodge(const Player *p, uint16_t goal)
         }
     }
     best = evaluate(p, best_act, SAMPLES);
-    for (a = 0; a < ACT_COUNT; a++) {
-        int16_t v;
+    for (uint8_t a = 0; a < ACT_COUNT; a++) {
         if ((a >= ACT_DASH_LEFT && (!can_dash || dash_wastes_letter(p, (int8_t)(a == ACT_DASH_LEFT ? -1 : 1)))) ||
             (a >= ACT_JUMP && a <= ACT_JUMP_RIGHT && !p->on_ground)) {
             continue;
         }
-        v = evaluate(p, a, SAMPLES);
+        int16_t v = evaluate(p, a, SAMPLES);
         if (v > best) {
             best = v;
             best_act = a;
@@ -688,9 +663,9 @@ static uint16_t dodge(const Player *p, uint16_t goal)
 #ifdef BB_DEBUG
 uint8_t game_debug_cpu_view(DebugBox *out, uint8_t max, const char **action)
 {
-    uint8_t i, k, n = 0;
-    for (i = 0; i < danger_count; i++) {
-        for (k = 0; k < SAMPLES && n < max; k++) {
+    uint8_t n = 0;
+    for (uint8_t i = 0; i < danger_count; i++) {
+        for (uint8_t k = 0; k < SAMPLES && n < max; k++) {
             int16_t x = dangers[i].x[k], y = dangers[i].y[k];
             if (x < 0 || x > SCREEN_W - 16 || y < 0 || y > SCREEN_H - 16) {
                 continue;

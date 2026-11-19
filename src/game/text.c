@@ -8,13 +8,12 @@
 
 void bg_clear(uint8_t layer)
 {
-    uint16_t i;
     if (layer == 0) {
-        for (i = 0; i < BG_W * BG0_ROWS; i++) {
+        for (uint16_t i = 0; i < BG_W * BG0_ROWS; i++) {
             g_bg0[i] = 0;
         }
     } else {
-        for (i = 0; i < BG_W * BG_H; i++) {
+        for (uint16_t i = 0; i < BG_W * BG_H; i++) {
             g_bg1[i] = 0;
         }
     }
@@ -59,8 +58,8 @@ void text_put(uint8_t col, uint8_t row, const char *s, uint8_t pal)
 void text_clear_row(uint8_t row)
 {
     uint16_t *dst = &g_bg1[(uint16_t)row << 5];
-    uint8_t i, changed = 0;
-    for (i = 0; i < BG_W; i++, dst++) {
+    uint8_t changed = 0;
+    for (uint8_t i = 0; i < BG_W; i++, dst++) {
         if (*dst) {
             *dst = 0;
             changed = 1;
@@ -76,15 +75,13 @@ void text_digits(uint8_t col, uint8_t row, const uint8_t *digits, uint8_t n, uin
 {
     uint16_t *dst = &g_bg1[((uint16_t)row << 5) + col];
     uint8_t leading = 1, changed = 0;
-    uint8_t i;
 
-    for (i = 0; i < n; i++, dst++) {
+    for (uint8_t i = 0; i < n; i++, dst++) {
         uint8_t d = digits[i];
-        uint16_t v;
         if (d != 0 || i == n - 1) {
             leading = 0;
         }
-        v = leading ? 0u : BG_ENTRY(CHR_FONT_BASE + 16u + d, pal);   /* '0' + d */
+        uint16_t v = leading ? 0u : BG_ENTRY(CHR_FONT_BASE + 16u + d, pal);   /* '0' + d */
         if (*dst != v) {
             *dst = v;
             changed = 1;
@@ -140,8 +137,7 @@ void score_add(uint8_t *score, uint8_t pos, uint8_t digit)
 
 int8_t score_cmp(const uint8_t *a, const uint8_t *b)
 {
-    uint8_t i;
-    for (i = 0; i < 8; i++) {
+    for (uint8_t i = 0; i < 8; i++) {
         if (a[i] != b[i]) {
             return (int8_t)(a[i] < b[i] ? -1 : 1);
         }

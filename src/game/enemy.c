@@ -58,8 +58,7 @@ static struct {
 
 void enemies_clear(void)
 {
-    uint8_t i;
-    for (i = 0; i < MAX_ENEMIES; i++) {
+    for (uint8_t i = 0; i < MAX_ENEMIES; i++) {
         g_enemies[i].active = 0;
     }
     think_timer = 0;
@@ -68,8 +67,7 @@ void enemies_clear(void)
 
 static Enemy *alloc_enemy(uint8_t type)
 {
-    uint8_t i;
-    for (i = 0; i < MAX_ENEMIES; i++) {
+    for (uint8_t i = 0; i < MAX_ENEMIES; i++) {
         if (!g_enemies[i].active) {
             Enemy *e = &g_enemies[i];
             e->active = 1;
@@ -95,9 +93,8 @@ static Enemy *alloc_enemy(uint8_t type)
 void enemies_spawn_level(void)
 {
     const LevelDef *def = &level_defs[g_level];
-    uint8_t i;
 
-    for (i = 0; i < def->enemy_count; i++) {
+    for (uint8_t i = 0; i < def->enemy_count; i++) {
         const LevelEnemy *le = &def->enemies[i];
         Enemy *e = alloc_enemy(le->type);
         if (!e) {
@@ -126,8 +123,7 @@ void enemy_spawn(uint16_t x, uint16_t y, uint8_t type, uint8_t angry, uint8_t fa
 
 uint8_t enemies_entering(void)
 {
-    uint8_t i;
-    for (i = 0; i < MAX_ENEMIES; i++) {
+    for (uint8_t i = 0; i < MAX_ENEMIES; i++) {
         if (g_enemies[i].active && g_enemies[i].entering) {
             return 1;
         }
@@ -137,8 +133,8 @@ uint8_t enemies_entering(void)
 
 uint8_t enemies_count(void)
 {
-    uint8_t i, n = 0;
-    for (i = 0; i < MAX_ENEMIES; i++) {
+    uint8_t n = 0;
+    for (uint8_t i = 0; i < MAX_ENEMIES; i++) {
         n = (uint8_t)(n + g_enemies[i].active);
     }
     return n;
@@ -146,8 +142,7 @@ uint8_t enemies_count(void)
 
 void enemies_make_angry(void)
 {
-    uint8_t i;
-    for (i = 0; i < MAX_ENEMIES; i++) {
+    for (uint8_t i = 0; i < MAX_ENEMIES; i++) {
         g_enemies[i].angry = 1;
     }
 }
@@ -156,8 +151,8 @@ void enemies_make_angry(void)
  * caller plays the sound (multikill_award). */
 uint8_t enemies_to_gems(void)
 {
-    uint8_t i, n = 0;
-    for (i = 0; i < MAX_ENEMIES; i++) {
+    uint8_t n = 0;
+    for (uint8_t i = 0; i < MAX_ENEMIES; i++) {
         Enemy *e = &g_enemies[i];
         if (e->active && !e->entering) {
             item_spawn_thrown(e->x, e->y, (int8_t)((i & 1) ? -1 : 1), GEM_TIER);
@@ -172,8 +167,8 @@ uint8_t enemies_to_gems(void)
  * caller plays the sound (multikill_award). */
 uint8_t enemies_defeat_at(uint16_t x, uint16_t y)
 {
-    uint8_t i, n = 0;
-    for (i = 0; i < MAX_ENEMIES; i++) {
+    uint8_t n = 0;
+    for (uint8_t i = 0; i < MAX_ENEMIES; i++) {
         Enemy *e = &g_enemies[i];
         if (e->active && !e->entering && overlap(x, y, e->x, e->y, 12, 12)) {
             item_spawn_thrown(e->x, e->y, (int8_t)(PX(e->x) < PX(x) ? -1 : 1), GEM_TIER - 1);
@@ -197,8 +192,7 @@ uint8_t enemy_shield_blocks(const Enemy *e, uint16_t bx)
 /* A dash through a shield enemy knocks its plate off, from either side. */
 void enemies_dash_hit(uint16_t x, uint16_t y)
 {
-    uint8_t i;
-    for (i = 0; i < MAX_ENEMIES; i++) {
+    for (uint8_t i = 0; i < MAX_ENEMIES; i++) {
         Enemy *e = &g_enemies[i];
         if (e->active && !e->entering && e->type == ENEMY_TYPE_SHIELD && overlap(x, y, e->x, e->y, 14, 14)) {
             e->type = ENEMY_TYPE_WALKER;
@@ -212,8 +206,7 @@ void enemies_dash_hit(uint16_t x, uint16_t y)
 
 void enemies_calm_down(void)
 {
-    uint8_t i;
-    for (i = 0; i < MAX_ENEMIES; i++) {
+    for (uint8_t i = 0; i < MAX_ENEMIES; i++) {
         g_enemies[i].angry = 0;
     }
 }
@@ -222,25 +215,24 @@ void enemies_calm_down(void)
  * enemy's body (TOUCH_ENEMY) traps instead when co-op rescue is on. */
 uint8_t enemies_touch(uint16_t x, uint16_t y)
 {
-    uint8_t i;
     if (boss_touch(x, y)) {
         DBG_TOUCH(10);
         return TOUCH_DEADLY;
     }
-    for (i = 0; i < MAX_ITEMS; i++) {
+    for (uint8_t i = 0; i < MAX_ITEMS; i++) {
         const Item *it = &g_items[i];
         if (it->kind == IT_ROCK && overlap(x, y, it->x, it->y, 8, 8)) {
             DBG_TOUCH(8);
             return TOUCH_DEADLY;
         }
     }
-    for (i = 0; i < NUM_PLAYERS; i++) {
+    for (uint8_t i = 0; i < NUM_PLAYERS; i++) {
         if (chasers[i].active && overlap(x, y, chasers[i].x, chasers[i].y, 10, 10)) {
             DBG_TOUCH(9);
             return TOUCH_DEADLY;
         }
     }
-    for (i = 0; i < MAX_ENEMIES && !g_freeze; i++) {   /* frozen enemies are harmless */
+    for (uint8_t i = 0; i < MAX_ENEMIES && !g_freeze; i++) {   /* frozen enemies are harmless */
         const Enemy *e = &g_enemies[i];
         if (e->active && !e->entering && overlap(x, y, e->x, e->y, 10, 12)) {
             DBG_TOUCH(e->type & 7);
@@ -286,15 +278,13 @@ static void step_x(Enemy *e, int8_t dir)
 /* Some living player at the same height, in front of the enemy. */
 static uint8_t player_in_line(const Enemy *e, int8_t dir)
 {
-    uint8_t i;
-    for (i = 0; i < NUM_PLAYERS; i++) {
+    for (uint8_t i = 0; i < NUM_PLAYERS; i++) {
         const Player *p = &g_players[i];
-        int16_t dy, dx;
         if (p->state != PS_ALIVE) {
             continue;
         }
-        dy = (int16_t)((int16_t)PX(e->y) - (int16_t)PX(p->y));
-        dx = (int16_t)((int16_t)PX(p->x) - (int16_t)PX(e->x));
+        int16_t dy = (int16_t)((int16_t)PX(e->y) - (int16_t)PX(p->y));
+        int16_t dx = (int16_t)((int16_t)PX(p->x) - (int16_t)PX(e->x));
         if (dy > -8 && dy < 8 && ((dir < 0 && dx < 0) || (dir > 0 && dx > 0))) {
             return 1;
         }
@@ -305,14 +295,12 @@ static uint8_t player_in_line(const Enemy *e, int8_t dir)
 /* Some living player below the enemy, roughly in its column. */
 static uint8_t player_below(const Enemy *e)
 {
-    uint8_t i;
-    for (i = 0; i < NUM_PLAYERS; i++) {
+    for (uint8_t i = 0; i < NUM_PLAYERS; i++) {
         const Player *p = &g_players[i];
-        int16_t dx;
         if (p->state != PS_ALIVE || PX(p->y) <= PX(e->y) + 8) {
             continue;
         }
-        dx = (int16_t)((int16_t)PX(p->x) - (int16_t)PX(e->x));
+        int16_t dx = (int16_t)((int16_t)PX(p->x) - (int16_t)PX(e->x));
         if (dx > -12 && dx < 12) {
             return 1;
         }
@@ -354,8 +342,6 @@ static void release_shot(const Enemy *e, int8_t dir)
  * the enemy stands in its shooting pose. */
 static uint8_t try_shoot(Enemy *e, int8_t dir)
 {
-    uint8_t target;
-
     if (e->throw_pose) {
         e->throw_pose--;
         if (e->throw_pose == ENEMY_RECOVER) {
@@ -370,7 +356,7 @@ static uint8_t try_shoot(Enemy *e, int8_t dir)
     if (!level_on_ground(e->x, e->y)) {
         return 0;
     }
-    target = (uint8_t)(e->type == ENEMY_TYPE_DROPPER ? player_below(e) : player_in_line(e, dir));
+    uint8_t target = (uint8_t)(e->type == ENEMY_TYPE_DROPPER ? player_below(e) : player_in_line(e, dir));
     if (!target) {
         return 0;
     }
@@ -450,7 +436,6 @@ static void think_walker(Enemy *e, uint8_t think_now)
 static void think_flyer(Enemy *e)
 {
     fx8_8 speed = e->angry ? FLY_SPEED_ANGRY : FLY_SPEED;
-    uint8_t cx;
 
     if (e->type == ENEMY_TYPE_FLUTTER) {
         if (e->throw_timer) {
@@ -473,7 +458,7 @@ static void think_flyer(Enemy *e)
         e->y = (uint16_t)(e->y - (uint16_t)speed);
     }
 
-    cx = (uint8_t)(PX(e->x) + 8);
+    uint8_t cx = (uint8_t)(PX(e->x) + 8);
     if (cx < BODY_MIN_CX || PX(e->x) >= 0xF0u) {
         e->facing_left = 0;
         e->x = TO_POS(BODY_MIN_CX - 8);
@@ -494,7 +479,6 @@ static void think_flyer(Enemy *e)
 static void think_hopper(Enemy *e)
 {
     fx8_8 speed = (fx8_8)(e->angry ? HOP_SPEED + ANGRY_EXTRA : HOP_SPEED);
-    int8_t dir;
 
     if (e->vy >= 0 && level_on_ground(e->x, e->y)) {
         e->vy = (fx8_8)-(HOP_JUMP + (fx8_8)(rng_next() & 127));
@@ -502,7 +486,7 @@ static void think_hopper(Enemy *e)
             e->facing_left = (uint8_t)(PX(player_nearest(e->x, e->y)->x) < PX(e->x));
         }
     }
-    dir = (int8_t)(e->facing_left ? -1 : 1);
+    int8_t dir = (int8_t)(e->facing_left ? -1 : 1);
     if (level_wall_ahead(e->x, e->y, dir)) {
         e->facing_left = (uint8_t)!e->facing_left;
     } else {
@@ -531,7 +515,6 @@ static void think_hopper(Enemy *e)
 
 void enemies_update(void)
 {
-    uint8_t i;
     uint8_t think_now = 0;
 
     if (++think_timer >= THINK_FRAMES) {
@@ -539,7 +522,7 @@ void enemies_update(void)
         think_now = 1;
     }
 
-    for (i = 0; i < MAX_ENEMIES; i++) {
+    for (uint8_t i = 0; i < MAX_ENEMIES; i++) {
         Enemy *e = &g_enemies[i];
         if (!e->active) {
             continue;
@@ -584,8 +567,7 @@ void enemies_update(void)
 
 void enemies_draw(void)
 {
-    uint8_t i;
-    for (i = 0; i < MAX_ENEMIES; i++) {
+    for (uint8_t i = 0; i < MAX_ENEMIES; i++) {
         const Enemy *e = &g_enemies[i];
         uint8_t tile;
         uint8_t attr = (uint8_t)(e->facing_left ? SPR_ATTR_FLIP_X : 0u);
@@ -637,8 +619,7 @@ void enemies_draw(void)
 /* --- Chaser ------------------------------------------------------------------ */
 void chaser_reset(void)
 {
-    uint8_t i;
-    for (i = 0; i < NUM_PLAYERS; i++) {
+    for (uint8_t i = 0; i < NUM_PLAYERS; i++) {
         chasers[i].active = 0;
     }
 }
@@ -655,8 +636,7 @@ uint8_t chaser_get(uint8_t i, uint16_t *x, uint16_t *y)
 
 uint8_t chaser_active(void)
 {
-    uint8_t i;
-    for (i = 0; i < NUM_PLAYERS; i++) {
+    for (uint8_t i = 0; i < NUM_PLAYERS; i++) {
         if (chasers[i].active) {
             return 1;
         }
@@ -666,8 +646,7 @@ uint8_t chaser_active(void)
 
 void chaser_spawn(void)
 {
-    uint8_t i;
-    for (i = 0; i < NUM_PLAYERS; i++) {
+    for (uint8_t i = 0; i < NUM_PLAYERS; i++) {
         if (g_players[i].state == PS_ALIVE) {
             chasers[i].active = 1;
             chasers[i].speed = CHASER_SPEED0;
@@ -689,8 +668,7 @@ static void chase_axis(uint16_t *v, uint8_t target, fx8_8 speed)
 
 void chaser_update(void)
 {
-    uint8_t i;
-    for (i = 0; i < NUM_PLAYERS; i++) {
+    for (uint8_t i = 0; i < NUM_PLAYERS; i++) {
         const Player *p = &g_players[i];
         if (!chasers[i].active) {
             continue;
@@ -712,8 +690,7 @@ void chaser_update(void)
 
 void chaser_draw(void)
 {
-    uint8_t i;
-    for (i = 0; i < NUM_PLAYERS; i++) {
+    for (uint8_t i = 0; i < NUM_PLAYERS; i++) {
         if (chasers[i].active) {
             oam_add(PX(chasers[i].x), PX(chasers[i].y), (uint8_t)(SPR_CHASER0 + ((g_frame >> 3) & 1)),
                     (uint8_t)(PX(chasers[i].x) > PX(g_players[i].x) ? SPR_ATTR_FLIP_X : 0u));

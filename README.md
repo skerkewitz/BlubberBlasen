@@ -362,6 +362,7 @@ These rules keep the code portable to the 65816. There is no CI yet, so nothing 
 4. Prefer `int8_t`/`uint8_t`/`int16_t`/`uint16_t`; avoid 32-bit math, multiplication and division in hot paths (use shifts and lookup tables).
 5. All game state is static; keep an eye on the RAM budget.
 6. Timers count frames, never wall-clock time.
+7. Declare a local variable where it is first used, with its first value if it has one, and a loop counter in its `for` (`for (uint8_t i = 0; ...)`). A variable stays above where all its uses need it: a value used after a loop or set in several branches, and one whose address is taken across blocks. It costs nothing with dampf (the kit's `lib/C_STYLE.md`, `same-declaration-place`; the move of all of `src/game` to this rule built the same ROM, byte for byte).
 
 Quick local check:
 

@@ -197,11 +197,10 @@ static void set_state(GameState s)
 
 static void clear_objects(void)
 {
-    uint8_t i;
     enemies_clear();
     bubbles_clear();
     items_clear();
-    for (i = 0; i < NUM_PLAYERS; i++) {
+    for (uint8_t i = 0; i < NUM_PLAYERS; i++) {
         g_players[i].id = i;
         g_players[i].state = PS_OFF;
         g_players[i].cpu = 0;
@@ -210,8 +209,7 @@ static void clear_objects(void)
 
 static uint8_t any_alive(void)
 {
-    uint8_t i;
-    for (i = 0; i < NUM_PLAYERS; i++) {
+    for (uint8_t i = 0; i < NUM_PLAYERS; i++) {
         if (g_players[i].state == PS_ALIVE) {
             return 1;
         }
@@ -233,8 +231,7 @@ static void draw_hud_labels(void)
 static const uint8_t *best_score(void)
 {
     const uint8_t *best = hiscore_best();
-    uint8_t i;
-    for (i = 0; i < NUM_PLAYERS; i++) {
+    for (uint8_t i = 0; i < NUM_PLAYERS; i++) {
         if (score_cmp(g_players[i].score, best) > 0) {
             best = g_players[i].score;
         }
@@ -257,14 +254,13 @@ static uint8_t  hud_valid;
 
 static uint8_t hud_changed(void)
 {
-    uint8_t i;
     uint8_t changed = (uint8_t)(!hud_valid || hud_bg1_seen != g_bg1_changes || hud_changes_seen != g_hud_changes ||
                                 hud_round_seen != g_round);
 
     hud_valid = 1;
     hud_round_seen = g_round;
     hud_changes_seen = g_hud_changes;
-    for (i = 0; i < NUM_PLAYERS; i++) {
+    for (uint8_t i = 0; i < NUM_PLAYERS; i++) {
         uint8_t show = (uint8_t)(g_players[i].state != PS_OFF ? 0 : (g_frame & 32) ? 2 : 1);
         if (hud_show_seen[i] != show) {
             hud_show_seen[i] = show;
@@ -277,13 +273,12 @@ static uint8_t hud_changed(void)
 static void draw_hud_values(void)
 {
     static const uint8_t score_col[NUM_PLAYERS] = { 0, 24 };
-    uint8_t i;
 
     if (!hud_changed()) {
         return;
     }
 
-    for (i = 0; i < NUM_PLAYERS; i++) {
+    for (uint8_t i = 0; i < NUM_PLAYERS; i++) {
         const Player *p = &g_players[i];
         if (p->state == PS_OFF && (g_frame & 32)) {
             text_put(score_col[i], 1, " START  ", PAL_YELLOW);
@@ -295,10 +290,9 @@ static void draw_hud_values(void)
     text_number(0, HUD_ROWS, g_round, PAL_YELLOW);
 
     /* BLASEN letters on the side walls: player 1 left, player 2 right. */
-    for (i = 0; i < NUM_PLAYERS; i++) {
+    for (uint8_t i = 0; i < NUM_PLAYERS; i++) {
         static const char letters[] = "BLASEN";
-        uint8_t k;
-        for (k = 0; k < 6; k++) {
+        for (uint8_t k = 0; k < 6; k++) {
             char s[2];
             uint8_t have = (uint8_t)((g_players[i].letters >> k) & 1u);
             s[0] = letters[k];
@@ -313,16 +307,14 @@ static void draw_hud_values(void)
 /* --- Title ---------------------------------------------------------------------- */
 static void enter_title(void)
 {
-    uint16_t r, c;
-
     clear_objects();
     bg_clear(0);
     bg_clear(1);
     g_scroll_y = 0;
     g_window_top = 0;
     page = 0;
-    for (r = 0; r < CHR_TITLE_H; r++) {
-        for (c = 0; c < CHR_TITLE_W; c++) {
+    for (uint16_t r = 0; r < CHR_TITLE_H; r++) {
+        for (uint16_t c = 0; c < CHR_TITLE_W; c++) {
             g_bg0[(r << 5) + c] = (uint16_t)(CHR_TITLE_BASE + (r << 5) + c);
         }
     }
@@ -351,11 +343,10 @@ static void enter_hiscores(uint8_t highlight)
 /* Gems on every few standing spots of the room, and the clue on the wall. */
 static void start_secret_room(void)
 {
-    int16_t r, c;
     uint8_t n = 0;
 
-    for (r = 3; r < LEVEL_H - 2 && n < 12; r = (int16_t)(r + 1)) {
-        for (c = 3; c < LEVEL_W - 4 && n < 12; c = (int16_t)(c + 4)) {
+    for (int16_t r = 3; r < LEVEL_H - 2 && n < 12; r = (int16_t)(r + 1)) {
+        for (int16_t c = 3; c < LEVEL_W - 4 && n < 12; c = (int16_t)(c + 4)) {
             if (!level_solid_tile(c, r) && !level_solid_tile((int16_t)(c + 1), r) &&
                 level_solid_tile(c, (int16_t)(r + 1)) && level_solid_tile((int16_t)(c + 1), (int16_t)(r + 1)) &&
                 !(r == LEVEL_H - 2 && (c < 6 || c > 24))) {
@@ -374,8 +365,8 @@ static void start_secret_room(void)
 
 static uint8_t gems_left(void)
 {
-    uint8_t i, n = 0;
-    for (i = 0; i < MAX_ITEMS; i++) {
+    uint8_t n = 0;
+    for (uint8_t i = 0; i < MAX_ITEMS; i++) {
         n = (uint8_t)(n + (g_items[i].kind == IT_FOOD));
     }
     return n;
@@ -424,21 +415,19 @@ static void begin_round_skip(void)
     static const char *const life_line[NUM_PLAYERS] = {
         "BLUBBER GETS AN EXTRA LIFE", "BLASI GETS AN EXTRA LIFE"
     };
-    uint8_t len, w;
-
     text_clear_row(12);
     text_clear_row(13);
     text_clear_row(14);
     text_clear_row(15);
     if (skip_why == SKIP_BLASEN) {
-        len = text_center(12, "CONGRATULATIONS!", PAL_YELLOW);
-        w = text_center(13, "BLASEN COLLECTED", PAL_CYAN);
+        uint8_t len = text_center(12, "CONGRATULATIONS!", PAL_YELLOW);
+        uint8_t w = text_center(13, "BLASEN COLLECTED", PAL_CYAN);
         len = w > len ? w : len;
         w = text_center(14, life_line[skip_player & 1], PAL_NONE);
         set_box(12, 14, w > len ? w : len);
     } else {
-        len = text_center(12, "UMBRELLA!", PAL_YELLOW);
-        w = text_center(13, "SKIP 3 ROUNDS", PAL_CYAN);
+        uint8_t len = text_center(12, "UMBRELLA!", PAL_YELLOW);
+        uint8_t w = text_center(13, "SKIP 3 ROUNDS", PAL_CYAN);
         set_box(12, 13, w > len ? w : len);
     }
     set_state(GS_ROUND_SKIP);
@@ -451,15 +440,13 @@ static void enter_ending(void);
  * drift to their corners, "ROUND n / READY!". */
 static void round_intro(void)
 {
-    uint8_t i;
-
     bubbles_clear();
     items_clear();
     effects_clear();
     enemies_clear();
     g_skip_rounds = 0;
     enemies_spawn_level();
-    for (i = 0; i < NUM_PLAYERS; i++) {
+    for (uint8_t i = 0; i < NUM_PLAYERS; i++) {
         player_enter_round(&g_players[i]);
     }
 
@@ -468,7 +455,7 @@ static void round_intro(void)
     g_freeze = 0;
     hurry_text = 0;
     clear_timer = 0;
-    for (i = 0; i < NUM_PLAYERS; i++) {
+    for (uint8_t i = 0; i < NUM_PLAYERS; i++) {
         g_players[i].powers = (uint16_t)(g_players[i].powers & (0xFFFFu ^ POWER_BIT(POWER_GLOVE)));
     }
     if (level_defs[g_level].kind == LEVEL_BOSS) {
@@ -494,13 +481,12 @@ static void round_intro(void)
     {
         /* floor = (round - 1) / 10, without a division */
         uint8_t floor = 0, r = (uint8_t)(g_round - 1);
-        const char *name;
-        uint8_t len = 0;
         while (r >= 10 && floor < 10) {
             r = (uint8_t)(r - 10);
             floor++;
         }
-        name = floor_names[floor];
+        const char *name = floor_names[floor];
+        uint8_t len = 0;
         while (name[len]) {
             len++;
         }
@@ -527,15 +513,13 @@ static void start_round(void)
  * Everything in the old room disappears; the players drift along. */
 static void begin_transition(void)
 {
-    uint8_t i;
-
     level_load(g_level, (uint8_t)(page ^ 1));
     bubbles_clear();
     items_clear();
     effects_clear();
     enemies_clear();
     cpu_reset();      /* no half-done "get unstuck" move into the new room */
-    for (i = 0; i < NUM_PLAYERS; i++) {
+    for (uint8_t i = 0; i < NUM_PLAYERS; i++) {
         player_enter_round(&g_players[i]);
     }
     text_clear_row(12);
@@ -547,9 +531,8 @@ static void begin_transition(void)
 static void update_transition(void)
 {
     uint16_t target = (uint16_t)((page ^ 1) ? PAGE_PX : 0);
-    uint8_t i;
 
-    for (i = 0; i < NUM_PLAYERS; i++) {
+    for (uint8_t i = 0; i < NUM_PLAYERS; i++) {
         player_update(&g_players[i], 0, 0);
     }
     g_scroll_y = (uint16_t)((g_scroll_y + SCROLL_SPEED) & (BG0_ROWS * 8 - 1));
@@ -578,11 +561,9 @@ static void join_by_start(Player *p)
 
 static void new_game(uint8_t starter)
 {
-    uint8_t i, k;
-
     clear_objects();
-    for (i = 0; i < NUM_PLAYERS; i++) {
-        for (k = 0; k < 8; k++) {
+    for (uint8_t i = 0; i < NUM_PLAYERS; i++) {
+        for (uint8_t k = 0; k < 8; k++) {
             g_players[i].score[k] = 0;
         }
         g_players[i].lives = 0;
@@ -615,7 +596,7 @@ static void new_game(uint8_t starter)
         starter = 0;
     }
     join(&g_players[starter]);
-    for (i = 0; i < NUM_PLAYERS; i++) {
+    for (uint8_t i = 0; i < NUM_PLAYERS; i++) {
         if (g_players[i].cpu && g_players[i].state == PS_OFF) {
             join(&g_players[i]);   /* the CPU partner starts together with player 1 */
         }
@@ -642,11 +623,10 @@ static void next_round(uint8_t advance)
  * room, round 50 warps to round 70. */
 static void check_door(const uint16_t pressed[NUM_PLAYERS])
 {
-    uint8_t i;
     if (!door_open) {
         return;
     }
-    for (i = 0; i < NUM_PLAYERS; i++) {
+    for (uint8_t i = 0; i < NUM_PLAYERS; i++) {
         const Player *p = &g_players[i];
         if (p->state == PS_ALIVE && (pressed[i] & PAD_UP) &&
             overlap(p->x, p->y, TO_POS(DOOR_X), TO_POS(PLAYER_SPAWN_Y), 10, 12)) {
@@ -697,8 +677,7 @@ void player_killed(Player *p)
 
 static void update_continue(const uint16_t pressed[NUM_PLAYERS])
 {
-    uint8_t i;
-    for (i = 0; i < NUM_PLAYERS; i++) {
+    for (uint8_t i = 0; i < NUM_PLAYERS; i++) {
         if (pressed[i] & PAD_START) {
             join_by_start(&g_players[i]);
             text_clear_row(12);
@@ -739,8 +718,7 @@ static void check_extra_lives(Player *p)
  * who is, pauses. */
 static uint8_t handle_start(const uint16_t pressed[NUM_PLAYERS])
 {
-    uint8_t i;
-    for (i = 0; i < NUM_PLAYERS; i++) {
+    for (uint8_t i = 0; i < NUM_PLAYERS; i++) {
         if (!(pressed[i] & PAD_START)) {
             continue;
         }
@@ -758,8 +736,6 @@ static uint8_t handle_start(const uint16_t pressed[NUM_PLAYERS])
 
 static void update_play(const uint16_t pad[NUM_PLAYERS], const uint16_t pressed[NUM_PLAYERS])
 {
-    uint8_t i;
-
     if (handle_start(pressed)) {
         return;
     }
@@ -768,7 +744,7 @@ static void update_play(const uint16_t pad[NUM_PLAYERS], const uint16_t pressed[
     if (g_freeze) {
         g_freeze--;
     }
-    for (i = 0; i < NUM_PLAYERS; i++) {
+    for (uint8_t i = 0; i < NUM_PLAYERS; i++) {
         player_update(&g_players[i], pad[i], pressed[i]);
     }
     check_door(pressed);
@@ -808,9 +784,9 @@ static void update_play(const uint16_t pad[NUM_PLAYERS], const uint16_t pressed[
         return;
     case LEVEL_BOSS:
         if (boss_fighting()) {
-            uint8_t hp = boss_hp(), k;
+            uint8_t hp = boss_hp();
             text_put(5, HUD_ROWS, "BOILER", PAL_RED);
-            for (k = 0; k < 12; k++) {
+            for (uint8_t k = 0; k < 12; k++) {
                 text_put((uint8_t)(12 + k), HUD_ROWS, (uint8_t)(k << 1) < hp ? "#" : "-", PAL_ORANGE);
             }
         } else {
@@ -820,7 +796,7 @@ static void update_play(const uint16_t pad[NUM_PLAYERS], const uint16_t pressed[
         if (boss_defeated() && ++ending_delay >= 120) {
             enter_ending();
         }
-        for (i = 0; i < NUM_PLAYERS; i++) {
+        for (uint8_t i = 0; i < NUM_PLAYERS; i++) {
             check_extra_lives(&g_players[i]);
         }
         return;
@@ -855,7 +831,7 @@ static void update_play(const uint16_t pad[NUM_PLAYERS], const uint16_t pressed[
         }
     }
 
-    for (i = 0; i < NUM_PLAYERS; i++) {
+    for (uint8_t i = 0; i < NUM_PLAYERS; i++) {
         check_extra_lives(&g_players[i]);
     }
 
@@ -874,8 +850,7 @@ static void update_play(const uint16_t pad[NUM_PLAYERS], const uint16_t pressed[
 /* --- Name entry ------------------------------------------------------------------ */
 static uint8_t entry_char_index(char c)
 {
-    uint8_t i;
-    for (i = 0; i < ENTRY_CHAR_COUNT; i++) {
+    for (uint8_t i = 0; i < ENTRY_CHAR_COUNT; i++) {
         if (entry_chars[i] == c) {
             return i;
         }
@@ -885,8 +860,7 @@ static uint8_t entry_char_index(char c)
 
 static void draw_name_entry(void)
 {
-    uint8_t i;
-    for (i = 0; i < 3; i++) {
+    for (uint8_t i = 0; i < 3; i++) {
         char s[2];
         s[0] = entry_name[i] == ' ' ? '_' : entry_name[i];
         s[1] = 0;
@@ -929,8 +903,7 @@ static void enter_name_entry(uint8_t player, uint8_t rank)
 /* After game over: name entry for each player who made the table, in turn. */
 static void next_name_entry(uint8_t from, uint8_t highlight)
 {
-    uint8_t i;
-    for (i = from; i < NUM_PLAYERS; i++) {
+    for (uint8_t i = from; i < NUM_PLAYERS; i++) {
         uint8_t rank = hiscore_rank(g_players[i].score);
         if (played[i] && rank < HISCORE_COUNT) {
             enter_name_entry(i, rank);
@@ -986,9 +959,8 @@ static void show_ending_page(void)
     const char *const *lines = ending_page < ending_pages()
         ? (ending_happy ? ending_happy_text[ending_page] : ending_sad_text[ending_page])
         : credits_text;
-    uint8_t i;
     bg_clear(1);
-    for (i = 0; i < ENDING_LINES; i++) {
+    for (uint8_t i = 0; i < ENDING_LINES; i++) {
         text_put(4, (uint8_t)(6 + (i << 1)), lines[i],
                  ending_page < ending_pages() ? PAL_NONE : (i == 0 ? PAL_YELLOW : PAL_CYAN));
     }
@@ -997,7 +969,6 @@ static void show_ending_page(void)
 
 static void enter_ending(void)
 {
-    uint8_t i;
     ending_happy = (uint8_t)(players_in_game() == NUM_PLAYERS);
     enemies_clear();
     bubbles_clear();
@@ -1005,7 +976,7 @@ static void enter_ending(void)
     effects_clear();
     boss_reset();
     bg_clear(0);
-    for (i = 0; i < NUM_PLAYERS; i++) {
+    for (uint8_t i = 0; i < NUM_PLAYERS; i++) {
         if (g_players[i].state != PS_OFF) {
             g_players[i].state = PS_OFF;   /* the heroes appear as part of the ending pictures */
         }
@@ -1038,11 +1009,11 @@ static void draw_ending(void)
     static const uint8_t workers[7] = {
         SPR_E_WALK0, SPR_THROWER0, SPR_BOUNCER0, SPR_FLUTTER0, SPR_HOPPER0, SPR_SPITTER0, SPR_DROPPER0
     };
-    uint8_t i, bob = (uint8_t)((g_frame >> 4) & 1);
+    uint8_t bob = (uint8_t)((g_frame >> 4) & 1);
     if (ending_page >= ending_pages()) {
         return;   /* credits: text only */
     }
-    for (i = 0; i < 7; i++) {
+    for (uint8_t i = 0; i < 7; i++) {
         if (ending_happy) {
             oam_add((uint8_t)(40 + i * 26), (uint8_t)(176 - ((bob ^ (i & 1)) << 2)), (uint8_t)(workers[i] + bob), 0);
         } else {
@@ -1050,7 +1021,7 @@ static void draw_ending(void)
         }
     }
     if (ending_happy) {
-        for (i = 0; i < 6; i++) {
+        for (uint8_t i = 0; i < 6; i++) {
             uint8_t y = (uint8_t)(200 - ((g_frame + i * 61) & 191));
             oam_add((uint8_t)((i & 1) ? SCREEN_W - 24 : 8), y, (uint8_t)(SPR_BUBBLE0 + bubble_phase[i]), 0);
         }
@@ -1068,13 +1039,12 @@ static void draw_options(void)
 {
     static const char *const labels[OPTION_ROWS] = { "MODE", "CO-OP RESCUE", "PLAYER 2", "BACK" };
     const char *values[OPTION_ROWS];
-    uint8_t i;
 
     values[0] = g_opt.plus ? "PLUS  " : "ARCADE";
     values[1] = g_opt.rescue ? "ON " : "OFF";
     values[2] = g_opt.p2_cpu ? "CPU  " : "HUMAN";
     values[3] = "";
-    for (i = 0; i < OPTION_ROWS; i++) {
+    for (uint8_t i = 0; i < OPTION_ROWS; i++) {
         uint8_t row = (uint8_t)(8 + i * 3);
         uint8_t pal = (uint8_t)(i == option_row ? PAL_YELLOW : PAL_NONE);
         text_put(4, row, i == option_row ? ">" : " ", PAL_YELLOW);
@@ -1132,9 +1102,8 @@ static void update_options(uint16_t pressed)
 /* --- Story --------------------------------------------------------------------------- */
 static void show_story_page(void)
 {
-    uint8_t i;
     bg_clear(1);
-    for (i = 0; i < 6; i++) {
+    for (uint8_t i = 0; i < 6; i++) {
         text_put(4, (uint8_t)(8 + (i << 1)), story_text[story_page][i], PAL_NONE);
     }
     text_put(6, 25, "START: SKIP", PAL_GREY);
@@ -1174,11 +1143,10 @@ static void update_story(uint16_t any_pressed)
 /* Sprites that go with the intro pages. */
 static void draw_story(void)
 {
-    uint8_t i;
     uint8_t bob = (uint8_t)((g_frame >> 4) & 1);
     switch (story_page) {
     case 0:   /* bubbles rising along both sides of the text */
-        for (i = 0; i < 6; i++) {
+        for (uint8_t i = 0; i < 6; i++) {
             uint8_t y = (uint8_t)(200 - ((g_frame + i * 61) & 191));
             oam_add((uint8_t)((i & 1) ? SCREEN_W - 24 : 8), y, (uint8_t)(SPR_BUBBLE0 + bubble_phase[i]), 0);
         }
@@ -1187,7 +1155,7 @@ static void draw_story(void)
         static const uint8_t workers[7] = {
             SPR_E_WALK0, SPR_THROWER0, SPR_BOUNCER0, SPR_FLUTTER0, SPR_HOPPER0, SPR_SPITTER0, SPR_DROPPER0
         };
-        for (i = 0; i < 7; i++) {
+        for (uint8_t i = 0; i < 7; i++) {
             oam_add((uint8_t)(40 + i * 26), (uint8_t)(40 + (bob ^ (i & 1))), (uint8_t)(workers[i] + bob), 0);
         }
         oam_add(120, 172, (uint8_t)(SPR_CHASER0 + bob), 0);
@@ -1206,16 +1174,14 @@ static void draw_story(void)
  * player 2 (tinted) from the right. One sprite holds two heads. */
 static void draw_lives(void)
 {
-    uint8_t i;
-    for (i = 0; i < NUM_PLAYERS; i++) {
+    for (uint8_t i = 0; i < NUM_PLAYERS; i++) {
         const Player *p = &g_players[i];
-        uint8_t spare, x;
         uint8_t attr = (uint8_t)(i == 0 ? 0u : (PAL_P2 << SPR_ATTR_PAL_SHIFT));
         if (p->state == PS_OFF || p->lives < 2) {
             continue;
         }
-        spare = (uint8_t)(p->lives - 1);
-        x = (uint8_t)(i == 0 ? 0 : SCREEN_W - 16);
+        uint8_t spare = (uint8_t)(p->lives - 1);
+        uint8_t x = (uint8_t)(i == 0 ? 0 : SCREEN_W - 16);
         while (spare) {
             uint8_t tile = (uint8_t)(spare >= 2 ? SPR_LIFE2 : SPR_LIFE1);
             /* player 2's single head sits at the right edge of its cell */
@@ -1235,10 +1201,9 @@ static void draw_lives(void)
  * (that one adds), so one colour math mode per frame is enough on the SNES. */
 static void intro_box_window(ColorWindow *w)
 {
-    uint8_t y;
     w->add_r = w->add_g = w->add_b = INTRO_BOX_DARKEN;
     w->math = CMATH_SUB | CMATH_HALF;
-    for (y = intro_box_t; y <= intro_box_b; y++) {
+    for (uint8_t y = intro_box_t; y <= intro_box_b; y++) {
         w->left[y] = intro_box_l;
         w->right[y] = intro_box_r;
     }
@@ -1249,12 +1214,11 @@ static void intro_box_window(ColorWindow *w)
 /* Windows start empty every frame; the vacuums or the round intro fill theirs. */
 static void build_windows(void)
 {
-    uint8_t i;
     ColorWindow *w = windows;
     /* empty again: only the lines last frame filled, the others are empty
      * already (pointers: on the SNES each windows[i].left[y] would cost a
      * multiplication) */
-    for (i = 0; i < NUM_WINDOWS; i++, w++) {
+    for (uint8_t i = 0; i < NUM_WINDOWS; i++, w++) {
         w->add_r = 0;
         w->add_g = 0;
         w->add_b = 0;
@@ -1278,17 +1242,16 @@ static void build_windows(void)
 
 static void build_oam(void)
 {
-    uint8_t i;
     oam_count = 0;
     oam_next = oam;
-    for (i = 0; i < NUM_PLAYERS; i++) {
+    for (uint8_t i = 0; i < NUM_PLAYERS; i++) {
         g_player_tint[i] = PAL_NONE;   /* player_draw sets it while a player flashes */
     }
 
     if (g_state == GS_TRANSITION || g_state == GS_ROUND_INTRO || g_state == GS_PLAY || g_state == GS_PAUSE ||
         g_state == GS_ROUND_SKIP || g_state == GS_CONTINUE || g_state == GS_GAME_OVER) {
         /* Lower index = higher priority (drawn on top). */
-        for (i = 0; i < NUM_PLAYERS; i++) {
+        for (uint8_t i = 0; i < NUM_PLAYERS; i++) {
             player_draw(&g_players[i]);
         }
         draw_lives();
@@ -1313,7 +1276,7 @@ static void build_oam(void)
     /* hide what was used last frame and not this one (the rest is hidden already) */
     {
         Sprite *s = oam_next;
-        for (i = oam_count; i < oam_prev; i++, s++) {
+        for (uint8_t i = oam_count; i < oam_prev; i++, s++) {
             s->x = 0;
             s->y = SPRITE_HIDDEN_Y;
             s->tile = 0;
@@ -1326,18 +1289,16 @@ static void build_oam(void)
 /* --- API ------------------------------------------------------------------------- */
 void game_init(uint16_t seed)
 {
-    uint8_t i;
-
     video_init();
     rng = seed ? seed : 0xACE1u;
     g_frame = 0;
     g_freeze = 0;
-    for (i = 0; i < NUM_PLAYERS; i++) {
+    for (uint8_t i = 0; i < NUM_PLAYERS; i++) {
         prev_pad[i] = 0;
     }
     boss_level = (uint8_t)(level_count - 1);
     secret_level = 0xFF;
-    for (i = 0; i < level_count; i++) {
+    for (uint8_t i = 0; i < level_count; i++) {
         if (level_defs[i].kind == LEVEL_BOSS) {
             boss_level = i;
         } else if (level_defs[i].kind == LEVEL_SECRET) {
@@ -1359,10 +1320,8 @@ void game_tick(const uint16_t real_pad[NUM_PLAYERS])
 {
     uint16_t pad[NUM_PLAYERS];
     uint16_t pressed[NUM_PLAYERS];
-    uint16_t any_pressed;
-    uint8_t i;
 
-    for (i = 0; i < NUM_PLAYERS; i++) {
+    for (uint8_t i = 0; i < NUM_PLAYERS; i++) {
         uint16_t real_pressed = (uint16_t)(real_pad[i] & (uint16_t)~prev_pad[i]);
         pad[i] = real_pad[i];
         if (g_players[i].cpu && g_players[i].state != PS_OFF) {
@@ -1380,7 +1339,7 @@ void game_tick(const uint16_t real_pad[NUM_PLAYERS])
         pressed[i]  = (uint16_t)(pad[i] & (uint16_t)~prev_pad[i]);
         prev_pad[i] = pad[i];
     }
-    any_pressed = (uint16_t)(pressed[0] | pressed[1]);
+    uint16_t any_pressed = (uint16_t)(pressed[0] | pressed[1]);
 
     g_sfx = 0;
     g_frame++;
@@ -1429,7 +1388,7 @@ void game_tick(const uint16_t real_pad[NUM_PLAYERS])
 
     case GS_ROUND_INTRO:
         (void)handle_start(pressed);
-        for (i = 0; i < NUM_PLAYERS; i++) {
+        for (uint8_t i = 0; i < NUM_PLAYERS; i++) {
             player_update(&g_players[i], 0, 0);
         }
         enemies_update();
@@ -1485,10 +1444,9 @@ void game_tick(const uint16_t real_pad[NUM_PLAYERS])
     }
 
     /* The CPU partner earns no score of its own. */
-    for (i = 0; i < NUM_PLAYERS; i++) {
+    for (uint8_t i = 0; i < NUM_PLAYERS; i++) {
         if (g_players[i].cpu) {
-            uint8_t k;
-            for (k = 0; k < 8; k++) {
+            for (uint8_t k = 0; k < 8; k++) {
                 if (g_players[i].score[k]) {
                     g_players[i].score[k] = 0;
                     g_hud_changes++;
@@ -1517,8 +1475,7 @@ void game_debug_start_round(uint8_t round)
 
 void game_debug_show_ending(uint8_t happy)
 {
-    uint8_t i;
-    for (i = 0; i < NUM_PLAYERS; i++) {
+    for (uint8_t i = 0; i < NUM_PLAYERS; i++) {
         g_players[i].state = (uint8_t)(i == 0 || happy ? PS_ALIVE : PS_OFF);
     }
     enter_ending();

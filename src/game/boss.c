@@ -118,8 +118,7 @@ static void spit(void)
     int8_t dir = (int8_t)(PX(p->x) < PX(boss.x) + 8 ? -1 : 1);
     uint16_t mouth_x = (uint16_t)(boss.x + TO_POS(8));
     uint16_t mouth_y = (uint16_t)(boss.y + TO_POS(16));
-    uint8_t k;
-    for (k = 0; k < 3; k++) {
+    for (uint8_t k = 0; k < 3; k++) {
         item_spawn_soot(mouth_x, mouth_y, (fx8_8)(dir < 0 ? -SOOT_SPEED_X : SOOT_SPEED_X),
                         (fx8_8)(FX(0, 128) + (fx8_8)(k << 7)));
     }
@@ -129,7 +128,6 @@ static void spit(void)
 void boss_update(void)
 {
     fx8_8 speed;
-    uint8_t i;
 
     switch (boss.state) {
     case BOSS_FIGHT:
@@ -166,7 +164,7 @@ void boss_update(void)
         } else if (PX(boss.y) > TRAPPED_Y) {
             boss.y = (uint16_t)(boss.y - FX(0, 64));
         }
-        for (i = 0; i < NUM_PLAYERS; i++) {
+        for (uint8_t i = 0; i < NUM_PLAYERS; i++) {
             const Player *p = &g_players[i];
             if (p->state == PS_ALIVE && touches(p->x, p->y, 24)) {
                 boss.state = BOSS_POPPED;
@@ -186,14 +184,14 @@ void boss_update(void)
 
 void boss_draw(void)
 {
-    uint8_t base, attr = 0, k;
+    uint8_t base, attr = 0;
     uint8_t x = PX(boss.x), y = PX(boss.y);
 
     if (boss.state == BOSS_OFF || boss.state == BOSS_POPPED) {
         return;
     }
     if (boss.state == BOSS_TRAPPED) {
-        for (k = 0; k < 4; k++) {   /* the giant bubble in front */
+        for (uint8_t k = 0; k < 4; k++) {   /* the giant bubble in front */
             oam_add((uint8_t)(x + ((k & 1) << 4)), (uint8_t)(y + ((k >> 1) << 4)), (uint8_t)(SPR_GIANT_BUBBLE + k), 0);
         }
         attr = (uint8_t)(PAL_GREY << SPR_ATTR_PAL_SHIFT);
@@ -204,7 +202,7 @@ void boss_draw(void)
             attr = (uint8_t)(PAL_RED << SPR_ATTR_PAL_SHIFT);
         }
     }
-    for (k = 0; k < 4; k++) {
+    for (uint8_t k = 0; k < 4; k++) {
         oam_add((uint8_t)(x + ((k & 1) << 4)), (uint8_t)(y + ((k >> 1) << 4)), (uint8_t)(base + k), attr);
     }
 }

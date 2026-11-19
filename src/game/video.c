@@ -127,8 +127,7 @@ void bg_mark_row(uint8_t layer, uint8_t row)
 
 void bg_mark_all(uint8_t layer)
 {
-    uint8_t r;
-    for (r = 0; r < (layer == 0 ? BG0_ROWS : BG_H); r++) {
+    for (uint8_t r = 0; r < (layer == 0 ? BG0_ROWS : BG_H); r++) {
         bg_mark_row(layer, r);
     }
 }
@@ -167,31 +166,28 @@ static uint16_t text_entry(uint16_t e)
  * is marked (checking all 92 flags every tick cost a tenth of a tick). */
 static void stage_rows(void)
 {
-    uint8_t r, c;
     if (stage_next < stage_count) {
         return;
     }
     stage_count = stage_next = 0;
-    for (r = 0; r < BG0_ROWS && dirty0_count && stage_count < STAGE_ROWS; r++) {
-        uint8_t *buf;
+    for (uint8_t r = 0; r < BG0_ROWS && dirty0_count && stage_count < STAGE_ROWS; r++) {
         if (!dirty0[r]) continue;
         dirty0[r] = 0;
         dirty0_count--;
-        buf = &stage[(uint16_t)stage_count << 6];
-        for (c = 0; c < BG_W; c++) {
+        uint8_t *buf = &stage[(uint16_t)stage_count << 6];
+        for (uint8_t c = 0; c < BG_W; c++) {
             uint16_t v = room_entry(g_bg0[(r << 5) + c], r);
             buf[c * 2] = (uint8_t)v;
             buf[c * 2 + 1] = (uint8_t)(v >> 8);
         }
         stage_vram[stage_count++] = (uint16_t)(VRAM_BG1_MAP + (r << 5));
     }
-    for (r = 0; r < BG_H && dirty1_count && stage_count < STAGE_ROWS; r++) {
-        uint8_t *buf;
+    for (uint8_t r = 0; r < BG_H && dirty1_count && stage_count < STAGE_ROWS; r++) {
         if (!dirty1[r]) continue;
         dirty1[r] = 0;
         dirty1_count--;
-        buf = &stage[(uint16_t)stage_count << 6];
-        for (c = 0; c < BG_W; c++) {
+        uint8_t *buf = &stage[(uint16_t)stage_count << 6];
+        for (uint8_t c = 0; c < BG_W; c++) {
             uint16_t v = text_entry(g_bg1[(r << 5) + c]);
             buf[c * 2] = (uint8_t)v;
             buf[c * 2 + 1] = (uint8_t)(v >> 8);
@@ -316,18 +312,17 @@ static void build_sprites(const Sprite *oam, uint8_t count)
 {
     const uint8_t *slots = gfx_sheet_slot[sheet];
     uint8_t *o = sdevkit_oam_memory;
-    uint8_t i, want6 = GFX_TINT_NONE, filled = 0, later = 0;
+    uint8_t want6 = GFX_TINT_NONE, filled = 0, later = 0;
 
-    for (i = 0; i < NUM_PLAYERS; i++) {
+    for (uint8_t i = 0; i < NUM_PLAYERS; i++) {
         tint_p[i] = (uint8_t)(g_player_tint[i] == PAL_YELLOW ? GFX_TINT_YELLOW
                             : g_player_tint[i] == PAL_ORANGE ? GFX_TINT_ORANGE : GFX_TINT_NONE);
     }
 
-    for (i = 0; i < count; i++, oam++) {
+    for (uint8_t i = 0; i < count; i++, oam++) {
         uint8_t base = gfx_cell_pal[oam->tile];
         uint8_t pal = (uint8_t)((oam->attr & SPR_ATTR_PAL_MASK) >> SPR_ATTR_PAL_SHIFT);
         uint8_t slot = slots[oam->tile];
-        uint16_t name;
         uint8_t tinted = 0;
         if (base == OP_ENEMIES) {
             if (pal == PAL_GREY) {
@@ -349,7 +344,7 @@ static void build_sprites(const Sprite *oam, uint8_t count)
             tint_later_pal[later] = pal;
             later++;
         }
-        name = (uint16_t)(((slot & 7u) << 1) | ((uint16_t)(slot >> 3) << 5));
+        uint16_t name = (uint16_t)(((slot & 7u) << 1) | ((uint16_t)(slot >> 3) << 5));
         o[0] = oam->x;
         o[1] = oam->y;
         o[2] = (uint8_t)name;
@@ -361,11 +356,11 @@ static void build_sprites(const Sprite *oam, uint8_t count)
     if (want6 != GFX_TINT_NONE) {
         tint6 = want6;
     }
-    for (i = 0; i < later; i++) {
+    for (uint8_t i = 0; i < later; i++) {
         uint8_t *e = sdevkit_oam_memory + ((uint16_t)tint_later[i] << 2);
         e[3] = (uint8_t)((e[3] & 0xF1u) | (sprite_palette(OP_ENEMIES, tint_later_pal[i]) << 1));   /* bits 1..3 */
     }
-    for (i = filled; i < oam_shown; i++, o += 4) {
+    for (uint8_t i = filled; i < oam_shown; i++, o += 4) {
         o[1] = SPR_OFF_Y;
     }
     oam_shown = filled;
@@ -394,9 +389,9 @@ static void build_window_table(const ColorWindow *w, uint8_t *t, uint8_t from, u
     uint8_t n = (uint8_t)(to - from);
     t = hold_empty(t, from);
     while (n) {
-        uint8_t k = n > 127 ? 127 : n, y;
+        uint8_t k = n > 127 ? 127 : n;
         *t++ = (uint8_t)(0x80 + k);
-        for (y = 0; y < k; y++) {
+        for (uint8_t y = 0; y < k; y++) {
             *t++ = *l++;
             *t++ = *r++;
         }
@@ -413,11 +408,11 @@ static uint8_t window_on(const ColorWindow *w)
 
 static void build_windows(const ColorWindow *w)
 {
-    uint8_t i, on = 0, math = 0;
+    uint8_t on = 0, math = 0;
     uint8_t *t = window_table[hdma_back][0];
     regs.r = regs.g = regs.b = 0;
     regs.wobjsel = 0;
-    for (i = 0; i < NUM_WINDOWS; i++, w++, t += WINDOW_TABLE_BYTES) {
+    for (uint8_t i = 0; i < NUM_WINDOWS; i++, w++, t += WINDOW_TABLE_BYTES) {
         if (!window_on(w)) {
             /* an empty table, so the window register holds nothing stale */
             t[0] = 1;
@@ -464,7 +459,6 @@ static void build_hud_line(void)
  * starts from a replay): the next vertical blank turns it on again. */
 void video_init(void)
 {
-    uint8_t i;
     static uint16_t text_pal[8 * 4];
 
     sdevkit_set_screen_off();
@@ -474,7 +468,7 @@ void video_init(void)
     sdevkit_bg_set_map_ptr(2, VRAM_BG3_MAP, SDEVKIT_SC_32x32);
     sdevkit_bg_set_scroll(2, 0, 0x3FF);       /* one line up, as BG1 (see the top) */
     sdevkit_bg_set_disable(1);
-    for (i = 0; i < 8; i++) {
+    for (uint8_t i = 0; i < 8; i++) {
         text_pal[i * 4] = 0;
         text_pal[i * 4 + 1] = text_colors[i];
         text_pal[i * 4 + 2] = 0;             /* outline: black */
@@ -485,7 +479,7 @@ void video_init(void)
     sdevkit_set_palette_color(0, 0);                   /* backdrop: black */
     sdevkit_oam_init_gfx_attr(VRAM_OBJ, SDEVKIT_OBJ_SIZE8_L16);
     sdevkit_oam_init();
-    for (i = 0; i < 32; i++) {
+    for (uint8_t i = 0; i < 32; i++) {
         sdevkit_oam_memory[512 + i] = 0xAA;           /* all 128 sprites large, x below 256 */
     }
     oam_shown = 0;
@@ -503,7 +497,7 @@ void video_init(void)
     screen_on = 0;
     hdma_back = 0;
     hdma_ready = 0;
-    for (i = 0; i < NUM_PLAYERS; i++) {
+    for (uint8_t i = 0; i < NUM_PLAYERS; i++) {
         tint_p[i] = GFX_TINT_NONE;
         tint_p_loaded[i] = 0xFF;
         g_player_tint[i] = PAL_NONE;
@@ -538,7 +532,6 @@ void video_frame(const Sprite *oam, uint8_t count, const ColorWindow *windows)
 void video_vblank(void)
 {
     uint16_t used = 0;
-    uint8_t i;
 
     /* the title logo does not fit into a vertical blank: screen off for it */
     if (title_wanted && !title_loaded) {
@@ -573,7 +566,7 @@ void video_vblank(void)
         tint6_loaded = tint6;
         used = (uint16_t)(used + 32);
     }
-    for (i = 0; i < NUM_PLAYERS; i++) {
+    for (uint8_t i = 0; i < NUM_PLAYERS; i++) {
         if (tint_p[i] != tint_p_loaded[i] && fits(used, 32)) {
             /* a flashing player shows player 1's colours tinted, as on the PC */
             const uint16_t *src = tint_p[i] == GFX_TINT_NONE ? gfx_pal_player[i][GFX_TINT_NONE] : gfx_pal_player[0][tint_p[i]];
@@ -584,7 +577,7 @@ void video_vblank(void)
     }
 
     /* 3. room tilesets, then the staged map rows */
-    for (i = 0; i < 2 && !title_wanted; i++) {
+    for (uint8_t i = 0; i < 2 && !title_wanted; i++) {
         if (page_tileset[i] != page_loaded[i] && fits(used, GFX_TILESET_TILES * 32 + 32)) {
             sdevkit_dma_copy_vram(gfx_tileset_tiles[page_tileset[i]], (uint16_t)(VRAM_BG1_TILES + 16 + i * GFX_TILESET_TILES * 16),
                         GFX_TILESET_TILES * 32);
@@ -620,10 +613,10 @@ void video_vblank(void)
 /* Nothing waits for a vertical blank (tests: the picture is complete). */
 uint8_t video_pending(void)
 {
-    uint8_t r, n = 0;
+    uint8_t n = 0;
     n = (uint8_t)(stage_next < stage_count);
-    for (r = 0; r < BG0_ROWS; r++) n = (uint8_t)(n | dirty0[r]);
-    for (r = 0; r < BG_H; r++) n = (uint8_t)(n | dirty1[r]);
+    for (uint8_t r = 0; r < BG0_ROWS; r++) n = (uint8_t)(n | dirty0[r]);
+    for (uint8_t r = 0; r < BG_H; r++) n = (uint8_t)(n | dirty1[r]);
     if (title_wanted) {
         n = (uint8_t)(n | !title_loaded);
     } else {
@@ -640,14 +633,13 @@ uint16_t video_check_maps(void)
 {
     const uint16_t *vram = sdevkit_dbg_vram();
     uint16_t bad = 0;
-    uint8_t r, c;
-    for (r = 0; r < BG0_ROWS; r++) {
-        for (c = 0; c < BG_W; c++) {
+    for (uint8_t r = 0; r < BG0_ROWS; r++) {
+        for (uint8_t c = 0; c < BG_W; c++) {
             bad = (uint16_t)(bad + (vram[VRAM_BG1_MAP + (r << 5) + c] != room_entry(g_bg0[(r << 5) + c], r)));
         }
     }
-    for (r = 0; r < BG_H; r++) {
-        for (c = 0; c < BG_W; c++) {
+    for (uint8_t r = 0; r < BG_H; r++) {
+        for (uint8_t c = 0; c < BG_W; c++) {
             bad = (uint16_t)(bad + (vram[VRAM_BG3_MAP + (r << 5) + c] != text_entry(g_bg1[(r << 5) + c])));
         }
     }

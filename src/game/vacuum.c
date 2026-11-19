@@ -88,8 +88,6 @@ static void shape(Vacuum *v)
     uint8_t age = (uint8_t)(VACUUM_FRAMES - v->timer);
     uint16_t s = 256;
     int16_t w = 0, rx, ry;
-    uint8_t times_rx[VACUUM_RADIUS + 1];   /* (h * rx + RADIUS / 2) / RADIUS, for h = 0..RADIUS */
-    uint8_t h, q, rem, dy, row;
 
     if (age < VACUUM_GROW) {
         s = grow_scale[age];
@@ -116,9 +114,10 @@ static void shape(Vacuum *v)
     v->rx = (uint8_t)rx;
     v->ry = (uint8_t)ry;
 
-    q = 0;
-    rem = VACUUM_RADIUS / 2;
-    for (h = 0; h <= VACUUM_RADIUS; h++) {
+    uint8_t times_rx[VACUUM_RADIUS + 1];   /* (h * rx + RADIUS / 2) / RADIUS, for h = 0..RADIUS */
+    uint8_t q = 0;
+    uint8_t rem = VACUUM_RADIUS / 2;
+    for (uint8_t h = 0; h <= VACUUM_RADIUS; h++) {
         times_rx[h] = q;
         rem = (uint8_t)(rem + rx);
         while (rem >= VACUUM_RADIUS) {
@@ -126,9 +125,9 @@ static void shape(Vacuum *v)
             q++;
         }
     }
-    row = 0;
+    uint8_t row = 0;
     rem = (uint8_t)(ry / 2);
-    for (dy = 0; dy <= ry; dy++) {
+    for (uint8_t dy = 0; dy <= ry; dy++) {
         v->span[dy] = times_rx[half_width[row]];
         rem = (uint8_t)(rem + VACUUM_RADIUS);
         while (rem >= ry) {
@@ -140,8 +139,7 @@ static void shape(Vacuum *v)
 
 void vacuums_clear(void)
 {
-    uint8_t i;
-    for (i = 0; i < NUM_PLAYERS; i++) {
+    for (uint8_t i = 0; i < NUM_PLAYERS; i++) {
         vacuums[i].timer = 0;
     }
 }
@@ -162,8 +160,7 @@ uint8_t vacuum_active(uint8_t player)
 
 void vacuums_tick(void)
 {
-    uint8_t i;
-    for (i = 0; i < NUM_PLAYERS; i++) {
+    for (uint8_t i = 0; i < NUM_PLAYERS; i++) {
         if (vacuums[i].timer && --vacuums[i].timer) {
             shape(&vacuums[i]);
         }
@@ -194,24 +191,19 @@ static uint8_t blocked(uint16_t x, uint16_t y)
 uint8_t vacuum_move(uint16_t *x, uint16_t *y)
 {
     const Vacuum *best = 0;
-    uint8_t best_ring = 0xFF, i;
-    int16_t dx, dy;
-    fx8_8 speed;
-    uint16_t nx, ny;
+    uint8_t best_ring = 0xFF;
 
-    for (i = 0; i < NUM_PLAYERS; i++) {
+    for (uint8_t i = 0; i < NUM_PLAYERS; i++) {
         const Vacuum *v = &vacuums[i];
-        int16_t adx, ady;
-        uint8_t ring;
         if (!v->timer) {
             continue;
         }
-        adx = iabs((int16_t)((int16_t)PX(*x) - (int16_t)PX(v->x)));
-        ady = iabs((int16_t)((int16_t)PX(*y) - (int16_t)PX(v->y)));
+        int16_t adx = iabs((int16_t)((int16_t)PX(*x) - (int16_t)PX(v->x)));
+        int16_t ady = iabs((int16_t)((int16_t)PX(*y) - (int16_t)PX(v->y)));
         if (ady > v->ry || adx > v->span[ady]) {
             continue;                    /* outside the shape shown this frame */
         }
-        ring = ring_of[ady >> 3][adx >> 3];
+        uint8_t ring = ring_of[ady >> 3][adx >> 3];
         if (ring < best_ring) {          /* the nearer vacuum wins */
             best_ring = ring;
             best = v;
@@ -221,14 +213,14 @@ uint8_t vacuum_move(uint16_t *x, uint16_t *y)
         return 0;                        /* the room's air as usual */
     }
 
-    speed = ring_speed[best_ring];
-    dx = (int16_t)(best->x - *x);
-    dy = (int16_t)(best->y - *y);
+    fx8_8 speed = ring_speed[best_ring];
+    int16_t dx = (int16_t)(best->x - *x);
+    int16_t dy = (int16_t)(best->y - *y);
     if (dx == 0 && dy == 0) {
         return 1;                        /* at the centre: stay */
     }
-    nx = *x;
-    ny = *y;
+    uint16_t nx = *x;
+    uint16_t ny = *y;
     if (iabs(dx) >= iabs(dy)) {
         nx = step_to(*x, best->x, speed);
     } else {
@@ -259,33 +251,30 @@ uint8_t vacuum_move(uint16_t *x, uint16_t *y)
 void vacuums_windows(ColorWindow *w, uint8_t *from, uint8_t *to)
 {
     static const uint8_t pulse[8] = { 0, 1, 2, 3, 3, 2, 1, 0 };
-    uint8_t i;
-    for (i = 0; i < NUM_PLAYERS && i < NUM_WINDOWS; i++) {
+    for (uint8_t i = 0; i < NUM_PLAYERS && i < NUM_WINDOWS; i++) {
         const Vacuum *v = &vacuums[i];
         ColorWindow *wi = &w[i];   /* once: 816-tcc multiplies for every w[i] */
-        int16_t cx, cy, line, first, end;
-        uint8_t amount;
         if (!v->timer) {
             continue;
         }
-        amount = (uint8_t)(3 + pulse[(g_frame >> 2) & 7]);
+        uint8_t amount = (uint8_t)(3 + pulse[(g_frame >> 2) & 7]);
         if (v->timer < VACUUM_SHRINK) {
             amount = (uint8_t)(((uint16_t)amount * v->scale) >> 8);
         }
         wi->add_r = (uint8_t)(amount >> 1);
         wi->add_g = (uint8_t)(amount - (amount >> 2));
         wi->add_b = amount;
-        cx = (int16_t)(PX(v->x) + 8);
-        cy = (int16_t)(PX(v->y) + 8);
+        int16_t cx = (int16_t)(PX(v->x) + 8);
+        int16_t cy = (int16_t)(PX(v->y) + 8);
         /* the ellipse's lines, not over the HUD */
-        first = (int16_t)(cy - v->ry);
-        end = (int16_t)(cy + v->ry + 1);
+        int16_t first = (int16_t)(cy - v->ry);
+        int16_t end = (int16_t)(cy + v->ry + 1);
         if (first < FIELD_Y) first = FIELD_Y;
         if (end > FIELD_BOTTOM) end = FIELD_BOTTOM;
         if (end < first) end = first;
         from[i] = (uint8_t)first;
         to[i] = (uint8_t)end;
-        for (line = first; line < end; line++) {
+        for (int16_t line = first; line < end; line++) {
             uint8_t ady = (uint8_t)iabs((int16_t)(line - cy));
             int16_t hw = v->span[ady];
             int16_t l = (int16_t)(cx - hw), r = (int16_t)(cx + hw);

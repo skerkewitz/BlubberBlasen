@@ -58,11 +58,10 @@ static PushShot push_shots[NUM_PLAYERS];
 
 void bubbles_clear(void)
 {
-    uint8_t i;
-    for (i = 0; i < MAX_BUBBLES; i++) {
+    for (uint8_t i = 0; i < MAX_BUBBLES; i++) {
         g_bubbles[i].state = BS_OFF;
     }
-    for (i = 0; i < NUM_PLAYERS; i++) {
+    for (uint8_t i = 0; i < NUM_PLAYERS; i++) {
         push_shots[i].active = 0;
     }
     vacuums_clear();
@@ -76,10 +75,10 @@ static uint8_t floating(const Bubble *b)
 
 static Bubble *alloc_bubble(void)
 {
-    uint8_t i, oldest = 0xFF;
+    uint8_t oldest = 0xFF;
 
     /* Take a free slot, or replace the oldest plain floating bubble. */
-    for (i = 0; i < MAX_BUBBLES; i++) {
+    for (uint8_t i = 0; i < MAX_BUBBLES; i++) {
         const Bubble *b = &g_bubbles[i];
         if (b->state == BS_OFF) {
             return &g_bubbles[i];
@@ -121,14 +120,13 @@ static uint8_t in_wall(uint16_t x, uint16_t y)
 
 void bubble_shoot(uint16_t x, uint16_t y, uint8_t dir, uint16_t powers)
 {
-    Bubble *b;
     if (in_wall(x, y)) {
         /* Plus mode: blown into a wall at point-blank, it pops at once */
         item_spawn(IT_BURST, x, y, 0);
         sfx(SFX_POP);
         return;
     }
-    b = alloc_bubble();
+    Bubble *b = alloc_bubble();
     if (!b) {
         return;
     }
@@ -166,8 +164,8 @@ void bubble_pop(Bubble *b, int8_t dir, uint8_t player)
 
 uint8_t bubbles_trapped_to_gems(void)
 {
-    uint8_t i, n = 0;
-    for (i = 0; i < MAX_BUBBLES; i++) {
+    uint8_t n = 0;
+    for (uint8_t i = 0; i < MAX_BUBBLES; i++) {
         Bubble *b = &g_bubbles[i];
         if (b->state == BS_TRAPPED || (b->state == BS_POPPING && b->trapped)) {
             item_spawn_thrown(b->x, b->y, (int8_t)((i & 1) ? -1 : 1), GEM_TIER);
@@ -200,8 +198,8 @@ uint8_t push_active(uint8_t player)
 
 uint8_t bubbles_trapped_count(void)
 {
-    uint8_t i, n = 0;
-    for (i = 0; i < MAX_BUBBLES; i++) {
+    uint8_t n = 0;
+    for (uint8_t i = 0; i < MAX_BUBBLES; i++) {
         const Bubble *b = &g_bubbles[i];
         n = (uint8_t)(n + (b->state == BS_TRAPPED || (b->state == BS_POPPING && b->trapped)));
     }
@@ -245,8 +243,6 @@ static uint8_t in_chain_reach(const Bubble *a, const Bubble *b)
 /* Burst one link of a chain and light the fuse of every bubble in reach. */
 static void burst(Bubble *b)
 {
-    uint8_t i;
-
     if (b->trapped) {
         uint8_t tier = (uint8_t)(chain_kills < FOOD_TIERS - 1 ? chain_kills : FOOD_TIERS - 1);
         int8_t dir = chain_kills == 0 ? chain_dir : (int8_t)((rng_next() & 1) ? 1 : -1);
@@ -282,7 +278,7 @@ static void burst(Bubble *b)
     }
     b->state = BS_OFF;
 
-    for (i = 0; i < MAX_BUBBLES; i++) {
+    for (uint8_t i = 0; i < MAX_BUBBLES; i++) {
         Bubble *o = &g_bubbles[i];
         if (floating(o) && in_chain_reach(b, o)) {
             o->trapped = (uint8_t)(o->state == BS_TRAPPED);
@@ -297,8 +293,7 @@ static void burst(Bubble *b)
  * bubble that comes from the front. Returns 1 if the bubble is used up. */
 static uint8_t catch_enemy(Bubble *b)
 {
-    uint8_t i;
-    for (i = 0; i < MAX_ENEMIES; i++) {
+    for (uint8_t i = 0; i < MAX_ENEMIES; i++) {
         Enemy *e = &g_enemies[i];
         if (e->active && !e->entering && overlap(b->x, b->y, e->x, e->y, 12, 12)) {
             if (enemy_shield_blocks(e, b->x)) {
@@ -388,32 +383,29 @@ static int16_t abs16(int16_t v)
 
 static void separate(void)
 {
-    uint8_t i, j;
-    for (i = 0; i < MAX_BUBBLES; i++) {
+    for (uint8_t i = 0; i < MAX_BUBBLES; i++) {
         Bubble *a = &g_bubbles[i];
         if (!floating(a)) {
             continue;
         }
-        for (j = (uint8_t)(i + 1); j < MAX_BUBBLES; j++) {
+        for (uint8_t j = (uint8_t)(i + 1); j < MAX_BUBBLES; j++) {
             Bubble *b = &g_bubbles[j];
-            int16_t dx, dy, adx, ady;
-            uint16_t push;
 
             if (!floating(b)) {
                 continue;
             }
-            dx = (int16_t)((int16_t)PX(a->x) - (int16_t)PX(b->x));
+            int16_t dx = (int16_t)((int16_t)PX(a->x) - (int16_t)PX(b->x));
             /* |dx| >= STICK_REACH without the absolute value: most pairs end
              * here, so the cheapest test comes first (one compare, unsigned) */
             if ((uint16_t)(dx + (STICK_REACH - 1)) > 2 * (STICK_REACH - 1)) {
                 continue;
             }
-            dy = (int16_t)((int16_t)PX(a->y) - (int16_t)PX(b->y));
+            int16_t dy = (int16_t)((int16_t)PX(a->y) - (int16_t)PX(b->y));
             if ((uint16_t)(dy + (STICK_REACH - 1)) > 2 * (STICK_REACH - 1)) {
                 continue;
             }
-            adx = abs16(dx);
-            ady = abs16(dy);
+            int16_t adx = abs16(dx);
+            int16_t ady = abs16(dy);
             if (adx >= PUSH_REACH || ady >= PUSH_REACH) {
                 /* Close but not touching: soap bubbles cling together, so
                  * a loose group closes into a cluster that chains. Only the
@@ -434,7 +426,7 @@ static void separate(void)
                 continue;
             }
             if (adx >= ady) {
-                push = (uint16_t)((PUSH_REACH - adx) << 4);
+                uint16_t push = (uint16_t)((PUSH_REACH - adx) << 4);
                 if (dx > 0 || (dx == 0 && (i & 1))) {
                     a->x = (uint16_t)(a->x + push);
                     b->x = (uint16_t)(b->x - push);
@@ -443,7 +435,7 @@ static void separate(void)
                     b->x = (uint16_t)(b->x + push);
                 }
             } else {
-                push = (uint16_t)((PUSH_REACH - ady) << 4);
+                uint16_t push = (uint16_t)((PUSH_REACH - ady) << 4);
                 if (dy > 0) {
                     a->y = (uint16_t)(a->y + push);
                     b->y = (uint16_t)(b->y - push);
@@ -511,13 +503,11 @@ static void push_burst(PushShot *s)
 static void update_push(uint8_t id)
 {
     PushShot *s = &push_shots[id];
-    uint16_t before;
-    uint8_t i;
 
     if (!s->active) {
         return;
     }
-    before = s->x;
+    uint16_t before = s->x;
     if (s->dir == AIR_UP) {
         if (PX(s->y) < TOP_LIMIT + PX(PUSH_SPEED) + 1) {
             push_burst(s);               /* the room's ceiling */
@@ -531,7 +521,7 @@ static void update_push(uint8_t id)
     }
     s->age++;
 
-    for (i = 0; i < MAX_BUBBLES; i++) {
+    for (uint8_t i = 0; i < MAX_BUBBLES; i++) {
         Bubble *b = &g_bubbles[i];
         if (floating(b) && overlap(s->x, s->y, b->x, b->y, PUSH_HIT, PUSH_HIT)) {
             if (b->kind != BK_NORMAL) {
@@ -544,7 +534,7 @@ static void update_push(uint8_t id)
             return;
         }
     }
-    for (i = 0; i < MAX_ITEMS; i++) {
+    for (uint8_t i = 0; i < MAX_ITEMS; i++) {
         Item *it = &g_items[i];
         if (it->kind == IT_ROCK && overlap(s->x, s->y, it->x, it->y, PUSH_HIT, PUSH_HIT)) {
             it->kind = IT_OFF;
@@ -553,14 +543,14 @@ static void update_push(uint8_t id)
             return;
         }
     }
-    for (i = 0; i < MAX_ENEMIES; i++) {
+    for (uint8_t i = 0; i < MAX_ENEMIES; i++) {
         const Enemy *e = &g_enemies[i];
         if (e->active && !e->entering && overlap(s->x, s->y, e->x, e->y, PUSH_HIT, PUSH_HIT)) {
             push_burst(s);
             return;
         }
     }
-    for (i = 0; i < NUM_PLAYERS; i++) {
+    for (uint8_t i = 0; i < NUM_PLAYERS; i++) {
         const Player *p = &g_players[i];
         if (i != id && (p->state == PS_ALIVE || p->state == PS_RESCUE) &&
             overlap(s->x, s->y, p->x, p->y, PUSH_HIT, PUSH_HIT)) {
@@ -575,15 +565,14 @@ static void update_push(uint8_t id)
 
 void bubbles_update(void)
 {
-    uint8_t i;
     uint8_t popping = 0;
 
     vacuums_tick();
-    for (i = 0; i < NUM_PLAYERS; i++) {
+    for (uint8_t i = 0; i < NUM_PLAYERS; i++) {
         update_push(i);
     }
 
-    for (i = 0; i < MAX_BUBBLES; i++) {
+    for (uint8_t i = 0; i < MAX_BUBBLES; i++) {
         Bubble *b = &g_bubbles[i];
         if (b->state == BS_OFF) {
             continue;
@@ -639,7 +628,7 @@ void bubbles_update(void)
      * open: everything one dash sweeps through is one chain, even bubbles
      * that do not touch (Plus mode, design guide "Dash"). Its letters were
      * earned as it ran (multikill_kill). */
-    for (i = 0; i < MAX_BUBBLES && !popping; i++) {
+    for (uint8_t i = 0; i < MAX_BUBBLES && !popping; i++) {
         popping = (uint8_t)(g_bubbles[i].state == BS_POPPING);
     }
     if (!popping && !player_dash_invulnerable(&g_players[chain_owner])) {
@@ -650,15 +639,14 @@ void bubbles_update(void)
 void bubbles_draw(void)
 {
     static const uint8_t phase[4] = { 0, 1, 2, 1 };
-    uint8_t i;
 
-    for (i = 0; i < MAX_BUBBLES; i++) {
+    for (uint8_t i = 0; i < MAX_BUBBLES; i++) {
         const Bubble *b = &g_bubbles[i];
-        uint8_t ph, tile;
         if (b->state == BS_OFF) {
             continue;
         }
-        ph = phase[((b->age >> 3) + b->anim) & 3];
+        uint8_t ph = phase[((b->age >> 3) + b->anim) & 3];
+        uint8_t tile;
 
         if (b->kind != BK_NORMAL && !(b->state == BS_POPPING && b->trapped)) {
             if (b->age >= SPECIAL_LIFE - 120 && (b->age & 4)) {
@@ -703,7 +691,7 @@ void bubbles_draw(void)
         }
         oam_add(PX(b->x), PX(b->y), tile, 0);
     }
-    for (i = 0; i < NUM_PLAYERS; i++) {
+    for (uint8_t i = 0; i < NUM_PLAYERS; i++) {
         if (push_shots[i].active) {
             oam_add(PX(push_shots[i].x), PX(push_shots[i].y), SPR_PUSH, 0);
         }

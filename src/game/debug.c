@@ -69,23 +69,23 @@ static uint8_t add_box(DebugBox *out, uint8_t n, uint8_t max, uint16_t x, uint16
  *   boss    30 x 28  touches(20) measures centres: 20 - 10/2 = 15, 20 - 12/2 = 14 */
 uint8_t game_debug_boxes(DebugBox *out, uint8_t max)
 {
-    uint8_t i, n = 0;
-    for (i = 0; i < NUM_PLAYERS; i++) {
+    uint8_t n = 0;
+    for (uint8_t i = 0; i < NUM_PLAYERS; i++) {
         if (g_players[i].state == PS_ALIVE) {
             n = add_box(out, n, max, g_players[i].x, g_players[i].y, 10, 12, 0);
         }
     }
-    for (i = 0; i < MAX_ENEMIES; i++) {
+    for (uint8_t i = 0; i < MAX_ENEMIES; i++) {
         if (g_enemies[i].active && !g_enemies[i].spawn_delay) {
             n = add_box(out, n, max, g_enemies[i].x, g_enemies[i].y, 10, 12, 1);
         }
     }
-    for (i = 0; i < MAX_BUBBLES; i++) {
+    for (uint8_t i = 0; i < MAX_BUBBLES; i++) {
         if (g_bubbles[i].state != BS_OFF) {
             n = add_box(out, n, max, g_bubbles[i].x, g_bubbles[i].y, 14, 12, 2);
         }
     }
-    for (i = 0; i < MAX_ITEMS; i++) {
+    for (uint8_t i = 0; i < MAX_ITEMS; i++) {
         if (g_items[i].kind != IT_OFF && g_items[i].kind != IT_POPUP && g_items[i].kind != IT_BURST) {
             uint8_t rock = (uint8_t)(g_items[i].kind == IT_ROCK);
             n = add_box(out, n, max, g_items[i].x, g_items[i].y, (uint8_t)(rock ? 6 : 14), (uint8_t)(rock ? 4 : 12), 3);
@@ -113,14 +113,13 @@ const char *game_debug_spawn_name(uint8_t what)
 void game_debug_spawn(uint8_t what)
 {
     const Player *p = &g_players[0];
-    uint16_t x, y;
 
     if (g_state != GS_PLAY || p->state != PS_ALIVE) {
         return;
     }
-    x = (uint16_t)(p->facing_left ? p->x - TO_POS(24) : p->x + TO_POS(24));
+    uint16_t x = (uint16_t)(p->facing_left ? p->x - TO_POS(24) : p->x + TO_POS(24));
     level_clamp_x(&x);
-    y = p->y;
+    uint16_t y = p->y;
     if (what < POWER_COUNT) {
         item_spawn_powerup(what, x, y);
     } else if (what < POWER_COUNT + 3) {
@@ -144,9 +143,9 @@ static uint8_t add_object(DebugObject *out, uint8_t n, uint8_t max, const DebugO
 uint8_t game_debug_objects(DebugObject *out, uint8_t max)
 {
     DebugObject o;
-    uint8_t i, n = 0;
+    uint8_t n = 0;
 
-    for (i = 0; i < NUM_PLAYERS; i++) {
+    for (uint8_t i = 0; i < NUM_PLAYERS; i++) {
         const Player *p = &g_players[i];
         o.kind = DOBJ_PLAYER;
         o.slot = i;
@@ -161,7 +160,7 @@ uint8_t game_debug_objects(DebugObject *out, uint8_t max)
                             (p->cpu ? DOBJ_CPU : 0u) | (p->stun ? DOBJ_STUNNED : 0u));
         n = add_object(out, n, max, &o);
     }
-    for (i = 0; i < MAX_ENEMIES; i++) {
+    for (uint8_t i = 0; i < MAX_ENEMIES; i++) {
         const Enemy *e = &g_enemies[i];
         if (!e->active) {
             continue;
@@ -179,7 +178,7 @@ uint8_t game_debug_objects(DebugObject *out, uint8_t max)
                             (e->stun ? DOBJ_STUNNED : 0u) | (e->entering || e->spawn_delay ? DOBJ_ENTERING : 0u));
         n = add_object(out, n, max, &o);
     }
-    for (i = 0; i < MAX_BUBBLES; i++) {
+    for (uint8_t i = 0; i < MAX_BUBBLES; i++) {
         const Bubble *b = &g_bubbles[i];
         if (b->state == BS_OFF) {
             continue;
@@ -196,7 +195,7 @@ uint8_t game_debug_objects(DebugObject *out, uint8_t max)
         o.flags = (uint8_t)((b->angry ? DOBJ_ANGRY : 0u) | (b->trapped ? DOBJ_TRAPPED : 0u));
         n = add_object(out, n, max, &o);
     }
-    for (i = 0; i < MAX_ITEMS; i++) {
+    for (uint8_t i = 0; i < MAX_ITEMS; i++) {
         const Item *it = &g_items[i];
         if (it->kind == IT_OFF) {
             continue;
@@ -223,7 +222,6 @@ static const char *const state_names[] = {
 
 void game_debug_status(DebugStatus *out)
 {
-    uint8_t i, k;
     out->state = (uint8_t)g_state < sizeof state_names / sizeof state_names[0] ? state_names[g_state] : "?";
     out->round = g_round;
     out->round_frames = g_level_frames;
@@ -231,10 +229,10 @@ void game_debug_status(DebugStatus *out)
     out->hurry = g_hurry;
     out->freeze = g_freeze;
     out->plus = g_opt.plus;
-    for (i = 0; i < NUM_PLAYERS; i++) {
+    for (uint8_t i = 0; i < NUM_PLAYERS; i++) {
         out->lives[i] = g_players[i].lives;
         out->letters[i] = g_players[i].letters;
-        for (k = 0; k < 8; k++) {
+        for (uint8_t k = 0; k < 8; k++) {
             out->score[i][k] = g_players[i].score[k];
         }
     }

@@ -73,12 +73,11 @@ static uint8_t  powerup_placed;   /* at most one power-up per round */
 
 void effects_clear(void)
 {
-    uint8_t i;
-    for (i = 0; i < MAX_EFFECTS; i++) {
+    for (uint8_t i = 0; i < MAX_EFFECTS; i++) {
         effects[i].kind = EF_OFF;
         effects[i].carrying = 0;
     }
-    for (i = 0; i < NUM_PLAYERS; i++) {
+    for (uint8_t i = 0; i < NUM_PLAYERS; i++) {
         g_players[i].carried = 0;
     }
     special_timer = 0;
@@ -88,8 +87,7 @@ void effects_clear(void)
 
 void effect_start(uint8_t kind, uint16_t x, uint16_t y, int8_t dir, uint8_t player)
 {
-    uint8_t i;
-    for (i = 0; i < MAX_EFFECTS; i++) {
+    for (uint8_t i = 0; i < MAX_EFFECTS; i++) {
         Effect *ef = &effects[i];
         if (ef->kind != EF_OFF) {
             continue;
@@ -110,9 +108,8 @@ void effect_start(uint8_t kind, uint16_t x, uint16_t y, int8_t dir, uint8_t play
 
 void effect_start_glove(uint16_t x, uint16_t y, int8_t dir, uint8_t player)
 {
-    uint8_t i;
     effect_start(BK_LIGHTNING, x, y, dir, player);
-    for (i = MAX_EFFECTS; i > 0; i--) {
+    for (uint8_t i = MAX_EFFECTS; i > 0; i--) {
         Effect *ef = &effects[i - 1];
         if (ef->kind == EF_BOLT && ef->x == x && ef->y == y && !ef->glove) {
             ef->glove = 1;
@@ -124,8 +121,7 @@ void effect_start_glove(uint16_t x, uint16_t y, int8_t dir, uint8_t player)
 /* An enemy hit by an effect flies off and becomes food (one combo per effect). */
 static void sweep_enemies(Effect *ef, uint16_t x, uint16_t y, uint8_t w, uint8_t h)
 {
-    uint8_t i;
-    for (i = 0; i < MAX_ENEMIES; i++) {
+    for (uint8_t i = 0; i < MAX_ENEMIES; i++) {
         Enemy *e = &g_enemies[i];
         if (e->active && !e->entering && overlap(x, y, e->x, e->y, w, h)) {
             uint8_t tier = (uint8_t)(ef->combo < FOOD_TIERS - 1 ? ef->combo : FOOD_TIERS - 1);
@@ -149,8 +145,7 @@ static void sweep_enemies(Effect *ef, uint16_t x, uint16_t y, uint8_t w, uint8_t
 
 static void release_players(Effect *ef)
 {
-    uint8_t i;
-    for (i = 0; i < NUM_PLAYERS; i++) {
+    for (uint8_t i = 0; i < NUM_PLAYERS; i++) {
         if (ef->carrying & (1u << i)) {
             g_players[i].carried = 0;
             g_players[i].vy = 0;
@@ -162,8 +157,7 @@ static void release_players(Effect *ef)
 /* Players the stream touches ride along with its head, unharmed. */
 static void carry_players(Effect *ef)
 {
-    uint8_t i;
-    for (i = 0; i < NUM_PLAYERS; i++) {
+    for (uint8_t i = 0; i < NUM_PLAYERS; i++) {
         Player *p = &g_players[i];
         if (p->state != PS_ALIVE) {
             if (ef->carrying & (1u << i)) {
@@ -187,8 +181,6 @@ static void carry_players(Effect *ef)
 
 static void update_water(Effect *ef)
 {
-    uint8_t i;
-
     if (++ef->timer >= WATER_FRAMES) {
         release_players(ef);
         ef->kind = EF_OFF;
@@ -215,7 +207,7 @@ static void update_water(Effect *ef)
     }
 
     if ((ef->timer & WATER_SAMPLE) == 0) {
-        for (i = (uint8_t)(WATER_SEGMENTS - 1); i > 0; i--) {
+        for (uint8_t i = (uint8_t)(WATER_SEGMENTS - 1); i > 0; i--) {
             ef->trail_x[i] = ef->trail_x[i - 1];
             ef->trail_y[i] = ef->trail_y[i - 1];
         }
@@ -228,7 +220,7 @@ static void update_water(Effect *ef)
 
     carry_players(ef);
     sweep_enemies(ef, ef->x, ef->y, 14, 14);
-    for (i = 0; i < ef->trail_len; i++) {
+    for (uint8_t i = 0; i < ef->trail_len; i++) {
         sweep_enemies(ef, TO_POS(ef->trail_x[i]), TO_POS(ef->trail_y[i]), 14, 14);
     }
 }
@@ -238,18 +230,16 @@ static void light_carpet(Effect *ef)
 {
     uint8_t cx = (uint8_t)(PX(ef->x) + 8);
     uint8_t left = (uint8_t)(cx & 0xF8u), right = (uint8_t)(cx & 0xF8u);
-    uint8_t k;
-    uint16_t probe;
 
-    for (k = 0; k < FIRE_REACH; k++) {
-        probe = TO_POS(left - 8 - 4);
+    for (uint8_t k = 0; k < FIRE_REACH; k++) {
+        uint16_t probe = TO_POS(left - 8 - 4);
         if (left < 24 || !level_on_ground(probe, ef->y)) {
             break;
         }
         left = (uint8_t)(left - 8);
     }
-    for (k = 0; k < FIRE_REACH; k++) {
-        probe = TO_POS(right + 8 - 4);
+    for (uint8_t k = 0; k < FIRE_REACH; k++) {
+        uint16_t probe = TO_POS(right + 8 - 4);
         if (right > SCREEN_W - 32 || !level_on_ground(probe, ef->y)) {
             break;
         }
@@ -263,19 +253,18 @@ static void light_carpet(Effect *ef)
 
 static void update_fire(Effect *ef)
 {
-    uint8_t i;
     if (--ef->timer == 0) {
         ef->kind = EF_OFF;
         return;
     }
-    for (i = 0; i < MAX_ENEMIES; i++) {
+    for (uint8_t i = 0; i < MAX_ENEMIES; i++) {
         Enemy *e = &g_enemies[i];
         uint8_t cx = (uint8_t)(PX(e->x) + 8);
         if (e->active && !e->entering && cx >= ef->left && cx < ef->right && overlap(e->x, e->y, e->x, ef->y, 1, 10)) {
             sweep_enemies(ef, e->x, e->y, 1, 1);
         }
     }
-    for (i = 0; i < NUM_PLAYERS; i++) {
+    for (uint8_t i = 0; i < NUM_PLAYERS; i++) {
         Player *p = &g_players[i];
         uint8_t cx = (uint8_t)(PX(p->x) + 8);
         if (p->state == PS_ALIVE && !p->stun && !p->invulnerable && cx >= ef->left && cx < ef->right &&
@@ -287,10 +276,9 @@ static void update_fire(Effect *ef)
 
 static void update_bolt(Effect *ef)
 {
-    uint8_t cx;
     fx8_8 speed = ef->glove ? GLOVE_SPEED : BOLT_SPEED;
     ef->x = (uint16_t)(ef->dir < 0 ? ef->x - (uint16_t)speed : ef->x + (uint16_t)speed);
-    cx = (uint8_t)(PX(ef->x) + 8);
+    uint8_t cx = (uint8_t)(PX(ef->x) + 8);
     if (cx < BODY_MIN_CX || cx > BODY_MAX_CX || PX(ef->x) >= 0xF0u) {
         ef->kind = EF_OFF;
         return;
@@ -315,9 +303,9 @@ static void update_bolt(Effect *ef)
 static uint8_t pick_letter(uint8_t player)
 {
     uint8_t missing = (uint8_t)(BLASEN_ALL & (uint8_t)~g_players[player].letters);
-    uint8_t want = missing, letter, tries, i;
+    uint8_t want = missing;
 
-    for (i = 0; i < MAX_BUBBLES; i++) {
+    for (uint8_t i = 0; i < MAX_BUBBLES; i++) {
         const Bubble *b = &g_bubbles[i];
         if (b->state == BS_FLOAT && b->kind == BK_LETTER) {
             want = (uint8_t)(want & (uint8_t)~(1u << b->letter));
@@ -326,8 +314,8 @@ static uint8_t pick_letter(uint8_t player)
     if (!want) {
         want = missing ? missing : BLASEN_ALL;
     }
-    letter = (uint8_t)(rng_next() & 7);
-    for (tries = 0; tries < 8; tries++) {
+    uint8_t letter = (uint8_t)(rng_next() & 7);
+    for (uint8_t tries = 0; tries < 8; tries++) {
         letter = (uint8_t)(letter >= 5 ? 0 : letter + 1);
         if (want & (1u << letter)) {
             break;
@@ -359,8 +347,7 @@ static void emit_bubbles(void)
 
 void effects_update(void)
 {
-    uint8_t i;
-    for (i = 0; i < MAX_EFFECTS; i++) {
+    for (uint8_t i = 0; i < MAX_EFFECTS; i++) {
         Effect *ef = &effects[i];
         switch (ef->kind) {
         case EF_WATER:
@@ -386,14 +373,13 @@ void effects_update(void)
 
 void effects_draw(void)
 {
-    uint8_t i, k;
-    for (i = 0; i < MAX_EFFECTS; i++) {
+    for (uint8_t i = 0; i < MAX_EFFECTS; i++) {
         const Effect *ef = &effects[i];
         uint8_t anim = (uint8_t)((g_frame >> 3) & 1);
         switch (ef->kind) {
         case EF_WATER:
             oam_add(PX(ef->x), PX(ef->y), (uint8_t)(SPR_WATER0 + anim), 0);
-            for (k = 0; k < ef->trail_len; k++) {
+            for (uint8_t k = 0; k < ef->trail_len; k++) {
                 oam_add(ef->trail_x[k], ef->trail_y[k], (uint8_t)(SPR_WATER0 + ((anim + k) & 1)), 0);
             }
             break;
@@ -401,7 +387,7 @@ void effects_draw(void)
             oam_add(PX(ef->x), PX(ef->y), SPR_FIREBALL, 0);
             break;
         case EF_FIRE:
-            for (k = ef->left; k < ef->right; k = (uint8_t)(k + 16)) {
+            for (uint8_t k = ef->left; k < ef->right; k = (uint8_t)(k + 16)) {
                 uint8_t x = (uint8_t)(k + 16 > ef->right ? ef->right - 16 : k);
                 /* Neighbouring pieces are a frame apart, and every other pair is
                  * mirrored, so the carpet does not show a repeating pattern. */
@@ -444,8 +430,7 @@ void multikill_kill(uint8_t player, uint8_t count)
 
 void multikill_award(uint8_t player, uint8_t n)
 {
-    uint8_t k;
-    for (k = 1; k <= n; k++) {
+    for (uint8_t k = 1; k <= n; k++) {
         multikill_kill(player, k);
     }
 }
@@ -453,8 +438,7 @@ void multikill_award(uint8_t player, uint8_t n)
 /* A new game: no letters waiting from the last one. */
 void blasen_reset(void)
 {
-    uint8_t i;
-    for (i = 0; i < NUM_PLAYERS; i++) {
+    for (uint8_t i = 0; i < NUM_PLAYERS; i++) {
         letters_queued[i] = 0;
     }
     letter_turn = 0;
@@ -519,12 +503,11 @@ void counters_check(void)
 void powerup_round_tick(void)
 {
     const LevelDef *def = &level_defs[g_level];
-    uint8_t power;
 
     if (powerup_placed || g_level_frames != POWERUP_DELAY || !g_count.queued || def->enemy_count == 0) {
         return;
     }
-    for (power = 0; power < POWER_COUNT; power++) {
+    for (uint8_t power = 0; power < POWER_COUNT; power++) {
         if (g_count.queued & POWER_BIT(power)) {
             g_count.queued = (uint16_t)(g_count.queued & (0xFFFFu ^ POWER_BIT(power)));
             powerup_placed = 1;

@@ -131,8 +131,7 @@ static void dash_move(Player *p)
     if (p->dash == 0 && inside_wall(p->x, p->y)) {
         /* ending inside a wall: run on to the next free spot, else back to the last one */
         uint16_t x = p->x;
-        uint8_t k;
-        for (k = 0; k < DASH_EXTEND; k++) {
+        for (uint8_t k = 0; k < DASH_EXTEND; k++) {
             uint16_t before = x;
             x = (uint16_t)(p->dash_dir < 0 ? x - TO_POS(1) : x + TO_POS(1));
             level_clamp_x(&x);
@@ -274,8 +273,7 @@ void player_enter_round(Player *p)
 
 uint8_t players_entering(void)
 {
-    uint8_t i;
-    for (i = 0; i < NUM_PLAYERS; i++) {
+    for (uint8_t i = 0; i < NUM_PLAYERS; i++) {
         if (g_players[i].state == PS_ENTERING) {
             return 1;
         }
@@ -285,8 +283,8 @@ uint8_t players_entering(void)
 
 uint8_t players_in_game(void)
 {
-    uint8_t i, n = 0;
-    for (i = 0; i < NUM_PLAYERS; i++) {
+    uint8_t n = 0;
+    for (uint8_t i = 0; i < NUM_PLAYERS; i++) {
         n = (uint8_t)(n + (g_players[i].state != PS_OFF));
     }
     return n;
@@ -297,18 +295,15 @@ const Player *player_nearest(uint16_t x, uint16_t y)
 {
     const Player *best = &g_players[0];
     uint16_t best_d = 0xFFFFu;
-    uint8_t i;
 
-    for (i = 0; i < NUM_PLAYERS; i++) {
+    for (uint8_t i = 0; i < NUM_PLAYERS; i++) {
         const Player *p = &g_players[i];
-        int16_t dx, dy;
-        uint16_t d;
         if (p->state != PS_ALIVE) {
             continue;
         }
-        dx = (int16_t)((int16_t)PX(p->x) - (int16_t)PX(x));
-        dy = (int16_t)((int16_t)PX(p->y) - (int16_t)PX(y));
-        d = (uint16_t)((dx < 0 ? -dx : dx) + (dy < 0 ? -dy : dy));
+        int16_t dx = (int16_t)((int16_t)PX(p->x) - (int16_t)PX(x));
+        int16_t dy = (int16_t)((int16_t)PX(p->y) - (int16_t)PX(y));
+        uint16_t d = (uint16_t)((dx < 0 ? -dx : dx) + (dy < 0 ? -dy : dy));
         if (d < best_d) {
             best_d = d;
             best = p;
@@ -424,7 +419,7 @@ static uint8_t aim(const Player *p, uint16_t pad, uint16_t *bx, uint16_t *by)
 
 static void shoot(Player *p, uint16_t pad, uint16_t pressed)
 {
-    uint8_t fire = 0, dir;
+    uint8_t dir;
     uint16_t bx, by;
 
     if (p->shoot_cooldown) {
@@ -451,7 +446,7 @@ static void shoot(Player *p, uint16_t pad, uint16_t pressed)
         sfx(SFX_VACUUM);
     }
 
-    fire = (uint8_t)((pressed & PAD_Y) != 0);
+    uint8_t fire = (uint8_t)((pressed & PAD_Y) != 0);
     if (fire && p->shoot_cooldown == 0) {
         dir = aim(p, pad, &bx, &by);
         if (p->powers & POWER_BIT(POWER_GLOVE)) {
@@ -475,9 +470,8 @@ static void shoot(Player *p, uint16_t pad, uint16_t pressed)
  * a taller band and always pops. */
 static void touch_bubbles(Player *p, uint16_t pad)
 {
-    uint8_t i;
     uint8_t w = (uint8_t)(p->dash ? DASH_POP_X : 12), h = (uint8_t)(p->dash ? DASH_POP_Y : 12);
-    for (i = 0; i < MAX_BUBBLES; i++) {
+    for (uint8_t i = 0; i < MAX_BUBBLES; i++) {
         Bubble *b = &g_bubbles[i];
         if ((b->state != BS_FLOAT && b->state != BS_TRAPPED) || !overlap(p->x, p->y, b->x, b->y, w, h)) {
             continue;
@@ -526,9 +520,8 @@ void player_update(Player *p, uint16_t pad, uint16_t pressed)
         if (p->carried) {
             /* Riding a water stream: the stream moves the player and
              * ends a dash (it must not wait out the ride, invulnerable). */
-            uint8_t touch;
             p->dash = 0;
-            touch = safe(p) ? TOUCH_NONE : enemies_touch(p->x, p->y);
+            uint8_t touch = safe(p) ? TOUCH_NONE : enemies_touch(p->x, p->y);
             if (touch) {
                 hurt(p, touch);
             }

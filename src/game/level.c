@@ -56,11 +56,10 @@ uint8_t level_cell(uint8_t tx, uint8_t ty)
 
 uint8_t level_air_at(uint8_t sx, uint8_t sy)
 {
-    uint8_t ty;
     if (sy < FIELD_Y || sy >= FIELD_BOTTOM) {
         return AIR_NONE;
     }
-    ty = (uint8_t)((sy - FIELD_Y) >> 3);
+    uint8_t ty = (uint8_t)((sy - FIELD_Y) >> 3);
     return (uint8_t)(cells[((uint16_t)ty << 5) + (sx >> 3)] & CELL_AIR_MASK);
 }
 
@@ -143,13 +142,12 @@ uint8_t level_can_jump_up(uint16_t x, uint16_t y)
 {
     int16_t tx = (int16_t)((PX(x) + 8) >> 3);
     int16_t ty = feet_tile_row(y);
-    uint8_t i;
 
     if (ty - 5 < 1) {
         return 0;
     }
 
-    for (i = 1; i <= 4; i++) {
+    for (uint8_t i = 1; i <= 4; i++) {
         if (level_solid_tile(tx, (int16_t)(ty - i))) {
             return 0;
         }
@@ -168,9 +166,8 @@ uint8_t level_can_gap_jump(uint16_t x, uint16_t y, int8_t dir)
 {
     int16_t tx = (int16_t)(((dir < 0 ? PX(x) + 1 : PX(x) + 14)) >> 3);
     int16_t ty = feet_tile_row(y);
-    uint8_t i;
 
-    for (i = 0; i < 4; i++) {
+    for (uint8_t i = 0; i < 4; i++) {
         if (level_solid_tile(tx, (int16_t)(ty - 1))) {
             return 0;
         }
@@ -186,8 +183,6 @@ uint8_t level_can_gap_jump(uint16_t x, uint16_t y, int8_t dir)
  * drop shadow they cast to the bottom right). */
 static uint8_t autotile(int16_t x, int16_t y)
 {
-    uint8_t above, left, above_left;
-
     if (level_solid_tile(x, y) && x >= 0 && x < LEVEL_W) {
         if (x == 0 || x == LEVEL_W - 2) {
             return (y & 1) ? TS_BLOCK_BL : TS_BLOCK_TL;
@@ -198,9 +193,9 @@ static uint8_t autotile(int16_t x, int16_t y)
         return TS_DEFAULT;
     }
 
-    above      = (uint8_t)(y > 0 && level_solid_tile(x, (int16_t)(y - 1)));
-    left       = (uint8_t)(x > 0 && level_solid_tile((int16_t)(x - 1), y));
-    above_left = (uint8_t)(x > 0 && y > 0 && level_solid_tile((int16_t)(x - 1), (int16_t)(y - 1)));
+    uint8_t above      = (uint8_t)(y > 0 && level_solid_tile(x, (int16_t)(y - 1)));
+    uint8_t left       = (uint8_t)(x > 0 && level_solid_tile((int16_t)(x - 1), y));
+    uint8_t above_left = (uint8_t)(x > 0 && y > 0 && level_solid_tile((int16_t)(x - 1), (int16_t)(y - 1)));
 
     if (above) {
         if (left) {
@@ -221,9 +216,8 @@ static uint8_t autotile(int16_t x, int16_t y)
  * row; rooms without an opening release them near the bottom centre. */
 void level_opening(uint16_t *x, uint16_t *y)
 {
-    int16_t row, c;
-    for (row = LEVEL_H - 1; row >= 0; row = (int16_t)(row - (LEVEL_H - 1))) {
-        for (c = 2; c < LEVEL_W - 2; c++) {
+    for (int16_t row = LEVEL_H - 1; row >= 0; row = (int16_t)(row - (LEVEL_H - 1))) {
+        for (int16_t c = 2; c < LEVEL_W - 2; c++) {
             if (!level_solid_tile(c, row)) {
                 *x = TO_POS(c << 3);   /* centred over the first open column */
                 *y = TO_POS(row == 0 ? FIELD_Y + 8 : FIELD_BOTTOM - 8 - 16);
@@ -240,31 +234,28 @@ void level_opening(uint16_t *x, uint16_t *y)
 
 void level_load(uint8_t index, uint8_t page)
 {
-    uint16_t base;
-    int16_t x, y;
     uint8_t ts = level_defs[index].tileset;
 
     if (ts >= CHR_TILESET_COUNT) {
         ts = 0;
     }
-    base = (uint16_t)(CHR_TILESET_BASE + ((uint16_t)ts << 5));
+    uint16_t base = (uint16_t)(CHR_TILESET_BASE + ((uint16_t)ts << 5));
 
     cells = level_defs[index].cells;
     video_tileset(page, ts);
 
     {
         uint16_t *dst = &g_bg0[(uint16_t)(page * PAGE_ROWS) << 5];
-        uint16_t i;
-        for (i = 0; i < BG_W * PAGE_ROWS; i++) {
+        for (uint16_t i = 0; i < BG_W * PAGE_ROWS; i++) {
             dst[i] = 0;
         }
     }
-    for (y = 0; y < PAGE_ROWS; y++) {
+    for (int16_t y = 0; y < PAGE_ROWS; y++) {
         bg_mark_row(0, (uint8_t)(page * PAGE_ROWS + y));
     }
-    for (y = 0; y < LEVEL_H; y++) {
+    for (int16_t y = 0; y < LEVEL_H; y++) {
         uint16_t *row = &g_bg0[(uint16_t)(page * PAGE_ROWS + y + HUD_ROWS) << 5];
-        for (x = 0; x < LEVEL_W; x++) {
+        for (int16_t x = 0; x < LEVEL_W; x++) {
             uint8_t t = autotile(x, y);
             row[x] = (t == 0xFF) ? 0u : (uint16_t)(base + t);
         }
