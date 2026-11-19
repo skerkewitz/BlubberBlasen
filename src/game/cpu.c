@@ -47,7 +47,34 @@
 #define SAMPLES        5
 #define DASH_REACH     ((DASH_FRAMES * 1152) >> 8)   /* px a dash covers: 12 x 4.5 */
 
-static const uint8_t sample_t[SAMPLES] = { 4, 8, 14, 20, 26 };
+/* The look-ahead times in frames. Everything computed per sample comes from
+ * these constants: on the 65816 a multiplication by a variable (even one that
+ * is only -1, 0 or 1) is a runtime call of hundreds of cycles, one by a
+ * constant a few shifts and adds, and the danger check runs every frame for
+ * every danger, sample and action. */
+#define SAMPLE_0 4
+#define SAMPLE_1 8
+#define SAMPLE_2 14
+#define SAMPLE_3 20
+#define SAMPLE_4 26
+static const uint8_t sample_t[SAMPLES] = { SAMPLE_0, SAMPLE_1, SAMPLE_2, SAMPLE_3, SAMPLE_4 };
+
+/* px walked in t frames (WALK_SPEED, 0.92 px a frame), and risen in t frames
+ * of a jump (never below 0), per sample */
+#define WALK_PX(t) ((235 * (t)) >> 8)
+#define RISE_PX(t) (((657 * (t) - 10 * (t) * (t)) >> 8) > 0 ? ((657 * (t) - 10 * (t) * (t)) >> 8) : 0)
+static const int16_t walk_px[SAMPLES] = {
+    WALK_PX(SAMPLE_0), WALK_PX(SAMPLE_1), WALK_PX(SAMPLE_2), WALK_PX(SAMPLE_3), WALK_PX(SAMPLE_4)
+};
+static const int16_t rise_px[SAMPLES] = {
+    RISE_PX(SAMPLE_0), RISE_PX(SAMPLE_1), RISE_PX(SAMPLE_2), RISE_PX(SAMPLE_3), RISE_PX(SAMPLE_4)
+};
+
+/* d * v for a direction d of -1, 0 or 1, without a multiplication */
+static int16_t signed_by(int8_t d, int16_t v)
+{
+    return (int16_t)(d < 0 ? -v : d > 0 ? v : 0);
+}
 
 enum { ACT_STAY, ACT_LEFT, ACT_RIGHT, ACT_JUMP, ACT_JUMP_LEFT, ACT_JUMP_RIGHT, ACT_DASH_LEFT, ACT_DASH_RIGHT, ACT_COUNT };
 static const uint16_t act_pad[ACT_COUNT] = {
@@ -420,10 +447,12 @@ static uint16_t decide(Player *p)
 
 
 /* --- Danger check -------------------------------------------------------------------- */
+typedef char samples_are_five[SAMPLES == 5 ? 1 : -1];   /* add_danger writes them out */
+
 static void add_danger(uint16_t x, uint16_t y, fx8_8 vx, fx8_8 vy, uint8_t reach)
 {
     Danger *d;
-    uint8_t k;
+    int16_t px, py;
     if (danger_count >= MAX_DANGERS) {
         return;
     }
@@ -434,10 +463,21 @@ static void add_danger(uint16_t x, uint16_t y, fx8_8 vx, fx8_8 vy, uint8_t reach
     }
     d = &dangers[danger_count++];
     d->reach = reach;
-    for (k = 0; k < SAMPLES; k++) {
-        d->x[k] = (int16_t)((int16_t)PX(x) + (int16_t)((vx * (int16_t)sample_t[k]) >> 8));
-        d->y[k] = (int16_t)((int16_t)PX(y) + (int16_t)((vy * (int16_t)sample_t[k]) >> 8));
-    }
+    px = (int16_t)PX(x);
+    py = (int16_t)PX(y);
+    /* v * t fits 16 bits (|v| <= 3 px, t <= 26 frames): the same values as in 32 bits */
+#define AHEAD(v, t) ((int16_t)((v) * (t)) >> 8)
+    d->x[0] = (int16_t)(px + AHEAD(vx, SAMPLE_0));
+    d->x[1] = (int16_t)(px + AHEAD(vx, SAMPLE_1));
+    d->x[2] = (int16_t)(px + AHEAD(vx, SAMPLE_2));
+    d->x[3] = (int16_t)(px + AHEAD(vx, SAMPLE_3));
+    d->x[4] = (int16_t)(px + AHEAD(vx, SAMPLE_4));
+    d->y[0] = (int16_t)(py + AHEAD(vy, SAMPLE_0));
+    d->y[1] = (int16_t)(py + AHEAD(vy, SAMPLE_1));
+    d->y[2] = (int16_t)(py + AHEAD(vy, SAMPLE_2));
+    d->y[3] = (int16_t)(py + AHEAD(vy, SAMPLE_3));
+    d->y[4] = (int16_t)(py + AHEAD(vy, SAMPLE_4));
+#undef AHEAD
 }
 
 /* The shot an enemy winds up for: nowhere until it leaves in `in` frames,
@@ -447,25 +487,16 @@ static void add_coming_shot(const Enemy *e)
     uint8_t in = enemy_shot_in(e);
     int8_t dir = (int8_t)(e->facing_left ? -1 : 1);
     int16_t x0 = (int16_t)PX(e->x), y0 = (int16_t)PX(e->y);
-    fx8_8 vx = 0, vy = 0;
     Danger *d;
     uint8_t k;
 
     if (!in || danger_count >= MAX_DANGERS) {
         return;
     }
-    switch (e->type) {
-    case ENEMY_TYPE_THROWER:
-        vx = (fx8_8)(dir * ROCK_SPEED);
-        break;
-    case ENEMY_TYPE_SPITTER:
-        vx = (fx8_8)(dir * SPIT_SPEED);
-        x0 = (int16_t)(x0 + dir * SPIT_OFFSET);
-        break;
-    default:
-        vy = DOWN_SHOT_SPEED;
+    if (e->type == ENEMY_TYPE_SPITTER) {
+        x0 = (int16_t)(x0 + signed_by(dir, SPIT_OFFSET));
+    } else if (e->type != ENEMY_TYPE_THROWER) {
         y0 = (int16_t)(y0 + DOWN_SHOT_OFFSET);
-        break;
     }
     d = &dangers[danger_count++];
     d->reach = 0;
@@ -474,9 +505,23 @@ static void add_coming_shot(const Enemy *e)
         if (t < 0) {
             d->x[k] = NOT_YET;
             d->y[k] = NOT_YET;
-        } else {
-            d->x[k] = (int16_t)(x0 + ((vx * t) >> 8));
-            d->y[k] = (int16_t)(y0 + ((vy * t) >> 8));
+            continue;
+        }
+        /* speed * t by a constant speed (fits 16 bits: t <= 26), then the
+         * direction as a sign: the same as (dir * speed * t) >> 8 */
+        switch (e->type) {
+        case ENEMY_TYPE_THROWER:
+            d->x[k] = (int16_t)(x0 + (signed_by(dir, (int16_t)(t * ROCK_SPEED)) >> 8));
+            d->y[k] = y0;
+            break;
+        case ENEMY_TYPE_SPITTER:
+            d->x[k] = (int16_t)(x0 + (signed_by(dir, (int16_t)(t * SPIT_SPEED)) >> 8));
+            d->y[k] = y0;
+            break;
+        default:
+            d->x[k] = x0;
+            d->y[k] = (int16_t)(y0 + ((int16_t)(t * DOWN_SHOT_SPEED) >> 8));
+            break;
         }
     }
 }
@@ -547,13 +592,12 @@ static int16_t evaluate(const Player *p, uint8_t act, uint8_t samples)
             if (k != samples - 1) {
                 continue;
             }
-            ox = (int16_t)(PX(p->x) + dir * DASH_REACH);
+            ox = (int16_t)(PX(p->x) + signed_by(dir, DASH_REACH));
         } else {
-            ox = (int16_t)(PX(p->x) + dir * ((235 * t) >> 8));
+            ox = (int16_t)(PX(p->x) + signed_by(dir, walk_px[k]));
         }
         if (jump) {
-            int16_t rise = (int16_t)((657 * t - 10 * t * t) >> 8);
-            oy = (int16_t)(oy - (rise > 0 ? rise : 0));
+            oy = (int16_t)(oy - rise_px[k]);
         }
         if (ox < BODY_MIN_CX - 8) ox = BODY_MIN_CX - 8;
         if (ox > BODY_MAX_CX - 8) ox = BODY_MAX_CX - 8;
