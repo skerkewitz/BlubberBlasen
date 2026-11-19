@@ -1,7 +1,7 @@
 # ADR-0001: The game in C99, with raylib behind a thin platform layer
 
 Date: 2026-11-16 (records the decision the project started with on 2026-11-13)
-Status: accepted
+Status: accepted; amended by ADR-0007 (superdevkit instead of PVSnesLib, no 16-bit `int` check)
 
 ## Context
 

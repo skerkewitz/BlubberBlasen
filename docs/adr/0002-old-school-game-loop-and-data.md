@@ -1,7 +1,7 @@
 # ADR-0002: An old-school game loop and data layout, as a SNES game has
 
 Date: 2026-11-16 (records the decision the project started with on 2026-11-13)
-Status: accepted
+Status: accepted; amended by ADR-0007 (no 16-bit `int` check: dampf's `int` has 32 bits)
 
 ## Context
 

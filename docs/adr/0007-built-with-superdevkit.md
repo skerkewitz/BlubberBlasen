@@ -50,6 +50,10 @@ development kit for SNES games in C. The kit has:
    recording of the game on Rachael for `dev/replay.sh`.
 6. `BB_FAST` stays as an empty marker on the hottest globals: dampf keeps only function frames
    in the direct page and has no hint for a global yet.
+7. **Coding rule 7 and `tools/int16check` are dropped.** They made the code correct with a
+   16-bit `int`, which 816-tcc and Calypsi have. dampf's `int` has 32 bits, as gcc's and MSVC's,
+   so the PC and the SNES compute the same without the rule. The small types of ADR-0002 stay,
+   for speed and RAM.
 
 ## Alternatives
 
@@ -68,6 +72,5 @@ development kit for SNES games in C. The kit has:
 - With dampf's naive code generator the ROM matches the PC for 36,000 ticks of bot play. The
   optimizing one differs from tick 24,950 on, which is a dampf bug (`docs/kit-findings.md`).
 - The ROM has no sound and no save RAM until the kit's library for the SNES has them.
-- Open: coding rule 7 and `tools/int16check` (correct with a 16-bit `int`) came from 65816
-  compilers with a 16-bit `int`. dampf's `int` has 32 bits, as gcc's. Whether the rule stays is
-  not decided.
+- With rule 7 gone, arithmetic in `int` is no longer checked against 16 bits. It is still
+  slower on the 65816 than 16-bit arithmetic (the kit's `lib/C_STYLE.md`, `slow-32-bit`).

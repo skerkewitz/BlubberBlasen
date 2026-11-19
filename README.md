@@ -362,7 +362,6 @@ These rules keep the code portable to the 65816. There is no CI yet, so nothing 
 4. Prefer `int8_t`/`uint8_t`/`int16_t`/`uint16_t`; avoid 32-bit math, multiplication and division in hot paths (use shifts and lookup tables).
 5. All game state is static; keep an eye on the RAM budget.
 6. Timers count frames, never wall-clock time.
-7. The code must be correct with a 16-bit `int`, as on the 65816: no `int` variables, no constants over 32,767, and no arithmetic whose `int` result could leave the 16-bit range before it is compared, shifted right, divided or widened (cast to 32 bits first).
 
 Quick local check:
 
@@ -370,8 +369,6 @@ Quick local check:
 grep -rnE 'raylib\.h|\bfloat\b|\bdouble\b|\b(malloc|calloc|realloc|free)\s*\(' src/game/ \
   && echo "Rule violation found" || echo "OK"
 ```
-
-Rule 7 is checked by `tools/int16check/int16check.sh` (Linux or WSL, after a web build; see `tools/README.md`): it compiles `src/game` for a CPU with a 16-bit `int` with all warnings as errors, then runs the game tests with every risky expression measured, and fails if one ever leaves the 16-bit range. Run it after changing game arithmetic.
 
 ## Documentation
 

@@ -46,7 +46,8 @@ What, in this order:
   bytes per frame.
 - Done: a check that the game code is correct with a 16-bit `int`, which is what 65816 compilers
   use (`tools/int16check`). It found no place that relies on a 32-bit `int`. It runs in Linux or
-  WSL next to the web build, not in the Windows CTest run.
+  WSL next to the web build, not in the Windows CTest run. Dropped on 2026-11-19 with the rule
+  (ADR-0007): dampf's `int` has 32 bits, as on the PC.
 
 Done when the PC version draws everything through the new layer and the game code no longer
 knows about PNGs or tints, the art checker passes on
