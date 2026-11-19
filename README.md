@@ -11,8 +11,8 @@ The project is built in three stages:
 | Stage | Goal | Status |
 |-------|------|--------|
 | 1 | Playable prototype on PC (C99 + raylib) | Done: playable version (100 rounds, boss, secret room, title, game over, high scores) |
-| 2 | Split into game code and a "pseudo SNES" layer with a SNES-like API (sprites, tilemaps, palettes, memory layout) | Next |
-| 3 | Port to real SNES hardware (65816 C compiler and/or assembly) | Planned, starting with a measuring spike during stage 2 |
+| 2 | Split into game code and a "pseudo SNES" layer with a SNES-like API (sprites, tilemaps, palettes, memory layout) | Done: the game calls only superdevkit's console API, and the PC draws with Rachael, the kit's SNES in C; speed work (step 2b) is next |
+| 3 | Port to real SNES hardware (65816 C compiler and/or assembly) | The whole game runs as a ROM (dampf, superdevkit) and plays like the PC version, but too slowly in busy rooms: see the [spike report](docs/snes-spike-report.md) |
 
 The game code is written from day one so that it survives all three stages with minimal rewriting. See the architecture decisions below.
 
@@ -402,6 +402,7 @@ grep -rnE 'raylib\.h|\bfloat\b|\bdouble\b|\b(malloc|calloc|realloc|free)\s*\(' s
 - [ADR-0008](docs/adr/0008-sound-effects-through-superdevkit.md): sound effects through superdevkit, the same on every platform
 - [ADR-0009](docs/adr/0009-save-ram-music-and-rom-build-from-superdevkit.md): save RAM, music and the ROM build from superdevkit
 - [ADR-0010](docs/adr/0010-the-desktop-from-superdevkit-beside-the-games-own.md): the desktop from superdevkit, beside the game's own frontend
+- [SNES spike report](docs/snes-spike-report.md): how fast the ROM is, where the time goes, ROM and RAM use, and what has to change (2026-11-20)
 - [Game Design Guide](docs/Blubber%20Blasen%20–%20Game%20Design%20Guide.md): the game we are building, Plus and Classic mode, and where it differs from the original
 - [Bubble Bobble (Arcade) – Game Design Reference Guide](docs/Bubble%20Bobble%20(Arcade)%20–%20Game%20Design%20Reference%20Guide.md): how the arcade original works, as reference
 - [Story](docs/story.md): the Blubber Factory, heroes, floors, secret rooms, boss and endings

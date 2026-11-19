@@ -16,9 +16,9 @@ halves, so that real 65816 measurements steer the second half instead of arrivin
 |---|---|---|
 | 1 | Playable prototype on PC (C99 + raylib) | Done |
 | 2a | Data and limits shaped like the SNES | Done (2026-11-16) |
-| 3-spike | Game code compiled for the 65816 and measured | In progress: superdevkit (dampf) builds the ROM (ADR-0007); measuring next |
-| 2b | Fix what the spike found, finish the pseudo SNES layer | Planned |
-| 3-POC | One complete room group running on SNES | Planned |
+| 3-spike | Game code compiled for the 65816 and measured | Done (2026-11-20): the whole game runs as a ROM; [report](docs/snes-spike-report.md) |
+| 2b | Fix what the spike found | Next: room change stalls, vacuums; then measure the kit's M9 |
+| 3-POC | One complete room group running on SNES | Technically overtaken (the whole game runs); left: the art of one group, real hardware |
 | Full game | The items in GAME-TODO.md | After the POC |
 
 ## Step 2a: data and limits shaped like the SNES
@@ -82,10 +82,11 @@ What:
   with Rachael, the kit's SNES in C, instead of `src/snes`, and give the same picture as before,
   pixel for pixel. `tools/snescheck` compares the ROM with the PC tick by tick in dampf's
   emulator: 36,000 ticks of bot play match with dampf's naive code generator; its optimizing
-  one differs from tick 24,950 on, a dampf bug handed to the kit (`docs/kit-findings.md`).
-- Run round 1 in an emulator with a profiler (for example Mesen) and measure frame time in three
-  cases: a quiet room, a room full of bubbles, and two players with the CPU partner.
-- Measure ROM and RAM use (the SNES has 128 KB of work RAM).
+  one differed from tick 24,950 on, a dampf bug the kit fixed the same day. Since then the
+  optimizing ROM matches in all four scenarios.
+- Done (2026-11-20): frame time in three cases (a quiet room, a room full of bubbles, two players
+  with the CPU partner), the costliest functions, and ROM and RAM use, measured on the ROM in
+  dampf's emulator over 36,000 ticks in four scenarios: [docs/snes-spike-report.md](docs/snes-spike-report.md).
 
 Done when there is a short report in `docs/` with the measured numbers, the functions that cost
 the most, and a list of what has to change, each item with an estimate. If the game logic already
@@ -93,13 +94,19 @@ fits into one frame, the list is short and step 2b is mostly the pseudo SNES lay
 
 ## Step 2b: fix and finish
 
-Why: the spike's list decides what this step contains. Likely candidates are a cheaper CPU partner,
-a cap on bubbles, spreading work over two frames, or hand-written assembly for hot spots.
+Why: the spike's report (docs/snes-spike-report.md) decides what this step contains. In play the
+game needs 0.70 to 0.85 frames per tick on average against a goal of 0.6, about a quarter of the
+ticks in Plus mode take longer than a frame, and every room change stalls for about a fifth of a
+second. No single function dominates, and hand-written assembly is not needed.
 
-What:
+What, in this order:
 
-- The changes from the spike report, each proved on the PC by the existing tests and on the
-  emulator by a new measurement.
+- The stall at every room change: `level_load` and `stage_rows` (report, item 1).
+- Vacuums: keep the window's lines while a vacuum does not change (report, item 2).
+- Measure again when the kit's register allocation (M9) is in, on the same four scenarios. Then
+  decide the rest: a design limit on floating bubbles, fewer sprites per frame, a cheaper CPU
+  partner danger check (report, items 3 to 5).
+- Each change proved on the PC by the existing tests and on the emulator by a new measurement.
 - Sprite tiles streamed in if the sheets per room group turn out too small. (The DMA budget per
   vertical blank is in Rachael, superdevkit's SNES in C, ADR-0007.)
 
@@ -107,6 +114,10 @@ Done when the PC and the SNES build run the same replay to the same result, and 
 measured in the spike fits into one frame on the SNES.
 
 ## Step 3-POC: one room group on SNES
+
+Status (2026-11-20): technically overtaken. The whole game already runs as a ROM, with sound
+effects and save RAM, and matches the PC tick for tick. What this step still adds is the art of
+one finished group and a run on real hardware.
 
 Why: one complete group proves the whole chain, from art and data to a running cartridge, at a
 size small enough to finish.
@@ -122,7 +133,7 @@ anything important.
 
 ## After the POC
 
-Sound comes first: sound effects and music as SPC-style data (8 channels of short samples in
-64 KB), written for that chip from the start. With that working, the items in [GAME-TODO.md](GAME-TODO.md) become the plan: round structure,
+Sound comes first: the sound effects are done (ADR-0008, the same samples on every platform);
+music on the SNES waits for the kit, and has about 20 KB of audio RAM left beside the effects. With that working, the items in [GAME-TODO.md](GAME-TODO.md) become the plan: round structure,
 bosses, cut scenes, art for all groups, difficulty and options. The PC version stays the place
 where the game is developed and tested; the SNES build follows it.

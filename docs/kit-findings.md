@@ -143,6 +143,7 @@ far pairs (an unsigned range compare instead of two `abs` and two compares).
 | 9 | A benchmark for dampf's loop optimizations: the game's bubble separation in four variants | benchmark |
 | 10 | M7 for a game with its own converters and its own frontend | tool |
 | 11 | What Blubber Blasen still needs from the kit's desktop before its own frontend can go | frontend |
+| 12 | Measuring a game's ticks: the sample upload, and tools that look for `lib/snes/snes.c` | tool |
 
 ## 8. `ExampleCheck` records the ROM's sound but does not write it (2026-11-19)
 
@@ -293,3 +294,24 @@ beside it for now, because these are missing, in the order they matter to the ga
    game now keys its debug code on `__DAMPF__` instead.
 7. **Box styles**: filled boxes (the CPU view's danger dots fade with distance in the game's view)
    or a direction for an arrow (the air currents are colours now).
+
+## 12. Measuring a game's ticks: the sample upload, and tools that look for `lib/snes/snes.c` (2026-11-20)
+
+The game measured its ROM for its spike report (`docs/snes-spike-report.md`): the work of every
+tick over 36,000 ticks in four scenarios, and `ExampleProfile` per function. Two things for the
+kit:
+
+1. **A tick's work without the wait.** The game counts it with a small tool on `dampf.emu` that
+   leaves out the cycles spent in `sdevkit__wait_vblank`, found by its lines in
+   `lib/snes/snes.c` in the `.dbg` file. A ROM from `superdevkit build snes` names that file by its
+   absolute path (the kit home's), so the lines were not found and every tick's wait was counted
+   as work (1.0 frames for an idle tick). The game rebuilt its measuring ROM with the kit's `lib`
+   on a relative path. A tool of the kit's own (`ExampleWork rom check.txt`: one line per tick
+   with its work in master cycles), or `ExampleBench` printing per tick, would know its own wait
+   loop by its symbol and need no paths. The profile shows the same thing from the other side: in
+   a ROM from `superdevkit build`, the wait is a line of `/home/.../lib/snes/snes.c`.
+2. **The sound samples are uploaded after the splash screen.** `sdevkit_sfx_init` in `game_init`
+   copies 43,686 bytes to the audio RAM (6.9 frames of the first tick, then about 2 s of black
+   screen while the sound CPU takes them). If the kit's main loop started the upload while its
+   splash screen shows, the black would mostly disappear. The game cannot do that itself, since
+   `game_init` runs after the splash.
