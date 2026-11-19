@@ -12,6 +12,7 @@ installed on 2026-11-19, and from the game's repository at the commit that adds 
 | 4 | Rachael's HDMA timing matches Mesen, but no example checks it | test gap |
 | 5 | `sdevkit_rename.py` also renames raylib's `KEY_*` in a frontend file | tool |
 | 6 | `ExampleBench` finds the main loop's waiting code only in a ROM built inside the kit's repository | tool |
+| 7 | An array element addressed by an index loaded from another array costs about three times a counted index | C guide, measured |
 
 ## 1. The MIR code generator miscompiles the game (tick 2,623, or 24,950)
 
@@ -115,3 +116,19 @@ waiting functions". The game measured by building a second ROM beside a copy of 
 (the same bytes, other names in the debug file). Matching the file by the end of its path, or
 by the debug file's file id of `snes.c`, would let a game use it as it is; a game needs it, since
 `dampf bench` is for the old benchmark's ports.
+
+## 7. An index loaded from an array costs about three times a counted one
+
+Measured in the game's `separate()` (`bubble.c`), the pair loop over 16 bubble slots, in ticks
+with 14 to 16 bubbles, as master cycles per tick from `ExampleProfile`. The original inner loop
+counts `j` and takes `Bubble *b = &g_bubbles[j]`: that line cost 8,621, the loop line 6,737.
+Rewritten to loop over a list of the floating bubbles' slots, `Bubble *b =
+&g_bubbles[list[lj]]` cost 26,054 and its loop line 16,616, though it skipped the `floating()`
+checks (14,820 -> 1,788). A list of pointers (`Bubble *list[]`), a static list instead of one in
+the frame, and a mask that bounds the index (`list[lj] & 15`) all measured the same. So the
+list lost wherever most slots were in use. It looks as if the counted index is stepped (the
+pointer advanced by the element size), while a loaded index is multiplied by the size and
+turned into a 24-bit pointer each time. If that is so, it may be worth a rule in `lib/C_STYLE.md`
+("walk the array with a counter and skip, rather than through an index list"), or an
+optimization. The game kept the counted loop; what saved time there was a cheaper test for the
+far pairs (an unsigned range compare instead of two `abs` and two compares).

@@ -403,12 +403,17 @@ static void separate(void)
                 continue;
             }
             dx = (int16_t)((int16_t)PX(a->x) - (int16_t)PX(b->x));
-            dy = (int16_t)((int16_t)PX(a->y) - (int16_t)PX(b->y));
-            adx = abs16(dx);
-            ady = abs16(dy);
-            if (adx >= STICK_REACH || ady >= STICK_REACH) {
+            /* |dx| >= STICK_REACH without the absolute value: most pairs end
+             * here, so the cheapest test comes first (one compare, unsigned) */
+            if ((uint16_t)(dx + (STICK_REACH - 1)) > 2 * (STICK_REACH - 1)) {
                 continue;
             }
+            dy = (int16_t)((int16_t)PX(a->y) - (int16_t)PX(b->y));
+            if ((uint16_t)(dy + (STICK_REACH - 1)) > 2 * (STICK_REACH - 1)) {
+                continue;
+            }
+            adx = abs16(dx);
+            ady = abs16(dy);
             if (adx >= PUSH_REACH || ady >= PUSH_REACH) {
                 /* Close but not touching: soap bubbles cling together, so
                  * a loose group closes into a cluster that chains. Only the

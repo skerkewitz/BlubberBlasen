@@ -300,52 +300,70 @@ static uint8_t sprite_palette(uint8_t base, uint8_t pal)
  * layout, snes.h): calling sdevkit_oam_set and sdevkit_oam_set_ex for 128 sprites took most of
  * a frame on the console. All sprites are large (the high table is set once
  * in video_init) and x stays below 256. The entries used last frame and not
- * in this one are hidden. */
+ * in this one are hidden.
+ *
+ * Only an enemy drawn grey or yellow depends on the tint the whole frame
+ * wants, which is known after the pass: those entries are noted and their
+ * palette set afterwards (a second pass over all sprites cost a fifth of the
+ * time). The game's flip bits are the SNES's (bits 7 and 6), so they are
+ * copied as they are. */
 static BB_FAST uint8_t oam_shown;   /* entries filled last frame */
+static uint8_t tint_later[MAX_SPRITES];       /* OAM entries whose palette waits for the tint */
+static uint8_t tint_later_pal[MAX_SPRITES];   /* and their logical palettes (PAL_GREY or PAL_YELLOW) */
+typedef char flip_bits_are_the_snes[SPR_ATTR_FLIP_Y == 0x80u && SPR_ATTR_FLIP_X == 0x40u ? 1 : -1];
 
 static void build_sprites(const Sprite *oam, uint8_t count)
 {
     const uint8_t *slots = gfx_sheet_slot[sheet];
     uint8_t *o = sdevkit_oam_memory;
-    uint8_t i, want6 = GFX_TINT_NONE, filled = 0;
+    uint8_t i, want6 = GFX_TINT_NONE, filled = 0, later = 0;
 
-    for (i = 0; i < count; i++, oam++) {
-        uint8_t base = gfx_cell_pal[oam->tile];
-        uint8_t pal = (uint8_t)((oam->attr & SPR_ATTR_PAL_MASK) >> SPR_ATTR_PAL_SHIFT);
-        if (base == OP_ENEMIES) {
-            if (pal == PAL_GREY) want6 = GFX_TINT_GREY;
-            if (pal == PAL_YELLOW && want6 == GFX_TINT_NONE) want6 = GFX_TINT_YELLOW;
-        }
-    }
-    if (want6 != GFX_TINT_NONE) {
-        tint6 = want6;
-    }
     for (i = 0; i < NUM_PLAYERS; i++) {
         tint_p[i] = (uint8_t)(g_player_tint[i] == PAL_YELLOW ? GFX_TINT_YELLOW
                             : g_player_tint[i] == PAL_ORANGE ? GFX_TINT_ORANGE : GFX_TINT_NONE);
     }
 
-    oam -= count;
     for (i = 0; i < count; i++, oam++) {
+        uint8_t base = gfx_cell_pal[oam->tile];
+        uint8_t pal = (uint8_t)((oam->attr & SPR_ATTR_PAL_MASK) >> SPR_ATTR_PAL_SHIFT);
         uint8_t slot = slots[oam->tile];
         uint16_t name;
+        uint8_t tinted = 0;
+        if (base == OP_ENEMIES) {
+            if (pal == PAL_GREY) {
+                want6 = GFX_TINT_GREY;
+                tinted = 1;
+            } else if (pal == PAL_YELLOW) {
+                if (want6 == GFX_TINT_NONE) want6 = GFX_TINT_YELLOW;
+                tinted = 1;
+            }
+        }
         if (slot == 0xFF) {
 #ifdef BB_DEBUG
             g_video_missing++;
 #endif
             continue;
         }
+        if (tinted) {
+            tint_later[later] = filled;     /* its palette once the frame's tint is known */
+            tint_later_pal[later] = pal;
+            later++;
+        }
         name = (uint16_t)(((slot & 7u) << 1) | ((uint16_t)(slot >> 3) << 5));
         o[0] = oam->x;
         o[1] = oam->y;
         o[2] = (uint8_t)name;
-        o[3] = (uint8_t)(((oam->attr & SPR_ATTR_FLIP_Y) ? 0x80u : 0u) | ((oam->attr & SPR_ATTR_FLIP_X) ? 0x40u : 0u) |
-                         ((uint8_t)SPR_PRIORITY << 4) |
-                         ((uint8_t)sprite_palette(gfx_cell_pal[oam->tile],
-                                                   (uint8_t)((oam->attr & SPR_ATTR_PAL_MASK) >> SPR_ATTR_PAL_SHIFT)) << 1) |
-                         ((name >> 8) & 1u));
+        o[3] = (uint8_t)((oam->attr & (SPR_ATTR_FLIP_Y | SPR_ATTR_FLIP_X)) | ((uint8_t)SPR_PRIORITY << 4) |
+                         ((uint8_t)sprite_palette(base, pal) << 1) | ((name >> 8) & 1u));
         o += 4;
         filled++;
+    }
+    if (want6 != GFX_TINT_NONE) {
+        tint6 = want6;
+    }
+    for (i = 0; i < later; i++) {
+        uint8_t *e = sdevkit_oam_memory + ((uint16_t)tint_later[i] << 2);
+        e[3] = (uint8_t)((e[3] & 0xF1u) | (sprite_palette(OP_ENEMIES, tint_later_pal[i]) << 1));   /* bits 1..3 */
     }
     for (i = filled; i < oam_shown; i++, o += 4) {
         o[1] = SPR_OFF_Y;
