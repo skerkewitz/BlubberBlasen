@@ -50,7 +50,9 @@ endif()
 file(TO_CMAKE_PATH "${SUPERDEVKIT_HOME}" SDK)
 # The game sees only the console API (lib/include); the frontend and the tests
 # also reach Rachael's own interface (rachael.h) through RACHAEL_INCLUDE.
-add_library(rachael STATIC ${SDK}/lib/rachael/ppu.c ${SDK}/lib/rachael/render.c)
+# All of Rachael's files: the kit adds some now and then (0.5.1: the sound chip, dsp.c and sfx.c).
+file(GLOB RACHAEL_SOURCES CONFIGURE_DEPENDS ${SDK}/lib/rachael/*.c)
+add_library(rachael STATIC ${RACHAEL_SOURCES})
 target_include_directories(rachael PUBLIC ${SDK}/lib/include)
 set(RACHAEL_INCLUDE ${SDK}/lib/rachael)
 set_target_properties(rachael PROPERTIES C_EXTENSIONS OFF)
