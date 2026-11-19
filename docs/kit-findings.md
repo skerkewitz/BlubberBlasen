@@ -140,6 +140,7 @@ far pairs (an unsigned range compare instead of two `abs` and two compares).
 | # | Finding | Kind |
 | --- | --- | --- |
 | 8 | `ExampleCheck` records the ROM's sound but does not write it | tool |
+| 9 | A benchmark for dampf's loop optimizations: the game's bubble separation in four variants | benchmark |
 
 ## 8. `ExampleCheck` records the ROM's sound but does not write it (2026-11-19)
 
@@ -150,3 +151,55 @@ class of its own. An optional output for it (`ExampleCheck rom recording [hashes
 say) would let a game outside the kit compare the sound with the kit's tools alone. With it,
 Blubber Blasen's ROM and Rachael gave the same DSP writes, line for line, in three scenarios of
 12,000 ticks.
+
+## 9. A benchmark for dampf's loop optimizations: the bubble separation (2026-11-19)
+
+With 12 to 16 floating bubbles, `separate()` in `bubble.c` (every bubble against every other:
+cling when close, push apart when overlapping) is the costliest part of the game's tick: about a
+quarter of a frame, and from 8 bubbles on the game gets slow (0.74 frames per tick at 8, 1.26 at
+16). The game tried to cut the pairs: keep the floating bubbles' slots sorted by x and stop at
+the first one too far right, which in a clump leaves about a third of the pairs. It measured no
+gain, and the reasons are dampf's, so the game kept its loop and hands the case over as a
+benchmark: `docs/kit-bench/` in the game's repository.
+
+- `separate.c`: the separation in four variants, each with the game's own pair code and
+  constants, on 32 frames of real bubble positions recorded from the game (a clump of 12 to 16
+  bubbles): A the game's counted pair loop over its 23-byte struct array, B a sorted list of
+  slots over the struct array, C the counted loop over one array per field, D the sorted list over
+  one array per field. `test_main` runs all four on every frame and keeps a checksum each; on
+  this data all four agree (`a_equals_c`, `b_equals_d`, and A = B). It passes `dampf check`, and
+  gcc with `-Wall -Wextra -Wpedantic -Wshadow -Wconversion` is silent. It is written like the
+  kit's exec tests (globals, `test_main`).
+- `bench_game.c`: the same as a superdevkit game for measuring, one case per tick (loading only,
+  or loading and one variant), with `check.txt` of `ticks 160`; the work per tick of a case minus
+  that of loading is the variant's.
+- `pc_main.c`: runs `test_main` on the PC and prints the checksums.
+
+Measured with dampf 0.5.2, master cycles per frame of data:
+
+| Variant | Master cycles | Frames |
+| --- | ---: | ---: |
+| A counter, struct array (the game) | 93,999 | 0.263 |
+| B sorted list, struct array | 93,763 | 0.262 |
+| C counter, one array per field | 109,381 | 0.306 |
+| D sorted list, one array per field | 94,843 | 0.265 |
+
+What the assembly of A and the game's measurements show (in the game's busiest stretch the
+separation took about 99,000 master cycles a tick):
+
+1. `j * 23` is computed anew for every pair (six shifts and subtractions, about 22 cycles) instead
+   of stepping the index by 23: "an induction variable as the index", in the roadmap's "Ideas not
+   yet built".
+2. Every intermediate value goes through the direct page (`sta z:dampf_frame+N` then `lda`):
+   register allocation (M9).
+3. `b[list[k]]` multiplies the loaded slot by 23 at every access (`slow-index-list`), and the small
+   loops over bytes cost extra with 8-bit counters (`slow-u8-counter`): that is what B and D pay
+   for their lists, about as much as they save on the pairs.
+4. One array per field (C) is slower than the struct array in the counted loop, against
+   `fast-array-per-field`: worth a look at why; `DAMPF_SPLIT` would meet the same.
+5. A test ends in a branch and a jump (`bcs @L; jmp ...`) where the block layout could fall
+   through.
+
+The goal for these optimizations, as a number to watch: D clearly below A (it handles a third of
+the pairs), and C no slower than A. The game would then switch to the sorted list, which changes
+its behaviour (the pairs are handled in another order) and so needs its recordings recorded again.
