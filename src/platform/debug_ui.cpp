@@ -29,7 +29,7 @@
 
 extern "C" {
 #include "game/game.h"
-#include "snes/snes.h"
+#include "rachael.h"
 }
 
 static char ini_path[1024];
@@ -351,7 +351,7 @@ static ImVec4 imcolor(uint16_t c)
 static void panel_video(void)
 {
     if (ImGui::Begin("Video")) {
-        SnesStats st = snes_stats();
+        sdevkit__frame_stats st = sdevkit__stats();
         ImGui::Text("Busiest line: %u sprites (limit 32), %u sprite tiles (limit 34)", (unsigned)st.most_sprites,
                     (unsigned)st.most_tiles);
         if (st.range_over_lines || st.time_over_lines) {
@@ -362,8 +362,8 @@ static void panel_video(void)
         }
         ImGui::Text("DMA last frame: %u bytes (the SNES manages about 5,000 to 6,000 per vertical blank)",
                     (unsigned)st.dma_bytes);
-        ImGui::Text("Brightness %u%s, BG mode %u", snes_reg(PPU_INIDISP) & 15, snes_reg(PPU_INIDISP) & 0x80 ? " (forced blank)" : "",
-                    snes_reg(PPU_BGMODE) & 7);
+        ImGui::Text("Brightness %u%s, BG mode %u", sdevkit__reg(SDEVKIT_PPU_INIDISP) & 15, sdevkit__reg(SDEVKIT_PPU_INIDISP) & 0x80 ? " (forced blank)" : "",
+                    sdevkit__reg(SDEVKIT_PPU_BGMODE) & 7);
     }
     ImGui::End();
 }
@@ -380,7 +380,7 @@ static void panel_vram(void)
     static Texture2D tex;
     static uint32_t pixels[128 * 256];
     if (ImGui::Begin("VRAM")) {
-        const uint16_t *vram = snes_vram(), *cg = snes_cgram();
+        const uint16_t *vram = sdevkit_dbg_vram(), *cg = sdevkit__cgram();
         int t, x, y, rows;
         ImGui::SetNextItemWidth(ImGui::GetFontSize() * 18);
         if (ImGui::BeginCombo("##region", regions[region].name)) {
@@ -433,7 +433,7 @@ static void panel_vram(void)
 static void panel_palettes(void)
 {
     if (ImGui::Begin("Palettes")) {
-        const uint16_t *cg = snes_cgram();
+        const uint16_t *cg = sdevkit__cgram();
         int i;
         ImGui::TextDisabled("Rows 0..7: background (BG3 text uses 0..1 in fours), rows 8..15: sprite palettes 0..7");
         for (i = 0; i < 256; i++) {
@@ -455,7 +455,7 @@ static void panel_palettes(void)
 static void panel_oam(void)
 {
     if (ImGui::Begin("OAM")) {
-        const uint8_t *o = snes_oam();
+        const uint8_t *o = sdevkit__oam();
         int i, shown = 0;
         static bool hidden;
         ImGui::Checkbox("Also hidden sprites", &hidden);

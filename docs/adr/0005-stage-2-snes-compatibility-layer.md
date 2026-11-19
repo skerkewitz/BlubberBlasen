@@ -1,7 +1,7 @@
 # ADR-0005: Stage 2 as a SNES compatibility layer, with a Dear ImGui debug view
 
 Date: 2026-11-16
-Status: accepted
+Status: accepted; amended by ADR-0007 (the API is superdevkit's, Rachael replaces `src/snes`, PVSnesLib is not used)
 
 ## Context
 

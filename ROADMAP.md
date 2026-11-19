@@ -16,7 +16,7 @@ halves, so that real 65816 measurements steer the second half instead of arrivin
 |---|---|---|
 | 1 | Playable prototype on PC (C99 + raylib) | Done |
 | 2a | Data and limits shaped like the SNES | Done (2026-11-16) |
-| 3-spike | Game code compiled for the 65816 and measured | In progress: PVSnesLib builds a ROM; measuring next |
+| 3-spike | Game code compiled for the 65816 and measured | In progress: superdevkit (dampf) builds the ROM (ADR-0007); measuring next |
 | 2b | Fix what the spike found, finish the pseudo SNES layer | Planned |
 | 3-POC | One complete room group running on SNES | Planned |
 | Full game | The items in GAME-TODO.md | After the POC |
@@ -64,7 +64,10 @@ each other in pairs. Only real 65816 code can say whether that fits into one fra
 What:
 
 - Choose a 65816 C compiler (candidates: the one in PVSnesLib, Calypsi) and record the choice in
-  an ADR.
+  an ADR. Done (2026-11-19, ADR-0007): neither. Both were measured in 2026-11 (816-tcc about 6
+  frames per tick in round 1, Calypsi about 2 with several miscompiles); the game is built with
+  superdevkit, whose compiler dampf was written for it, and PVSnesLib, 816-tcc and Calypsi are
+  gone from the build.
 - Compile `src/game/` unchanged, with a minimal SNES platform layer: input, OAM and tile maps
   copied in vertical blank, no sound, placeholder graphics. If PVSnesLib is chosen, the
   platform layer is PVSnesLib itself, as ADR-0005 intends.
@@ -73,6 +76,12 @@ What:
   The game uploads to VRAM only in the vertical blank, and the pseudo SNES enforces that (the
   first ROM showed what happens otherwise). Code about 120 KB, ROM 310 KB of 512 KB, RAM
   about 25 KB.
+- Done (2026-11-19): the ROM is built with superdevkit (`build_snes.sh`, README *SNES build*):
+  dampf, the kit's library for the SNES with its main loop, the data as plain C. PC and web draw
+  with Rachael, the kit's SNES in C, instead of `src/snes`, and give the same picture as before,
+  pixel for pixel. `tools/snescheck` compares the ROM with the PC tick by tick in dampf's
+  emulator: 36,000 ticks of bot play match with dampf's naive code generator; its optimizing
+  one differs from tick 24,950 on, a dampf bug handed to the kit (`docs/kit-findings.md`).
 - Run round 1 in an emulator with a profiler (for example Mesen) and measure frame time in three
   cases: a quiet room, a room full of bubbles, and two players with the CPU partner.
 - Measure ROM and RAM use (the SNES has 128 KB of work RAM).
@@ -90,8 +99,8 @@ What:
 
 - The changes from the spike report, each proved on the PC by the existing tests and on the
   emulator by a new measurement.
-- The rest of the pseudo SNES layer: a DMA budget per vertical blank, and sprite tiles streamed in
-  if the sheets per room group turn out too small.
+- Sprite tiles streamed in if the sheets per room group turn out too small. (The DMA budget per
+  vertical blank is in Rachael, superdevkit's SNES in C, ADR-0007.)
 
 Done when the PC and the SNES build run the same replay to the same result, and the busiest room
 measured in the spike fits into one frame on the SNES.

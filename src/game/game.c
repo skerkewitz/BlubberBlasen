@@ -151,9 +151,8 @@ uint8_t chance(uint8_t p256)
     return (uint8_t)((rng_next() & 0xFFu) < p256);
 }
 
-/* The sound's bit, from a table: a 32-bit shift by a variable needs a helper
- * routine the SNES C library (PVSnesLib's 816-tcc) does not have, and it
- * would be slow on the 65816 anyway. */
+/* The sound's bit, from a table: a 32-bit shift by a variable is a loop of
+ * single steps on the 65816, slow with any compiler. */
 #define B32(n) ((uint32_t)1u << (n))
 static const uint32_t sfx_bit[32] = {
     B32(0), B32(1), B32(2), B32(3), B32(4), B32(5), B32(6), B32(7), B32(8), B32(9), B32(10), B32(11),

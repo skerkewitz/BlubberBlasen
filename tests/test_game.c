@@ -14,7 +14,7 @@
 
 #include "game/internal.h"
 #include "gfx_data.h"
-#include "snes/snes.h"
+#include "rachael.h"
 
 static int failures;
 static unsigned long trace;   /* BB_TRACE=<n>: print state every n frames */
@@ -2631,20 +2631,20 @@ static void test_hitboxes_match_touch(void)
 }
 
 /* --- The picture on the pseudo SNES (src/game/video.c) ------------------------------ */
-static u16 pic_a[SNES_W * SNES_H], pic_b[SNES_W * SNES_H];
+static uint16_t pic_a[SDEVKIT__W * SDEVKIT__H], pic_b[SDEVKIT__W * SDEVKIT__H];
 
 /* Vertical blanks (without game ticks) until nothing waits to be uploaded. */
 static void settle_video(void)
 {
     int k;
     for (k = 0; k < 20; k++) {
-        snes_vblank();
+        sdevkit__vblank();
         game_vblank();
         if (!video_pending()) break;
     }
 }
 
-static u16 math_pixel(u16 c, uint8_t r, uint8_t g, uint8_t b, uint8_t sub, uint8_t half)
+static uint16_t math_pixel(uint16_t c, uint8_t r, uint8_t g, uint8_t b, uint8_t sub, uint8_t half)
 {
     int ch[3], add[3], k;
     ch[0] = c & 31; ch[1] = (c >> 5) & 31; ch[2] = (c >> 10) & 31;
@@ -2656,7 +2656,7 @@ static u16 math_pixel(u16 c, uint8_t r, uint8_t g, uint8_t b, uint8_t sub, uint8
         if (v > 31) v = 31;
         ch[k] = v;
     }
-    return (u16)(ch[0] | (ch[1] << 5) | (ch[2] << 10));
+    return (uint16_t)(ch[0] | (ch[1] << 5) | (ch[2] << 10));
 }
 
 /* The game's colour windows on the picture: render it, and again without
@@ -2677,12 +2677,12 @@ static int window_effect(void)
         }
     }
     settle_video();
-    snes_render(pic_a);
-    setColorEffect(CM_NEVER_ENABLE, 0);
-    snes_render(pic_b);
-    for (y = 0; y < SNES_H; y++) {
-        for (x = 0; x < SNES_W; x++) {
-            u16 a = pic_a[y * SNES_W + x], o = pic_b[y * SNES_W + x];
+    sdevkit__render(pic_a);
+    sdevkit_set_color_effect(SDEVKIT_CM_NEVER_ENABLE, 0);
+    sdevkit__render(pic_b);
+    for (y = 0; y < SDEVKIT__H; y++) {
+        for (x = 0; x < SDEVKIT__W; x++) {
+            uint16_t a = pic_a[y * SDEVKIT__W + x], o = pic_b[y * SDEVKIT__W + x];
             int inside = 0;
             for (i = 0; i < NUM_WINDOWS; i++) {
                 inside |= x >= w[i].left[y] && x <= w[i].right[y] &&
@@ -2731,12 +2731,12 @@ static void test_video_vacuum_glow(void)
 /* The SNES palette (OAM attribute bits 1..3) of the sprite the game drew at x, y. */
 static int oam_palette_at(uint8_t x, uint8_t y)
 {
-    const u8 *o;
+    const uint8_t *o;
     int i;
-    snes_vblank();
-    o = snes_oam();
+    sdevkit__vblank();
+    o = sdevkit__oam();
     for (i = 0; i < 128; i++) {
-        if (o[i * 4] == x && o[i * 4 + 1] == (uint8_t)(y - 1)) {
+        if (o[i * 4] == x && o[i * 4 + 1] == y) {
             return (o[i * 4 + 3] >> 1) & 7;
         }
     }
@@ -2770,7 +2770,7 @@ static void test_video_palettes(void)
     game_tick(pad);
     settle_video();
     CHECK(oam_palette_at(PX(e->x), PX(e->y)) == 6, "a frozen enemy: palette 6");
-    CHECK(snes_cgram()[128 + 6 * 16 + 1] == gfx_pal_enemies[gfx_level_sheet[15]][GFX_TINT_GREY][1],
+    CHECK(sdevkit__cgram()[128 + 6 * 16 + 1] == gfx_pal_enemies[gfx_level_sheet[15]][GFX_TINT_GREY][1],
           "palette 6 holds the grey copy of the enemies");
     g_freeze = 0;
 }
@@ -2788,12 +2788,12 @@ static void test_video_consistency(void)
     g_video_missing = 0;
     for (f = 0; f < 60u * 60u * 6u; f++) {
         pad[0] = (uint16_t)((f % 90) < 3 ? PAD_START : (f / 40) % 3 == 0 ? PAD_LEFT | PAD_Y : (f / 40) % 3 == 1 ? PAD_RIGHT | PAD_B : PAD_Y);
-        snes_display();   /* the tick runs while the picture is drawn */
+        sdevkit__display();   /* the tick runs while the picture is drawn */
         game_tick(pad);
-        lost += snes_stats().dma_lost;   /* writes during the picture */
-        snes_vblank();
+        lost += sdevkit__stats().dma_lost;   /* writes during the picture */
+        sdevkit__vblank();
         game_vblank();
-        lost += snes_stats().dma_lost;   /* over the vertical blank's budget */
+        lost += sdevkit__stats().dma_lost;   /* over the vertical blank's budget */
         if (f % 7 == 0 && !video_pending()) {
             uint16_t bad = video_check_maps();
             if (bad > worst) worst = bad;

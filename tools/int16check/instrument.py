@@ -8,6 +8,7 @@
 import json, subprocess, sys, os, re
 CLANG = os.environ.get('CLANG', '/opt/emscripten-llvm/bin/clang')
 STUB = sys.argv[1]; OUT = sys.argv[2]; GEN = sys.argv[3]
+SDK = os.environ['SUPERDEVKIT_HOME']   # the console API's headers (sdevkit/snes.h)
 ARITH = {'*', '+', '-', '<<'}
 USE = {'>>', '/', '%', '<', '>', '<=', '>=', '==', '!='}
 WIDE = {'long', 'unsigned long', 'int32_t', 'uint32_t'}
@@ -18,7 +19,8 @@ table = []; nid = 0
 files = sorted('src/game/' + f for f in os.listdir('src/game') if f.endswith('.c'))
 for path in files:
     pp = subprocess.run([CLANG, '--target=msp430', '-std=c99', '-E', '-nostdinc', '-I' + STUB, '-DBB_DEBUG=1',
-                         '-Isrc', '-I' + GEN, path], capture_output=True, text=True, check=True).stdout
+                         '-Isrc', '-I' + GEN, '-I' + SDK + '/lib/include', path],
+                        capture_output=True, text=True, check=True).stdout
     ppfile = OUT + '/' + os.path.basename(path)
     open(ppfile, 'w').write(pp)
     ast = json.loads(subprocess.run([CLANG, '--target=msp430', '-std=c99', '-fsyntax-only', '-nostdinc', '-Xclang',

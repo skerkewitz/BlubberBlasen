@@ -30,7 +30,7 @@
 #define MAX_COLORS 15
 #define CELLS 256
 #define SHEET_CELLS 128
-#define BANK 32768
+#define BANK 32768                 /* dampf: no object is larger than a ROM bank (LoROM) */
 #define MAX_SHEETS 16
 #define MAX_TILESETS 8
 #define TILESET_TILES 18           /* 6 x 3 tiles of 8 x 8 */
@@ -254,39 +254,25 @@ static void planar(const uint8_t idx[64], int bpp, uint8_t *out)
 }
 
 /* --- Output ------------------------------------------------------------------------ */
-static FILE *out_c, *out_h, *out_asm;   /* out_asm set: the SNES build, arrays go there */
+static FILE *out_c, *out_h;
 static size_t arr_count;
 
-/* One array, either as C (PC build) or as a ROM section in assembly (SNES
- * build, --snes): 816-tcc would copy global const data into RAM, and a
- * section must fit a 32 KB bank (check_bank). The label is the C name. */
-static void arr_begin(const char *c_decl, const char *label)
+/* One array, as C. */
+static void arr_begin(const char *c_decl)
 {
     arr_count = 0;
-    if (out_asm) {
-        fprintf(out_asm, ".SECTION \".%s\" SUPERFREE\n%s:", label, label);
-    } else {
-        fprintf(out_c, "%s = {", c_decl);
-    }
+    fprintf(out_c, "%s = {", c_decl);
 }
 
 static void arr_byte(unsigned v)
 {
-    if (out_asm) {
-        fprintf(out_asm, "%s$%02X", arr_count % 16 ? "," : "\n.db ", v & 0xFFu);
-    } else {
-        fprintf(out_c, "%s0x%02X,", arr_count % 16 ? " " : "\n    ", v & 0xFFu);
-    }
+    fprintf(out_c, "%s0x%02X,", arr_count % 16 ? " " : "\n    ", v & 0xFFu);
     arr_count++;
 }
 
 static void arr_word(unsigned v)
 {
-    if (out_asm) {
-        fprintf(out_asm, "%s$%04X", arr_count % 8 ? "," : "\n.dw ", v & 0xFFFFu);
-    } else {
-        fprintf(out_c, "%s0x%04X,", arr_count % 8 ? " " : "\n    ", v & 0xFFFFu);
-    }
+    fprintf(out_c, "%s0x%04X,", arr_count % 8 ? " " : "\n    ", v & 0xFFFFu);
     arr_count++;
 }
 
@@ -302,29 +288,21 @@ static void arr_words(const uint16_t *d, size_t n)
     for (i = 0; i < n; i++) arr_word(d[i]);
 }
 
-/* Inner braces of a multi-dimensional array (C only). */
+/* Inner braces of a multi-dimensional array. */
 static void arr_sub_begin(void)
 {
-    if (!out_asm) {
-        fprintf(out_c, "\n    {");
-        arr_count = 0;
-    }
+    fprintf(out_c, "\n    {");
+    arr_count = 0;
 }
 
 static void arr_sub_end(void)
 {
-    if (!out_asm) {
-        fprintf(out_c, "\n    },");
-    }
+    fprintf(out_c, "\n    },");
 }
 
 static void arr_end(void)
 {
-    if (out_asm) {
-        fprintf(out_asm, "\n.ENDS\n\n");
-    } else {
-        fprintf(out_c, "\n};\n\n");
-    }
+    fprintf(out_c, "\n};\n\n");
 }
 
 static void check_bank(const char *what, size_t bytes)
@@ -366,7 +344,7 @@ static void convert_font(void)
     png_free(&img);
     fprintf(out_h, "/* Font: 2 bpp tiles for ASCII 32..95 (tile = code - 32); colours 1..3 as on the font line. */\n");
     fprintf(out_h, "#define GFX_FONT_BYTES %d\nextern const uint8_t gfx_font_tiles[GFX_FONT_BYTES];\n\n", (int)sizeof data);
-    arr_begin("const uint8_t gfx_font_tiles[GFX_FONT_BYTES]", "gfx_font_tiles");
+    arr_begin("const uint8_t gfx_font_tiles[GFX_FONT_BYTES]");
     arr_bytes(data, sizeof data);
     arr_end();
     printf("%s: font: 64 glyphs, %d bytes\n", TOOL, (int)sizeof data);
@@ -419,14 +397,14 @@ static void convert_tilesets(void)
     fprintf(out_h, "#define GFX_TILESETS %d\n#define GFX_TILESET_TILES %d\n", tileset_count, TILESET_TILES);
     fprintf(out_h, "extern const uint8_t  gfx_tileset_tiles[GFX_TILESETS][GFX_TILESET_TILES * 32];\n");
     fprintf(out_h, "extern const uint16_t gfx_tileset_pal[GFX_TILESETS][16];\n\n");
-    arr_begin("const uint8_t gfx_tileset_tiles[GFX_TILESETS][GFX_TILESET_TILES * 32]", "gfx_tileset_tiles");
+    arr_begin("const uint8_t gfx_tileset_tiles[GFX_TILESETS][GFX_TILESET_TILES * 32]");
     for (t = 0; t < tileset_count; t++) {
         arr_sub_begin();
         arr_bytes(data[t], TILESET_TILES * 32);
         arr_sub_end();
     }
     arr_end();
-    arr_begin("const uint16_t gfx_tileset_pal[GFX_TILESETS][16]", "gfx_tileset_pal");
+    arr_begin("const uint16_t gfx_tileset_pal[GFX_TILESETS][16]");
     for (t = 0; t < tileset_count; t++) {
         arr_sub_begin();
         arr_words(pals[t], 16);
@@ -550,13 +528,13 @@ static void convert_title(void)
     fprintf(out_h, "extern const uint8_t  gfx_title_tiles[GFX_TITLE_TILES * 32];\n");
     fprintf(out_h, "extern const uint16_t gfx_title_map[GFX_TITLE_W * GFX_TITLE_H];\n");
     fprintf(out_h, "extern const uint16_t gfx_title_pal[GFX_TITLE_PALETTES][16];\n\n");
-    arr_begin("const uint8_t gfx_title_tiles[GFX_TITLE_TILES * 32]", "gfx_title_tiles");
+    arr_begin("const uint8_t gfx_title_tiles[GFX_TITLE_TILES * 32]");
     arr_bytes(data, (size_t)tiles * 32);
     arr_end();
-    arr_begin("const uint16_t gfx_title_map[GFX_TITLE_W * GFX_TITLE_H]", "gfx_title_map");
+    arr_begin("const uint16_t gfx_title_map[GFX_TITLE_W * GFX_TITLE_H]");
     arr_words(map, (size_t)(tw * th));
     arr_end();
-    arr_begin("const uint16_t gfx_title_pal[GFX_TITLE_PALETTES][16]", "gfx_title_pal");
+    arr_begin("const uint16_t gfx_title_pal[GFX_TITLE_PALETTES][16]");
     for (i = 0; i < title_palettes; i++) {
         uint16_t w[16];
         pal_words(&pals[i], w);
@@ -824,39 +802,36 @@ static void convert_sprites(void)
     fprintf(out_h, "extern const uint16_t gfx_pal_enemies[GFX_SHEETS][GFX_TINTS][16];\n\n");
 
     check_bank("shared sprites", (size_t)first_row * 1024);
-    arr_begin("const uint8_t gfx_sprites_shared[GFX_SPRITE_FIRST_ROW * 1024]", "gfx_sprites_shared");
+    arr_begin("const uint8_t gfx_sprites_shared[GFX_SPRITE_FIRST_ROW * 1024]");
     arr_bytes(vram[0], (size_t)first_row * 1024);
     arr_end();
     for (s = 0; s < sheet_count; s++) {
-        char decl[64], label[32];
+        char decl[64];
         int rows = (sheets[s].last_slot + 7) / 8 - first_row;
         size_t bytes = (size_t)rows * 1024;
         check_bank(sheets[s].name, bytes);
         snprintf(decl, sizeof decl, "static const uint8_t gfx_sheet%d[%d]", s, (int)bytes);
-        snprintf(label, sizeof label, "gfx_sheet%d", s);
-        arr_begin(decl, label);
+        arr_begin(decl);
         arr_bytes(vram[s] + first_row * 1024, bytes);
         arr_end();
     }
-    /* the list of sheets has pointers: always C, laid out by the compiler */
-    for (s = 0; s < sheet_count && out_asm; s++) fprintf(out_c, "extern const uint8_t gfx_sheet%d[];\n", s);
     fprintf(out_c, "const uint8_t *const gfx_sheet_tiles[GFX_SHEETS] = {");
     for (s = 0; s < sheet_count; s++) fprintf(out_c, " gfx_sheet%d%s", s, s + 1 < sheet_count ? "," : "");
     fprintf(out_c, " };\n\n");
-    arr_begin("const uint16_t gfx_sheet_bytes[GFX_SHEETS]", "gfx_sheet_bytes");
+    arr_begin("const uint16_t gfx_sheet_bytes[GFX_SHEETS]");
     for (s = 0; s < sheet_count; s++) arr_word((unsigned)(((sheets[s].last_slot + 7) / 8 - first_row) * 1024));
     arr_end();
-    arr_begin("const uint8_t gfx_sheet_slot[GFX_SHEETS][256]", "gfx_sheet_slot");
+    arr_begin("const uint8_t gfx_sheet_slot[GFX_SHEETS][256]");
     for (s = 0; s < sheet_count; s++) {
         arr_sub_begin();
         arr_bytes(slot_of[s], CELLS);
         arr_sub_end();
     }
     arr_end();
-    arr_begin("const uint8_t gfx_cell_pal[256]", "gfx_cell_pal");
+    arr_begin("const uint8_t gfx_cell_pal[256]");
     for (c = 0; c < CELLS; c++) arr_byte(cell_class[c] >= 0 ? (unsigned)classes[cell_class[c]].number : 0u);
     arr_end();
-    arr_begin("const uint8_t gfx_level_sheet[GFX_LEVELS]", "gfx_level_sheet");
+    arr_begin("const uint8_t gfx_level_sheet[GFX_LEVELS]");
     for (i = 0; i < num_levels; i++) {
         int found = 0xFF;
         for (s = 0; s < sheet_count; s++) {
@@ -865,7 +840,7 @@ static void convert_sprites(void)
         arr_byte((unsigned)found);
     }
     arr_end();
-    arr_begin("const uint16_t gfx_pal_player[2][GFX_TINTS][16]", "gfx_pal_player");
+    arr_begin("const uint16_t gfx_pal_player[2][GFX_TINTS][16]");
     arr_sub_begin();
     emit_palette_set(&fixed[player_class], 0);
     arr_sub_end();
@@ -874,15 +849,14 @@ static void convert_sprites(void)
     arr_sub_end();
     arr_end();
     for (k = 0; k < class_count; k++) {
-        char decl[64], label[48];
+        char decl[64];
         if (k == enemies_class || k == player_class) continue;
         snprintf(decl, sizeof decl, "const uint16_t gfx_pal_%s[GFX_TINTS][16]", classes[k].name);
-        snprintf(label, sizeof label, "gfx_pal_%s", classes[k].name);
-        arr_begin(decl, label);
+        arr_begin(decl);
         emit_palette_set(&fixed[k], 0);
         arr_end();
     }
-    arr_begin("const uint16_t gfx_pal_enemies[GFX_SHEETS][GFX_TINTS][16]", "gfx_pal_enemies");
+    arr_begin("const uint16_t gfx_pal_enemies[GFX_SHEETS][GFX_TINTS][16]");
     for (s = 0; s < sheet_count; s++) {
         arr_sub_begin();
         emit_palette_set(&enemy_pal[s], 0);
@@ -1076,15 +1050,13 @@ static void sheet_enemies(void)
 
 int main(int argc, char **argv)
 {
-    const char *out_c_path = NULL, *out_h_path = NULL, *out_asm_path = NULL, *settings = NULL;
+    const char *out_c_path = NULL, *out_h_path = NULL, *settings = NULL;
     int i;
     for (i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-o") == 0 && i + 1 < argc) {
             out_c_path = argv[++i];
         } else if (strcmp(argv[i], "-H") == 0 && i + 1 < argc) {
             out_h_path = argv[++i];
-        } else if (strcmp(argv[i], "--snes") == 0 && i + 1 < argc) {
-            out_asm_path = argv[++i];
         } else if (!settings) {
             settings = argv[i];
         } else {
@@ -1092,7 +1064,7 @@ int main(int argc, char **argv)
         }
     }
     if (!out_c_path || !out_h_path || !settings) {
-        fprintf(stderr, "usage: gfx2c -o <gfx_data.c> -H <gfx_data.h> [--snes <gfx_data.asm>] <gfx.txt> <level.map>...\n");
+        fprintf(stderr, "usage: gfx2c -o <gfx_data.c> -H <gfx_data.h> <gfx.txt> <level.map>...\n");
         return 2;
     }
     read_settings(settings);
@@ -1107,8 +1079,7 @@ int main(int argc, char **argv)
 
     out_c = fopen(out_c_path, "w");
     out_h = fopen(out_h_path, "w");
-    out_asm = out_asm_path ? fopen(out_asm_path, "w") : NULL;
-    if (!out_c || !out_h || (out_asm_path && !out_asm)) {
+    if (!out_c || !out_h) {
         fprintf(stderr, "%s: cannot write the output files\n", TOOL);
         return 1;
     }
@@ -1116,12 +1087,6 @@ int main(int argc, char **argv)
     fprintf(out_h, "#ifndef BB_GFX_DATA_H\n#define BB_GFX_DATA_H\n\n#include <stdint.h>\n\n");
     fprintf(out_c, "/* Generated by tools/gfx2c from assets/gfx (gfx.txt). Do not edit. */\n");
     fprintf(out_c, "#include \"gfx_data.h\"\n\n");
-    if (out_asm) {
-        fprintf(out_c, "/* SNES build: the arrays are in the assembly file (ROM); only what has\n"
-                       " * pointers is here. */\n\n");
-        fprintf(out_asm, "; Generated by tools/gfx2c (--snes) from assets/gfx (gfx.txt). Do not edit.\n");
-        fprintf(out_asm, "; The graphics for the SNES build, one ROM section per array.\n\n.include \"hdr.asm\"\n\n");
-    }
     convert_font();
     convert_tilesets();
     convert_title();
@@ -1129,11 +1094,9 @@ int main(int argc, char **argv)
     fprintf(out_h, "#endif /* BB_GFX_DATA_H */\n");
     fclose(out_c);
     fclose(out_h);
-    if (out_asm) fclose(out_asm);
     if (errors) {
         remove(out_c_path);
         remove(out_h_path);
-        if (out_asm_path) remove(out_asm_path);
         return 1;
     }
     return 0;

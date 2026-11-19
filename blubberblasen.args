@@ -1,0 +1,9 @@
+# Blubber Blasen for the SNES, built by dampf (superdevkit): the game and its converted data
+# (build/snes/gen, written by build_snes.sh). Paths are relative to this file. The kit's part,
+# its headers and its library for the SNES (lib/snes, with the main loop), is added on the
+# command line by build_snes.sh, which knows SUPERDEVKIT_HOME (ADR-0007).
+-I src
+-I build/snes/gen
+--entry main
+src/game/
+build/snes/gen/

@@ -39,16 +39,21 @@ add_custom_command(
     VERBATIM
 )
 
-# --- Pseudo SNES (ADR-0005): memories, registers, software renderer ----------
-# Portable C99 like the game code; on the console PVSnesLib takes its place.
-add_library(snes STATIC src/snes/ppu.c src/snes/render.c)
-target_include_directories(snes PUBLIC src)
-set_target_properties(snes PROPERTIES C_EXTENSIONS OFF)
-if(MSVC)
-    target_compile_options(snes PRIVATE /W4)
-else()
-    target_compile_options(snes PRIVATE -Wall -Wextra -Wpedantic)
+# --- superdevkit: the console API and Rachael, the SNES rebuilt in C (ADR-0007) ------
+# SUPERDEVKIT_HOME is a superdevkit home (the folder with bin/dampf and lib/). From
+# the environment, or -DSUPERDEVKIT_HOME=...; for MSVC on Windows a WSL home is
+# reached as \\wsl.localhost\<distribution>\... (README, "Building").
+set(SUPERDEVKIT_HOME "$ENV{SUPERDEVKIT_HOME}" CACHE PATH "superdevkit home (contains bin/dampf and lib/)")
+if(NOT EXISTS "${SUPERDEVKIT_HOME}/lib/include/sdevkit/snes.h")
+    message(FATAL_ERROR "SUPERDEVKIT_HOME (\"${SUPERDEVKIT_HOME}\") is not a superdevkit home: set it to the folder with bin/dampf and lib/")
 endif()
+file(TO_CMAKE_PATH "${SUPERDEVKIT_HOME}" SDK)
+# The game sees only the console API (lib/include); the frontend and the tests
+# also reach Rachael's own interface (rachael.h) through RACHAEL_INCLUDE.
+add_library(rachael STATIC ${SDK}/lib/rachael/ppu.c ${SDK}/lib/rachael/render.c)
+target_include_directories(rachael PUBLIC ${SDK}/lib/include)
+set(RACHAEL_INCLUDE ${SDK}/lib/rachael)
+set_target_properties(rachael PROPERTIES C_EXTENSIONS OFF)
 
 # --- Generated graphics: assets/gfx -> gfx_data.c (ADR-0006) -------------------
 # gfx2c checks the SNES limits and fails the build when the art breaks one.
@@ -71,7 +76,7 @@ set_target_properties(gfxdata PROPERTIES C_EXTENSIONS OFF)
 file(GLOB_RECURSE GAME_SOURCES CONFIGURE_DEPENDS src/game/*.c)
 add_library(game STATIC ${GAME_SOURCES} ${LEVEL_DATA_C})
 target_include_directories(game PUBLIC src)
-target_link_libraries(game PUBLIC snes gfxdata)   # the game draws through the pseudo SNES (ADR-0005)
+target_link_libraries(game PUBLIC rachael gfxdata)   # the game draws through the console API, on Rachael (ADR-0007)
 set_target_properties(game PROPERTIES C_EXTENSIONS OFF)
 
 # Debug switches (src/game/debug.c, dev command-line options). On for
@@ -86,6 +91,22 @@ if(MSVC)
     target_compile_options(game PRIVATE /W4)
 else()
     target_compile_options(game PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+
+# --- The game as on the SNES (no debug switches) and its check (tools/snescheck) ------
+# snescheck plays the game on Rachael as the kit's main loop plays the ROM and writes a
+# recording with the checksum of every tick; <home>/dev/replay.sh compares the ROM with it.
+if(NOT EMSCRIPTEN)
+    add_library(game_console STATIC ${GAME_SOURCES} ${LEVEL_DATA_C})
+    target_include_directories(game_console PUBLIC src)
+    target_link_libraries(game_console PUBLIC rachael gfxdata)
+    set_target_properties(game_console PROPERTIES C_EXTENSIONS OFF)
+    add_executable(snescheck tools/snescheck/snescheck.c)
+    target_link_libraries(snescheck PRIVATE game_console)
+    target_include_directories(snescheck PRIVATE ${RACHAEL_INCLUDE})
+    if(MSVC)
+        target_compile_definitions(snescheck PRIVATE _CRT_SECURE_NO_WARNINGS)
+    endif()
 endif()
 
 # --- Recordings (src/replay): development builds only, host code ------------------
@@ -103,6 +124,7 @@ endif()
 # --- Platform layer + executable --------------------------------------------
 add_executable(blubberblasen src/platform/platform_raylib.c)
 target_link_libraries(blubberblasen PRIVATE game raylib)
+target_include_directories(blubberblasen PRIVATE ${RACHAEL_INCLUDE})
 if(BB_DEBUG_SWITCHES AND NOT EMSCRIPTEN)
     # recording every run, --replay (see README, "Recordings")
     target_link_libraries(blubberblasen PRIVATE replay)
@@ -133,6 +155,7 @@ if(BB_DEBUG_SWITCHES AND NOT EMSCRIPTEN)
         ${imgui_SOURCE_DIR}/imgui_widgets.cpp
         ${rlimgui_SOURCE_DIR}/rlImGui.cpp)
     target_include_directories(debug_ui PUBLIC ${imgui_SOURCE_DIR} ${rlimgui_SOURCE_DIR})
+    target_include_directories(debug_ui PRIVATE ${RACHAEL_INCLUDE})
     target_link_libraries(debug_ui PUBLIC game raylib)
     target_compile_definitions(debug_ui PUBLIC BB_DEBUG_UI=1)
     target_link_libraries(blubberblasen PRIVATE debug_ui)
@@ -181,14 +204,17 @@ enable_testing()
 if(BB_DEBUG_SWITCHES)
     add_executable(test_game tests/test_game.c)
     target_link_libraries(test_game PRIVATE game)
+    target_include_directories(test_game PRIVATE ${RACHAEL_INCLUDE})
     add_test(NAME game COMMAND test_game)
 
     add_executable(test_snes tests/test_snes.c)
-    target_link_libraries(test_snes PRIVATE snes)
+    target_link_libraries(test_snes PRIVATE rachael)   # Rachael's tests, until the kit has them
+    target_include_directories(test_snes PRIVATE ${RACHAEL_INCLUDE})
     add_test(NAME snes COMMAND test_snes)
 
     add_executable(test_gfx tests/test_gfx.c)
-    target_link_libraries(test_gfx PRIVATE snes gfxdata toolcommon)
+    target_link_libraries(test_gfx PRIVATE rachael gfxdata toolcommon)
+    target_include_directories(test_gfx PRIVATE ${RACHAEL_INCLUDE})
     add_test(NAME gfx COMMAND test_gfx ${PROJECT_SOURCE_DIR}/assets/gfx)
 
     add_executable(test_replay tests/test_replay.c)

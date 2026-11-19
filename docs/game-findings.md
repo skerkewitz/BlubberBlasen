@@ -15,12 +15,12 @@ each heading. When dampf is finished, they feed a guide on writing game code for
 | 1 | Less work per tick: the CPU partner and the bubble separation first | yes, replays re-recorded | large, game design work |
 | 2 | Uploads in `video_vblank` can wait forever; one budget check covers two copies | no | small, in `video.c` |
 | 3 | `separate()` compares every pair of bubbles | yes, slightly; replays re-recorded | about 30 lines |
-| 4 | `game.h` says `game_vblank` runs from the vertical blank interrupt | no | one comment |
+| 4 | `game.h` says `game_vblank` runs from the vertical blank interrupt (done 2026-11-19) | no | one comment |
 | 5 | More recordings would test dampf on more of the game | no | a few minutes of play each |
 | 6 | Shifts by a variable count in drawing code | no | 8 places, a line or two each |
 | 7 | Profile shares on functions with 0 calls | no | a fix in `profile.py` |
-| 8 | The dev kit's console API has new names: `sdevkit_` | no | one script run, then a refresh of the snapshot |
-| 9 | Two guides for writing the game's code | no | one line in the game's `CLAUDE.md` |
+| 8 | The dev kit's console API has new names: `sdevkit_` (done 2026-11-19) | no | one script run, then a refresh of the snapshot |
+| 9 | Two guides for writing the game's code (done 2026-11-19) | no | one line in the game's `CLAUDE.md` |
 | 10 | A comparison with a sum of a variable is a 32-bit comparison | no | a cast in four places |
 
 ## 1. The game has to do less work per tick (was 7)
@@ -243,3 +243,8 @@ counts). Cost: a cast each.
 - `(unsigned)` casts in `video.c` broke the fixed-width rule (was 5). Fixed in the snapshot of
   2026-11-17: both casts (lines 339 and 340) are `(uint8_t)`, and no `(unsigned)` is left in
   `src/game`. `tools/int16check` still does not catch casts.
+- `game.h` said `game_vblank` runs from the vertical blank interrupt (finding 4). Fixed on
+  2026-11-19: it says the kit's main loop calls it in the vertical blank it waits for.
+- The console API's new names (finding 8). Done on 2026-11-19 with the move to superdevkit
+  (ADR-0007): `src/game` uses `sdevkit/snes.h` only; `docs/kit-findings.md` tells the kit.
+- The two guides (finding 9). Done on 2026-11-19: `CLAUDE.md` points to both.

@@ -28,7 +28,7 @@ The game has a version number `major.minor.revision`. It is set in one place, `G
 - **Platform layer:** raylib, used **only** in `src/platform/`. Game code never includes `raylib.h` ([ADR-0001](docs/adr/0001-c99-with-a-thin-platform-layer.md)).
 - **SNES-shaped interface** between game and platform:
   - Input: one 16-bit button word per player per frame (SNES joypad bit layout).
-  - Output: the game describes each frame as a sprite list (16 × 16 cells with logical palettes), two colour windows (a left and right edge per scanline with a colour inside) and two 8 × 8 tilemaps: layer 0 (room or title, 32 × 64 tiles, scrolls vertically, only shown below the HUD) and layer 1 (text, fixed). `src/game/video.c` turns that into what the SNES needs, through PVSnesLib-shaped functions: OAM entries, VRAM map rows, palettes, HDMA tables for the windows and colour math. The pseudo SNES (`src/snes`) renders the 256 × 224 picture from it; the platform scales it to the window (ADR-0005).
+  - Output: the game describes each frame as a sprite list (16 × 16 cells with logical palettes), two colour windows (a left and right edge per scanline with a colour inside) and two 8 × 8 tilemaps: layer 0 (room or title, 32 × 64 tiles, scrolls vertically, only shown below the HUD) and layer 1 (text, fixed). `src/game/video.c` turns that into what the SNES needs, through the console API of [superdevkit](#superdevkit) (`sdevkit/snes.h`): OAM entries, VRAM map rows, palettes, HDMA tables for the windows and colour math. On the console that is the SNES itself; on the PC, Rachael, the kit's SNES rebuilt in portable C, renders the 256 × 224 picture from it, and the platform scales it to the window (ADR-0005, ADR-0007).
   - Graphics: 24-bit PNGs (magenta = transparent) converted at build time into SNES tiles and palettes by `tools/gfx2c`, which checks the SNES limits. See [assets/README.md](assets/README.md).
   - Audio: sound effects requested by ID (one bit per effect per tick) and one music track ID; the platform streams the track.
   - Save RAM: 128 bytes (high score table in the first 64, options from byte 64) that the platform keeps in a file, like a battery-backed cartridge.
@@ -60,14 +60,15 @@ BlubberBlasen/
 │   │   ├── hiscore.c text.c
 │   │   ├── fixed.h          #   8.8 fixed-point helpers
 │   │   └── level_data.h     #   level format shared with tools/map2c
-│   ├── snes/                # pseudo SNES (ADR-0005): VRAM, CGRAM, OAM, registers, HDMA and a software
-│   │                        #   renderer behind PVSnesLib-shaped functions (snes.h); portable C99
 │   ├── platform/            # platform_raylib.c: window, input, rendering, audio, 60 Hz tick
 │   │                        #   debug_ui.cpp: Dear ImGui debug view (desktop debug builds, the only C++)
 │   └── replay/              # recordings of games (development builds, PC only; uses stdio and malloc)
 ├── assets/                  # Graphics, sound and level files (see assets/README.md)
 ├── tools/                   # Host tools: map2c (levels -> const C arrays), gfx2c (graphics -> SNES tiles and
-│                            #   palettes, checks the SNES limits), mapview (room previews); see tools/README.md
+│                            #   palettes, checks the SNES limits), mapview (room previews), snescheck (the ROM
+│                            #   against the PC, tick by tick); see tools/README.md
+├── blubberblasen.args       # the SNES build's options for dampf (superdevkit's compiler)
+├── build_snes.sh            # builds the SNES ROM with superdevkit
 └── tests/                   # Headless tests of the game library; replays/: stored recordings
 ```
 
@@ -81,8 +82,19 @@ Level data is generated at build time: CMake builds `map2c`, runs it over `asset
 | CMake | 3.20+ | |
 | Git | any recent | |
 | Ninja | optional | Faster builds |
+| superdevkit | 0.5.0 or newer | a superdevkit home, see below; for the SNES build also a JDK 25+, gcc (`gcc -E`) and Python 3 in Linux or WSL |
 
 raylib does **not** need to be installed. CMake fetches it automatically via `FetchContent` on the first configure (internet access required once).
+
+### superdevkit
+
+The game is built with superdevkit, a development kit for SNES games in C (not public yet): its console API and Rachael (the SNES rebuilt in C) for the PC and web builds, and dampf, its compiler, with its SNES library for the ROM (ADR-0007). The build needs a superdevkit home, the folder with `bin/dampf` and `lib/` (in a checkout of superdevkit, `./gradlew installDist` writes one to `build/install/superdevkit`). Tell the build where it is with the environment variable `SUPERDEVKIT_HOME` or with `-DSUPERDEVKIT_HOME=...` when configuring. Visual Studio on Windows reaches a home inside WSL by its UNC path, for example:
+
+```bash
+cmake -S . -B build "-DSUPERDEVKIT_HOME=\\wsl.localhost\<distribution>\home\<you>\superdevkit"   # from WSL: "$(wslpath -w <home>)"
+```
+
+The path is kept in the build folder's cache, so it is given once per build folder.
 
 ### Windows
 
@@ -116,8 +128,8 @@ brew install cmake ninja git
 git clone https://github.com/<your-account>/BlubberBlasen.git
 cd BlubberBlasen
 
-# Configure (fetches raylib on first run)
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
+# Configure (fetches raylib on first run; SUPERDEVKIT_HOME: see "superdevkit" above)
+SUPERDEVKIT_HOME=~/superdevkit cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
 
 # Build
 cmake --build build --config Debug
@@ -140,24 +152,33 @@ The picture goes through a retro TV filter when it is scaled into the window (pl
 Needs Emscripten (Arch: `sudo pacman -Syu emscripten`, then a new shell or `source /etc/profile.d/emscripten.sh`):
 
 ```bash
-emcmake cmake -S . -B build-web -DCMAKE_BUILD_TYPE=Release -DBB_DEBUG_SWITCHES=OFF
+SUPERDEVKIT_HOME=~/superdevkit emcmake cmake -S . -B build-web -DCMAKE_BUILD_TYPE=Release -DBB_DEBUG_SWITCHES=OFF
 cmake --build build-web -j8
 cd build-web && python3 -m http.server 8000      # then open http://localhost:8000/blubberblasen.html
 ```
 
 The result is `blubberblasen.html`, `.js`, `.wasm` and `.data` (the assets, about 13 MB, mostly music). The page needs a web server (opening the file directly does not work), shows a "click to start" layer (browsers only allow sound and keyboard focus after a click) and keeps high scores and options in the browser (IndexedDB). The page is `web/shell.html`. `#nostart` at the end of the address skips the click layer and runs the game on a plain timer, for automated checks in headless browsers. The tools (`map2c`, `mapview`) are compiled to JavaScript in this build and run under Node.js during the build.
 
-### SNES build (stage 3 spike, Linux or WSL)
+### SNES build (Linux or WSL)
 
-Needs PVSnesLib (its Linux release, nothing to compile: unpack it, e.g. to `~/devkit/pvsneslib-4.6.0`) and the host tools of a Windows or Linux CMake build:
+Needs a superdevkit home (see *superdevkit*) and the host tools of a Windows or Linux CMake build (`map2c`, `gfx2c`; by default from `build/tools/Debug`, `HOSTTOOLS=<dir>` picks others):
 
 ```bash
-PVSNESLIB_HOME=~/devkit/pvsneslib-4.6.0 src/platform/snes/build.sh
+SUPERDEVKIT_HOME=~/superdevkit ./build_snes.sh
 ```
 
-The result is `build/snes/blubberblasen.sfc`, a 512 KB LoROM image for an emulator (bsnes or Mesen for exact timing) or a flash cartridge. `src/platform/snes/` is the SNES platform layer: `main.c` (start-up, the main loop, the vertical blank), `glue.asm` (clearing RAM, register writes, HDMA) and `hdr.asm` (ROM header). The game code is the same as on the PC; `map2c --snes` and `gfx2c --snes` write the data as assembly in ROM (see `tools/README.md`). No sound yet.
+The result is `build/snes/blubberblasen.sfc`, a 512 KB LoROM image for an emulator (Mesen for exact timing) or a flash cartridge, with `blubberblasen.dbg` next to it, which lets Mesen show the C source and the globals, and `blubberblasen.timing.txt`, the best and worst case of every function in CPU cycles. `build_snes.sh` converts the data as plain C (`build/snes/gen`) and calls dampf with `blubberblasen.args` and the kit's library for the SNES, `lib/snes`: its start-up, the kit's splash screen and the main loop that calls `game_init`, `game_tick` and `game_vblank`. The game code is the same as on the PC. No sound and no save RAM yet (the kit has neither on the SNES).
 
-On both machines the game keeps the console's rhythm: `game_tick()` runs while the picture is drawn and only prepares; `game_vblank()` copies into VRAM and CGRAM in the vertical blank, within a budget. The pseudo SNES on the PC enforces this: writes outside the vertical blank or over about 5.7 KB are lost and counted, so tests notice them.
+**The ROM against the PC.** `snescheck` plays the game on Rachael as the kit's main loop plays the ROM (seed 0, no save RAM, no debug switches) with a simple bot on pad 1, and writes the pads and the checksum of every tick (the sprite table and both tilemaps) as a recording in the kit's format. The kit's `dev/replay.sh` plays it on the ROM in dampf's emulator and names the first tick whose checksum differs:
+
+```bash
+build/Debug/snescheck.exe --ticks 3600 -o build/snes/check.txt      # or build/snescheck on Linux
+"$SUPERDEVKIT_HOME/dev/replay.sh" build/snes/blubberblasen.sfc build/snes/check.txt
+```
+
+On both machines the game keeps the console's rhythm: `game_tick()` runs while the picture is drawn and only prepares; `game_vblank()` copies into VRAM and CGRAM in the vertical blank, within a budget. Rachael on the PC enforces this: writes outside the vertical blank or over about 5.7 KB are lost and counted, so tests notice them.
+
+The game's line y is row y of the picture on both. The SNES draws row y from scanline y + 1 and never shows scanline 0, so `video.c` scrolls both backgrounds up by one line and writes a sprite's y as it is; HDMA's first table entry lands on row 0 by itself (measured in Mesen, ADR-0007).
 
 ### Tests
 
@@ -167,9 +188,9 @@ ctest --test-dir build -C Debug --output-on-failure
 
 `tests/test_game.c` runs the game library without a window: score arithmetic, level data checks, a determinism check (same seed and input must give the same frames), a random bot that plays 30 minutes of game time, unit tests for the mechanics, and a room test in which the CPU partner plays both players in every round from 1 to 99, in Arcade and in Plus with co-op rescue, with endless lives. A room fails only if no try out of 15 clears it within 3 minutes of game time; each try uses its own seed, because the same seed would play the same game again. Deaths are printed with their causes as information, not checked: they depend on the CPU partner and on chance as much as on the room. Arcade rounds 16 and 34 are skipped: their start pocket can only be left by bouncing on a bubble, which the CPU partner cannot do yet. `BB_TRACE=600` prints the game state every 600 frames; `BB_DEATHS=1` prints the circumstances of the first CPU deaths in Arcade; `BB_ROOMS=1` prints what is left in a room after a try that did not clear it.
 
-`tests/test_snes.c` checks the pseudo SNES (`src/snes`) without a window: it builds small scenes through the PVSnesLib-shaped functions, renders a frame and compares pixels with what the SNES shows: tiles, palettes and flips, scrolling and 32 x 64 maps, the mode 1 layer order, sprites (one line below their y, 9-bit x, the lower number in front), the limits of 32 sprites and 34 sprite tiles per line, colour math in windows (fixed colour, sub screen, add, subtract, half), HDMA tables, brightness and the DMA count.
+`tests/test_snes.c` checks Rachael, the kit's SNES in C (`lib/rachael` of the superdevkit home), without a window; the tests came with her from this game and stay here until the kit has its own: they build small scenes through the console API, render a frame and compare pixels with what the SNES shows: tiles, palettes and flips, scrolling and 32 x 64 maps, the mode 1 layer order, sprites (row y of the picture is scanline y + 1, 9-bit x, the lower number in front), the limits of 32 sprites and 34 sprite tiles per line, colour math in windows (fixed colour, sub screen, add, subtract, half), HDMA tables, brightness and the DMA count.
 
-`tests/test_gfx.c` loads the graphics `gfx2c` made into the pseudo SNES, renders them and compares every pixel with the PNGs: the font, the tilesets, the title and every cell of every sprite sheet. The CTest tests `gfx2c_bad_*` check that `gfx2c` rejects art that breaks a limit, with the right reason.
+`tests/test_gfx.c` loads the graphics `gfx2c` made into Rachael, renders them and compares every pixel with the PNGs: the font, the tilesets, the title and every cell of every sprite sheet. The CTest tests `gfx2c_bad_*` check that `gfx2c` rejects art that breaks a limit, with the right reason.
 
 `tests/test_replay.c` records a game, plays the recording back and checks that it gives the same game, and that a changed input or seed is noticed. It also plays every recording in `tests/replays/` (one test each, `replay_<name>`); see *Recordings*.
 
@@ -331,9 +352,9 @@ Shoot bubbles (Y) at the enemies to trap them, then touch the trapped enemy to d
 
 **CPU partner:** with player 2 set to CPU, a computer partner plays player 2. It frees you from rescue bubbles, avoids danger, pops trapped enemies (preferably several at once), hunts enemies, fetches BLASEN letters it still needs (and doesn't dash through ones it has) and stays near you. To avoid danger it looks ahead every frame: it predicts where enemies, shots, storm clouds and the boss will be over the next half second, tries out its own moves (stay, walk, jump, dash, turn and shoot) and only follows its goal if that stays safe; it leaves the food to you and earns no score. Press Start on controller 2 to take over from it; once it has lost its last life, Start on controller 2 lets a human join in its place. A game finished with the CPU partner counts as a two-player game.
 
-## Coding rules for `src/game/` and `src/snes/`
+## Coding rules for `src/game/`
 
-These rules keep the code portable to the 65816 (`src/snes` is replaced by PVSnesLib on the console, but follows the same rules so the PC version behaves like it). There is no CI yet, so nothing enforces them automatically: run the check below before committing.
+These rules keep the code portable to the 65816. There is no CI yet, so nothing enforces them automatically: run the check below before committing. How to write C that dampf compiles well, and what the SNES allows, is in the kit's guides: `lib/C_STYLE.md` and `lib/SNES_HARDWARE.md` of the superdevkit home (see also `CLAUDE.md`).
 
 1. No `#include <raylib.h>` (or any platform header).
 2. No `float` or `double`.
@@ -346,7 +367,7 @@ These rules keep the code portable to the 65816 (`src/snes` is replaced by PVSne
 Quick local check:
 
 ```bash
-grep -rnE 'raylib\.h|\bfloat\b|\bdouble\b|\b(malloc|calloc|realloc|free)\s*\(' src/game/ src/snes/ \
+grep -rnE 'raylib\.h|\bfloat\b|\bdouble\b|\b(malloc|calloc|realloc|free)\s*\(' src/game/ \
   && echo "Rule violation found" || echo "OK"
 ```
 
@@ -360,6 +381,7 @@ Rule 7 is checked by `tools/int16check/int16check.sh` (Linux or WSL, after a web
 - [ADR-0004](docs/adr/0004-16-bit-look-with-snes-limits.md): a 16-bit look, held to SNES limits from stage 1
 - [ADR-0005](docs/adr/0005-stage-2-snes-compatibility-layer.md): stage 2 as a SNES compatibility layer, with a Dear ImGui debug view
 - [ADR-0006](docs/adr/0006-sprite-sheets-and-palettes.md): one sprite sheet per room group, and how the 8 sprite palettes are used
+- [ADR-0007](docs/adr/0007-built-with-superdevkit.md): the game is built with superdevkit: dampf and the kit's library for the ROM, Rachael for the PC and web
 - [Game Design Guide](docs/Blubber%20Blasen%20–%20Game%20Design%20Guide.md): the game we are building, Plus and Classic mode, and where it differs from the original
 - [Bubble Bobble (Arcade) – Game Design Reference Guide](docs/Bubble%20Bobble%20(Arcade)%20–%20Game%20Design%20Reference%20Guide.md): how the arcade original works, as reference
 - [Story](docs/story.md): the Blubber Factory, heroes, floors, secret rooms, boss and endings

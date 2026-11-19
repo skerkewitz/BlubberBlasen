@@ -11,20 +11,13 @@
 #include "game/level_data.h"
 
 /* --- Fast variables ---------------------------------------------------------
- * BB_FAST marks a small variable the game uses very often. With Calypsi on
- * the SNES it goes into the direct page: 2-byte instructions, the fastest
- * access the 65816 has. The direct page has about 230 bytes free (Calypsi
- * keeps its own registers there), so only small, hot variables, and the
- * extern declaration carries BB_FAST as well. Other compilers ignore it.
- * No arrays: Calypsi 5.18 stops with an internal error on a direct page
- * array indexed by a variable (CGHelpers.hs, mem8Reg).
- * For a pointer variable it goes after the star, `Sprite *BB_FAST p;`; in
- * front of the type it would describe what the pointer points to. */
-#ifdef __CALYPSI_CC__
-#define BB_FAST __attribute__((tiny))
-#else
+ * BB_FAST marks a small variable the game uses very often, a candidate for the
+ * direct page (2-byte instructions, the fastest access the 65816 has). dampf
+ * keeps only function frames there and has no hint for a global yet, so BB_FAST
+ * is empty for now; it stays where a dampf hint would go (ADR-0007). Only small,
+ * hot variables, and the extern declaration carries it as well. For a pointer
+ * variable it goes after the star, `Sprite *BB_FAST p;`. */
 #define BB_FAST
-#endif
 
 /* --- Playfield -------------------------------------------------------------
  * The level (32 x 26 tiles) sits below a two-row HUD. Map row 0 is drawn at

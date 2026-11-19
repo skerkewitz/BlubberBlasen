@@ -15,7 +15,7 @@
 #include "raylib.h"
 #include "rlgl.h"       /* rlGetShaderIdDefault: detect a failed shader compile */
 #include "game/game.h"
-#include "snes/snes.h"
+#include "rachael.h"
 
 #ifdef __EMSCRIPTEN__
 #include <emscripten/emscripten.h>
@@ -40,8 +40,8 @@
 
 static char      asset_root[1024];
 static Texture2D snes_tex;     /* the pseudo SNES picture, 256 x 224 */
-static u16       snes_frame[SNES_W * SNES_H];
-static uint32_t  snes_rgba[SNES_W * SNES_H];
+static uint16_t       snes_frame[SDEVKIT__W * SDEVKIT__H];
+static uint32_t  snes_rgba[SDEVKIT__W * SDEVKIT__H];
 static Sound     sounds[SFX_COUNT];
 static int       sound_loaded[SFX_COUNT];
 static Music     music[MUSIC_COUNT];
@@ -85,9 +85,9 @@ static void load_assets(void)
     int i;
 
     find_asset_root();
-    snes_reset();   /* power on; game_init sets the picture up */
+    sdevkit__reset();   /* power on; game_init sets the picture up */
     {
-        Image img = GenImageColor(SNES_W, SNES_H, BLACK);
+        Image img = GenImageColor(SDEVKIT__W, SDEVKIT__H, BLACK);
         snes_tex = LoadTextureFromImage(img);
         UnloadImage(img);
         SetTextureFilter(snes_tex, TEXTURE_FILTER_POINT);
@@ -319,8 +319,8 @@ static uint16_t read_gamepad(int index)
 static void draw_snes_picture(void)
 {
     int i;
-    snes_render(snes_frame);
-    for (i = 0; i < SNES_W * SNES_H; i++) {
+    sdevkit__render(snes_frame);
+    for (i = 0; i < SDEVKIT__W * SDEVKIT__H; i++) {
         uint32_t c = snes_frame[i], r = c & 31, g = (c >> 5) & 31, b = (c >> 10) & 31;
         snes_rgba[i] = 0xFF000000u | ((b << 3 | b >> 2) << 16) | ((g << 3 | g >> 2) << 8) | (r << 3 | r >> 2);
     }
@@ -1380,7 +1380,7 @@ static uint32_t game_step(void)
         shown_pad[0] = pad[0];
         shown_pad[1] = pad[1];
         game_tick(pad);
-        snes_vblank();   /* the frame is done: OAM shadow to OAM */
+        sdevkit__vblank();   /* the frame is done: OAM shadow to OAM */
         game_vblank();   /* the uploads, in the vertical blank */
         if (replay_after_tick(&player, (uint32_t)ticks_total) && !desync_said) {
             desync_said = 1;
@@ -1411,7 +1411,7 @@ static uint32_t game_step(void)
     }
 #endif
     game_tick(pad);
-    snes_vblank();   /* the frame is done: OAM shadow to OAM */
+    sdevkit__vblank();   /* the frame is done: OAM shadow to OAM */
     game_vblank();     /* the uploads, in the vertical blank */
 #ifdef BB_REPLAY
     if (recording) {

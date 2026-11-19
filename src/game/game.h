@@ -3,9 +3,10 @@
 
 /*
  * Interface between the portable game code and the platform layer.
- * Joypad words in, one tick per frame. The picture goes out through the
- * pseudo SNES (snes/snes.h): each tick ends with video.c writing OAM, VRAM,
- * CGRAM and the registers, and the platform lets the pseudo SNES render it.
+ * Joypad words in, one tick per frame. The picture goes out through
+ * superdevkit's console API (sdevkit/snes.h): each tick ends with video.c
+ * writing OAM, VRAM, CGRAM and the registers, which the SNES shows, and on the
+ * PC Rachael, the kit's SNES in C, renders (ADR-0007).
  * The game's own description of the frame (sprite table, tilemaps, colour
  * windows below) stays readable here for replay checksums and debugging.
  * Sound requests out. This header must never include platform headers.
@@ -142,8 +143,9 @@ enum { MUSIC_NONE, MUSIC_TITLE, MUSIC_GAME, MUSIC_COUNT };
 /* --- API called by the platform layer ------------------------------------ */
 void            game_init(uint16_t seed);                    /* after SRAM was filled */
 void            game_tick(const uint16_t pad[NUM_PLAYERS]);  /* exactly once per 60 Hz frame */
-/* In the vertical blank after each tick (after snes_vblank on the PC, from
- * the vertical blank interrupt on the SNES): the uploads the tick prepared. */
+/* In the vertical blank after each tick (after sdevkit__vblank on the PC, from
+ * the kit's main loop on the SNES, which waits for it): the uploads the tick
+ * prepared. */
 void            game_vblank(void);
 const Sprite   *game_oam(void);                              /* MAX_SPRITES entries */
 const ColorWindow *game_windows(void);                       /* NUM_WINDOWS entries */
