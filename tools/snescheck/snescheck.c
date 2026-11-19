@@ -4,7 +4,7 @@
  * pad 1, and writes the session as a recording in the kit's check format: the pad per tick and
  * the checksum of every tick (sdevkit_dbg_hash: the sprite table and the tilemaps).
  *
- *   snescheck [--ticks N] [--cpu] [--plus] [--trace FILE] -o build/snes/check.txt
+ *   snescheck [--ticks N] [--cpu] [--plus] [--trace FILE] [--sound FILE] -o build/snes/check.txt
  *   <home>/dev/replay.sh build/snes/blubberblasen.sfc build/snes/check.txt
  *
  * replay.sh plays the same pads on the ROM in dampf's emulator and names the first tick whose
@@ -21,6 +21,11 @@
  * --trace FILE writes one line per tick, "tick state round bubbles enemies items vacuums"
  * (GameState, the round, the bubbles, enemies and items in use, bit i: player i's vacuum is on), to put a ROM's measurements per tick in
  * context.
+ *
+ * --sound FILE writes every write to Rachael's sound chip (the S-DSP) as the kit's desktop
+ * frontend writes sound.txt: "init RR VV" for those of game_init, then "aram H" (the hash of the
+ * bytes uploaded to the audio RAM), then "T RR VV" for those after tick T. dampf's emulator
+ * records the same of the ROM (dampf.emu.ExampleCheck), so the two can be compared line by line.
  */
 
 #include <stdio.h>
@@ -39,6 +44,18 @@ static const struct { const char *name; uint16_t bit; } BUTTONS[] = {
 #define NBUTTONS (sizeof BUTTONS / sizeof BUTTONS[0])
 
 static uint8_t want_cpu, want_plus;
+
+static FILE *sound;                        /* --sound */
+static long sound_tick = -1;               /* the tick a DSP write belongs to; -1: game_init */
+
+static void log_dsp(uint8_t reg, uint8_t value)
+{
+    if (sound_tick < 0) {
+        fprintf(sound, "init %02x %02x\n", reg, value);
+    } else {
+        fprintf(sound, "%ld %02x %02x\n", sound_tick, reg, value);
+    }
+}
 
 /* A button pressed for 2 ticks, then released for 4: the menus react to a new press only. */
 static uint16_t tap(long t, uint16_t button)
@@ -95,7 +112,7 @@ static uint16_t bot_pad(long t)
 int main(int argc, char **argv)
 {
     long ticks = 3600, t, start;
-    const char *out = NULL, *trace_path = NULL;
+    const char *out = NULL, *trace_path = NULL, *sound_path = NULL;
     FILE *trace = NULL;
     uint16_t *pads;
     uint32_t *hashes;
@@ -109,6 +126,8 @@ int main(int argc, char **argv)
             want_cpu = 1;
         } else if (strcmp(argv[i], "--plus") == 0) {
             want_plus = 1;
+        } else if (strcmp(argv[i], "--sound") == 0 && i + 1 < argc) {
+            sound_path = argv[++i];
         } else if (strcmp(argv[i], "--trace") == 0 && i + 1 < argc) {
             trace_path = argv[++i];
         } else if (strcmp(argv[i], "-o") == 0 && i + 1 < argc) {
@@ -119,7 +138,7 @@ int main(int argc, char **argv)
         }
     }
     if (out == NULL || ticks <= 0) {
-        fprintf(stderr, "usage: snescheck [--ticks N] [--cpu] [--plus] [--trace FILE] -o check.txt\n");
+        fprintf(stderr, "usage: snescheck [--ticks N] [--cpu] [--plus] [--trace FILE] [--sound FILE] -o check.txt\n");
         return 2;
     }
     pads = calloc((size_t)ticks, sizeof pads[0]);
@@ -134,7 +153,18 @@ int main(int argc, char **argv)
         return 1;
     }
     sdevkit__reset();
+    if (sound_path != NULL) {
+        sound = fopen(sound_path, "w");
+        if (sound == NULL) {
+            fprintf(stderr, "snescheck: cannot write %s\n", sound_path);
+            return 1;
+        }
+        sdevkit__sound.log = log_dsp;
+    }
     game_init(0);
+    if (sound != NULL) {
+        fprintf(sound, "aram %08x\n", (unsigned)sdevkit__sound.upload_hash);
+    }
     for (t = 0; t < ticks; t++) {
         uint16_t pad[NUM_PLAYERS];
         pad[0] = bot_pad(t);
@@ -152,11 +182,16 @@ int main(int argc, char **argv)
         }
         sdevkit__vblank();
         game_vblank();
+        sound_tick = t;
+        sdevkit__sfx_frame();   /* as lib/snes/main.c: the tick's sound effects start */
         sdevkit__display();
     }
 
     if (trace != NULL) {
         fclose(trace);
+    }
+    if (sound != NULL) {
+        fclose(sound);
     }
     f = fopen(out, "w");
     if (f == NULL) {

@@ -173,7 +173,7 @@ static void trap_in_rescue_bubble(Player *p)
     p->vx = 0;
     p->vy = 0;
     p->dash = 0;
-    sfx(SFX_HELP);
+    sfx(SFX_UHHELPME);
 }
 
 static void update_rescue(Player *p)
@@ -211,7 +211,7 @@ static void update_rescue(Player *p)
         return;
     }
     if (p->rescue == RESCUE_HELP_AGAIN) {
-        sfx(SFX_HELP);   /* time is running out */
+        sfx(SFX_UHHELPME);   /* time is running out */
     }
     if (--p->rescue == 0) {
 #ifdef BB_DEBUG

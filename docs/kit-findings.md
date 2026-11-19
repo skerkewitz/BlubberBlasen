@@ -134,3 +134,19 @@ turned into a 24-bit pointer each time. If that is so, it may be worth a rule in
 ("walk the array with a counter and skip, rather than through an index list"), or an
 optimization. The game kept the counted loop; what saved time there was a cheaper test for the
 far pairs (an unsigned range compare instead of two `abs` and two compares).
+
+## New findings
+
+| # | Finding | Kind |
+| --- | --- | --- |
+| 8 | `ExampleCheck` records the ROM's sound but does not write it | tool |
+
+## 8. `ExampleCheck` records the ROM's sound but does not write it (2026-11-19)
+
+The game checks its ROM's sound against Rachael's: `snescheck --sound` writes Rachael's DSP writes
+in sound.txt's format, and dampf's emulator records the ROM's in `ExampleCheck.Result.sound()`.
+But `ExampleCheck`'s `main` only writes the checksums, so the game read `sound()` with a small
+class of its own. An optional output for it (`ExampleCheck rom recording [hashes.txt [sound.txt]]`,
+say) would let a game outside the kit compare the sound with the kit's tools alone. With it,
+Blubber Blasen's ROM and Rachael gave the same DSP writes, line for line, in three scenarios of
+12,000 ticks.

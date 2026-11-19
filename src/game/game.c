@@ -5,6 +5,7 @@
  */
 
 #include "game/internal.h"
+#include "sdevkit/snes.h"
 
 #define START_LIVES     3
 #define INTRO_FRAMES    120
@@ -159,9 +160,26 @@ static const uint32_t sfx_bit[32] = {
     B32(23), B32(24), B32(25), B32(26), B32(27), B32(28), B32(29), B32(30), B32(31)
 };
 
+/* A sound effect for this tick. The tick collects them in g_sfx and plays
+ * each once at its end (sfx_flush): an effect asked for twice takes one
+ * voice, and a multikill can take back the kill sound of the same tick. */
 void sfx(uint8_t id)
 {
     g_sfx |= sfx_bit[id & 31];
+}
+
+typedef char sfx_fit_the_mask[SFX_COUNT <= 32 ? 1 : -1];
+
+static void sfx_flush(void)
+{
+    if (g_sfx == 0) {
+        return;   /* most ticks */
+    }
+    for (uint8_t id = 0; id < SFX_COUNT; id++) {
+        if (g_sfx & sfx_bit[id]) {
+            sdevkit_sfx_play(id);
+        }
+    }
 }
 
 uint8_t overlap(uint16_t ax, uint16_t ay, uint16_t bx, uint16_t by, uint8_t w, uint8_t h)
@@ -1305,6 +1323,7 @@ static void build_oam(void)
 void game_init(uint16_t seed)
 {
     video_init();
+    sdevkit_sfx_init(&sfx_bank);   /* with the screen off: on the SNES the samples take about 2 s */
     rng = seed ? seed : 0xACE1u;
     g_frame = 0;
     g_freeze = 0;
@@ -1471,6 +1490,7 @@ void game_tick(const uint16_t real_pad[NUM_PLAYERS])
     }
 
     state_timer++;
+    sfx_flush();
     build_oam();
     build_windows();
     video_frame(windows);
@@ -1563,10 +1583,12 @@ uint8_t game_bg_window_top(void)
     return g_window_top;
 }
 
+#ifdef BB_DEBUG
 uint32_t game_sfx(void)
 {
     return g_sfx;
 }
+#endif
 
 /* Title music around the title screen, game music in the rounds,
  * silence for the game over jingle. */

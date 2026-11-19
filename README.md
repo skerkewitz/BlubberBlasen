@@ -82,7 +82,8 @@ Level data is generated at build time: CMake builds `map2c`, runs it over `asset
 | CMake | 3.20+ | |
 | Git | any recent | |
 | Ninja | optional | Faster builds |
-| superdevkit | 0.5.0 or newer | a superdevkit home, see below; for the SNES build also a JDK 25+, gcc (`gcc -E`) and Python 3 in Linux or WSL |
+| superdevkit | 0.5.1 or newer | a superdevkit home, see below |
+| Java | JDK 25 or newer | for every build: superdevkit converts the sound effects (on Windows too, e.g. Eclipse Temurin); the SNES build also needs gcc (`gcc -E`) and Python 3 in Linux or WSL |
 
 raylib does **not** need to be installed. CMake fetches it automatically via `FetchContent` on the first configure (internet access required once).
 
@@ -94,7 +95,7 @@ The game is built with superdevkit, a development kit for SNES games in C (not p
 cmake -S . -B build "-DSUPERDEVKIT_HOME=\\wsl.localhost\<distribution>\home\<you>\superdevkit"   # from WSL: "$(wslpath -w <home>)"
 ```
 
-The path is kept in the build folder's cache, so it is given once per build folder.
+The path is kept in the build folder's cache, so it is given once per build folder. The build also converts the sound effects (`assets/sfx/sfx.json`) with superdevkit's converter, which runs on Java: configuring stops with a message when no JDK 25 or newer is found (on the `PATH` or through `JAVA_HOME`).
 
 ### Windows
 
@@ -167,7 +168,7 @@ Needs a superdevkit home (see *superdevkit*) and the host tools of a Windows or 
 SUPERDEVKIT_HOME=~/superdevkit ./build_snes.sh
 ```
 
-The result is `build/snes/blubberblasen.sfc`, a 512 KB LoROM image for an emulator (Mesen for exact timing) or a flash cartridge, with `blubberblasen.dbg` next to it, which lets Mesen show the C source and the globals, and `blubberblasen.timing.txt`, the best and worst case of every function in CPU cycles. `build_snes.sh` converts the data as plain C (`build/snes/gen`) and calls dampf with `blubberblasen.args` and the kit's library for the SNES, `lib/snes`: its start-up, the kit's splash screen and the main loop that calls `game_init`, `game_tick` and `game_vblank`. The game code is the same as on the PC. No sound and no save RAM yet (the kit has neither on the SNES).
+The result is `build/snes/blubberblasen.sfc`, a 512 KB LoROM image for an emulator (Mesen for exact timing) or a flash cartridge, with `blubberblasen.dbg` next to it, which lets Mesen show the C source and the globals, and `blubberblasen.timing.txt`, the best and worst case of every function in CPU cycles. `build_snes.sh` converts the data as plain C (`build/snes/gen`) and calls dampf with `blubberblasen.args` and the kit's library for the SNES, `lib/snes`: its start-up, the kit's splash screen and the main loop that calls `game_init`, `game_tick` and `game_vblank`. The game code is the same as on the PC. It also converts the sound effects with `superdevkit sfx`; the samples are uploaded to the sound chip in `game_init`, about two seconds of black screen after the kit's splash. No music and no save RAM yet (the kit has neither on the SNES).
 
 **The ROM against the PC.** `snescheck` plays the game on Rachael as the kit's main loop plays the ROM (seed 0, no save RAM, no debug switches) with a simple bot on pad 1, and writes the pads and the checksum of every tick (the sprite table and both tilemaps) as a recording in the kit's format. The kit's `dev/replay.sh` plays it on the ROM in dampf's emulator and names the first tick whose checksum differs:
 
@@ -179,6 +180,8 @@ build/Debug/snescheck.exe --ticks 3600 -o build/snes/check.txt      # or build/s
 On both machines the game keeps the console's rhythm: `game_tick()` runs while the picture is drawn and only prepares; `game_vblank()` copies into VRAM and CGRAM in the vertical blank, within a budget. Rachael on the PC enforces this: writes outside the vertical blank or over about 5.7 KB are lost and counted, so tests notice them.
 
 The game's line y is row y of the picture on both. The SNES draws row y from scanline y + 1 and never shows scanline 0, so `video.c` scrolls both backgrounds up by one line and writes a sprite's y as it is; HDMA's first table entry lands on row 0 by itself (measured in Mesen, ADR-0007).
+
+Sound effects work the same way on every platform (ADR-0008): the game asks for them with `sdevkit_sfx_play`, superdevkit chooses the voices, and on the PC and in the browser Rachael's model of the SNES's sound chip plays them through raylib, the same samples the console plays. The music (mp3) is still the PC's and the browser's alone.
 
 ### Tests
 
@@ -380,6 +383,7 @@ grep -rnE 'raylib\.h|\bfloat\b|\bdouble\b|\b(malloc|calloc|realloc|free)\s*\(' s
 - [ADR-0005](docs/adr/0005-stage-2-snes-compatibility-layer.md): stage 2 as a SNES compatibility layer, with a Dear ImGui debug view
 - [ADR-0006](docs/adr/0006-sprite-sheets-and-palettes.md): one sprite sheet per room group, and how the 8 sprite palettes are used
 - [ADR-0007](docs/adr/0007-built-with-superdevkit.md): the game is built with superdevkit: dampf and the kit's library for the ROM, Rachael for the PC and web
+- [ADR-0008](docs/adr/0008-sound-effects-through-superdevkit.md): sound effects through superdevkit, the same on every platform
 - [Game Design Guide](docs/Blubber%20Blasen%20–%20Game%20Design%20Guide.md): the game we are building, Plus and Classic mode, and where it differs from the original
 - [Bubble Bobble (Arcade) – Game Design Reference Guide](docs/Bubble%20Bobble%20(Arcade)%20–%20Game%20Design%20Reference%20Guide.md): how the arcade original works, as reference
 - [Story](docs/story.md): the Blubber Factory, heroes, floors, secret rooms, boss and endings

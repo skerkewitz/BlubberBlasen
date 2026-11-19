@@ -126,7 +126,7 @@ Things to keep in mind when designing rooms:
 
 ## Sound effects (`sfx/`)
 
-Mono WAV files, loaded by name: `jump`, `shoot`, `pop`, `trap`, `kill`, `gem`, `death`, `start`, `clear`, `hurry`, `gameover`, `menu`, `pause`, `extra`, `dash`, `UhHelpMe`, `vacuum`, `multikill`. A missing file is skipped silently.
+WAV files, listed with their settings in `sfx.json`, the file superdevkit's sound effects are built from (ADR-0008): one effect per entry (`id`, `priority`, and the WAV with the rate, treble boost, gain and volume it plays at on the SNES). The build converts them into the SNES's sample format (BRR) with `superdevkit sfx` and compiles them into the game; the game plays them by name, `SFX_<ID>` (`SFX_JUMP`, `SFX_UHHELPME`, ...), and the SNES and Rachael on the PC and in the browser play the same samples. Edit the file with the kit's `tools/brr_lab.html`, which opens this folder, plays each effect as the SNES will, and shows the audio RAM it takes (64,448 bytes; 43,686 now). `full` and `ready` are listed but not played by the game yet.
 
 `UhHelpMe` plays when a player is caught in a rescue bubble (co-op rescue) and once more when two thirds of the bubble's time are over. `vacuum` plays when a player places a vacuum (Plus mode). `multikill` plays once per multikill, in place of `kill`, when the third enemy defeated in one go falls (a chain, a dash, one water, fire or lightning bubble, an item); that is the moment that earns BLASEN letters.
 

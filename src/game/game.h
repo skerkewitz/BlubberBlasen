@@ -124,16 +124,11 @@ typedef struct {
 #define CHR_TITLE_W          32u
 #define CHR_TITLE_H          22u
 
-/* --- Sound effects (one bit each, requested per tick) --------------------- */
-enum {
-    SFX_JUMP, SFX_SHOOT, SFX_POP, SFX_TRAP, SFX_KILL, SFX_GEM, SFX_DEATH,
-    SFX_START, SFX_CLEAR, SFX_HURRY, SFX_GAMEOVER, SFX_MENU, SFX_PAUSE, SFX_EXTRA,
-    SFX_DASH,                        /* Plus mode: a dash */
-    SFX_HELP,                        /* a player in the rescue bubble calls for help */
-    SFX_VACUUM,                      /* Plus mode: a vacuum is placed */
-    SFX_MULTIKILL,                   /* the third trapped enemy of one chain pops */
-    SFX_COUNT                       /* at most 32: game_sfx() is a 32-bit mask */
-};
+/* --- Sound effects ---------------------------------------------------------
+ * The game plays them itself, through superdevkit (sdevkit_sfx_play, ADR-0008),
+ * on the SNES and on Rachael: the platform only plays Rachael's sound chip.
+ * The effects and their numbers come from assets/sfx/sfx.json (the generated
+ * sfx.h, internal.h). */
 
 /* --- Music (a track ID; the platform streams the file) --------------------- */
 enum { MUSIC_NONE, MUSIC_TITLE, MUSIC_GAME, MUSIC_COUNT };
@@ -152,7 +147,6 @@ const ColorWindow *game_windows(void);                       /* NUM_WINDOWS entr
 const uint16_t *game_bg(uint8_t layer);   /* layer 0: BG_W * BG0_ROWS, layer 1: BG_W * BG_H entries */
 uint16_t        game_bg_scroll_y(void);   /* layer 0 vertical scroll in pixels, 0..BG0_ROWS*8-1 */
 uint8_t         game_bg_window_top(void); /* layer 0 is only shown from this screen y down */
-uint32_t        game_sfx(void);    /* bit mask of SFX_* requested by the last tick */
 uint8_t         game_music(void);  /* MUSIC_* that should be playing now */
 uint8_t        *game_sram(void);   /* SRAM_SIZE bytes; platform loads/saves them */
 uint8_t         game_sram_dirty(void); /* 1 once after the game changed SRAM */
@@ -163,6 +157,8 @@ uint8_t         game_sram_dirty(void); /* 1 once after the game changed SRAM */
  * checksums and the tests. */
 #ifdef BB_DEBUG
 const Sprite   *game_oam(void);
+/* The sound effects the last tick asked for: bit SFX_<ID> (sfx.h) of each. For the tests. */
+uint32_t        game_sfx(void);
 #endif
 
 #ifdef BB_DEBUG

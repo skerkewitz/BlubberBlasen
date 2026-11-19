@@ -1,0 +1,65 @@
+{
+  "voices": 2,
+  "sounds": [
+    { "id": "uhhelpme", "priority": 0, "samples": [
+        { "file": "UhHelpMe.wav", "active": true,
+          "rate": 11000, "treble": 6, "gain": 0, "trim": true, "volume": 100 } ] },
+    { "id": "clear", "priority": 0, "samples": [
+        { "file": "clear.wav", "active": true,
+          "rate": 8000, "treble": 6, "gain": 0, "trim": true, "volume": 100 } ] },
+    { "id": "dash", "priority": 0, "samples": [
+        { "file": "dash.wav", "active": true,
+          "rate": 8000, "treble": 6, "gain": 0, "trim": true, "volume": 100 } ] },
+    { "id": "death", "priority": 0, "samples": [
+        { "file": "death.wav", "active": true,
+          "rate": 8000, "treble": 6, "gain": 0, "trim": true, "volume": 100 } ] },
+    { "id": "extra", "priority": 0, "samples": [
+        { "file": "extra.wav", "active": true,
+          "rate": 8000, "treble": 6, "gain": 0, "trim": true, "volume": 100 } ] },
+    { "id": "full", "priority": 0, "samples": [
+        { "file": "full.wav", "active": true,
+          "rate": 8000, "treble": 6, "gain": 0, "trim": true, "volume": 100 } ] },
+    { "id": "gameover", "priority": 0, "samples": [
+        { "file": "gameover.wav", "active": true,
+          "rate": 8000, "treble": 6, "gain": 0, "trim": true, "volume": 100 } ] },
+    { "id": "gem", "priority": 0, "samples": [
+        { "file": "gem.wav", "active": true,
+          "rate": 8000, "treble": 6, "gain": 0, "trim": true, "volume": 100 } ] },
+    { "id": "hurry", "priority": 0, "samples": [
+        { "file": "hurry.wav", "active": true,
+          "rate": 16000, "treble": 6, "gain": 0, "trim": true, "volume": 100 } ] },
+    { "id": "jump", "priority": 0, "samples": [
+        { "file": "jump.wav", "active": true,
+          "rate": 16000, "treble": 6, "gain": 0, "trim": true, "volume": 100 } ] },
+    { "id": "kill", "priority": 0, "samples": [
+        { "file": "kill.wav", "active": true,
+          "rate": 11000, "treble": 6, "gain": 0, "trim": true, "volume": 100 } ] },
+    { "id": "menu", "priority": 0, "samples": [
+        { "file": "menu.wav", "active": true,
+          "rate": 16000, "treble": 6, "gain": 0, "trim": true, "volume": 100 } ] },
+    { "id": "multikill", "priority": 0, "samples": [
+        { "file": "multikill.wav", "active": true,
+          "rate": 11000, "treble": 6, "gain": 0, "trim": true, "volume": 100 } ] },
+    { "id": "pause", "priority": 0, "samples": [
+        { "file": "pause.wav", "active": true,
+          "rate": 16000, "treble": 6, "gain": 0, "trim": true, "volume": 100 } ] },
+    { "id": "pop", "priority": 0, "samples": [
+        { "file": "pop.wav", "active": true,
+          "rate": 16000, "treble": 6, "gain": 0, "trim": true, "volume": 100 } ] },
+    { "id": "ready", "priority": 0, "samples": [
+        { "file": "ready.wav", "active": true,
+          "rate": 11000, "treble": 6, "gain": 0, "trim": true, "volume": 100 } ] },
+    { "id": "shoot", "priority": 0, "samples": [
+        { "file": "shoot.wav", "active": true,
+          "rate": 8000, "treble": 6, "gain": 0, "trim": true, "volume": 100 } ] },
+    { "id": "start", "priority": 0, "samples": [
+        { "file": "start.wav", "active": true,
+          "rate": 8000, "treble": 6, "gain": 0, "trim": true, "volume": 100 } ] },
+    { "id": "trap", "priority": 0, "samples": [
+        { "file": "trap.wav", "active": true,
+          "rate": 8000, "treble": 6, "gain": 0, "trim": true, "volume": 100 } ] },
+    { "id": "vacuum", "priority": 0, "samples": [
+        { "file": "vacuum.wav", "active": true,
+          "rate": 8000, "treble": 6, "gain": 0, "trim": true, "volume": 100 } ] }
+  ]
+}

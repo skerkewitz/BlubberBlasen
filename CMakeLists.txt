@@ -70,8 +70,30 @@ add_custom_command(
     COMMENT "gfx2c: converting graphics"
     VERBATIM
 )
-add_library(gfxdata STATIC ${GFX_DATA_C})
-target_include_directories(gfxdata PUBLIC ${PROJECT_BINARY_DIR}/generated)
+# --- Sound effects: assets/sfx/sfx.json -> sfx.c, sfx.h (superdevkit sfx, ADR-0008) --
+# superdevkit's converter is Java (JDK 25 or newer). It is called through java directly, not
+# through the bin/superdevkit launcher, so that a home inside WSL works from Windows too.
+find_package(Java 25 COMPONENTS Runtime)
+if(NOT Java_JAVA_EXECUTABLE)
+    message(FATAL_ERROR "The sound effects are converted by superdevkit, which needs Java (a JDK 25 or newer, "
+                        "for example Eclipse Temurin). Install it, or put it on the PATH, or set JAVA_HOME, "
+                        "then configure again.")
+endif()
+set(SFX_C ${PROJECT_BINARY_DIR}/generated/sfx.c)
+set(SFX_H ${PROJECT_BINARY_DIR}/generated/sfx.h)
+file(GLOB SFX_FILES CONFIGURE_DEPENDS ${PROJECT_SOURCE_DIR}/assets/sfx/*.wav)
+add_custom_command(
+    OUTPUT  ${SFX_C} ${SFX_H}
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${PROJECT_BINARY_DIR}/generated
+    COMMAND ${Java_JAVA_EXECUTABLE} -cp "${SDK}/java/*" superdevkit.Main
+            sfx ${PROJECT_SOURCE_DIR}/assets/sfx/sfx.json sfx ${PROJECT_BINARY_DIR}/generated
+    DEPENDS ${PROJECT_SOURCE_DIR}/assets/sfx/sfx.json ${SFX_FILES}
+    COMMENT "superdevkit sfx: converting the sound effects"
+    VERBATIM
+)
+
+add_library(gfxdata STATIC ${GFX_DATA_C} ${SFX_C})
+target_include_directories(gfxdata PUBLIC ${PROJECT_BINARY_DIR}/generated PRIVATE ${SDK}/lib/include)   # sfx.c: sdevkit_sfx_bank
 set_target_properties(gfxdata PROPERTIES C_EXTENSIONS OFF)
 
 # --- Portable game code: must not depend on raylib ---------------------------
@@ -181,6 +203,8 @@ if(EMSCRIPTEN)
         "SHELL:--exclude-file *.txt"
         "SHELL:--exclude-file *.md"
         "SHELL:--exclude-file *.png"   # graphics are compiled in (gfx2c)
+        "SHELL:--exclude-file *.wav"   # sound effects too (superdevkit sfx; the music is mp3)
+        "SHELL:--exclude-file *.json"
         "SHELL:--exclude-file *guarded-stillness*"
         "SHELL:--shell-file ${PROJECT_SOURCE_DIR}/web/shell.html")
     set_property(TARGET blubberblasen APPEND PROPERTY LINK_DEPENDS ${PROJECT_SOURCE_DIR}/web/shell.html)

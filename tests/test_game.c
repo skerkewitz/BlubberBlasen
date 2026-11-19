@@ -1210,7 +1210,7 @@ static void test_rescue(void)
     g_sfx = 0;
     player_update(&g_players[0], 0, 0);
     CHECK(g_players[0].state == PS_RESCUE, "enemy contact should trap player 1 in a rescue bubble");
-    CHECK((g_sfx & ((uint32_t)1u << SFX_HELP)) && !(g_sfx & ((uint32_t)1u << SFX_TRAP)),
+    CHECK((g_sfx & ((uint32_t)1u << SFX_UHHELPME)) && !(g_sfx & ((uint32_t)1u << SFX_TRAP)),
           "a trapped player calls for help (not the enemy trap sound)");
     enemies_clear();
     for (f = 0; f < 30; f++) {
@@ -1230,7 +1230,7 @@ static void test_rescue(void)
         for (f = 0; f < 600 && g_players[0].state == PS_RESCUE; f++) {
             g_sfx = 0;
             player_update(&g_players[0], 0, 0);
-            if (g_sfx & ((uint32_t)1u << SFX_HELP)) {
+            if (g_sfx & ((uint32_t)1u << SFX_UHHELPME)) {
                 calls++;
                 call_at = f;
             }

@@ -42,8 +42,6 @@ static char      asset_root[1024];
 static Texture2D snes_tex;     /* the pseudo SNES picture, 256 x 224 */
 static uint16_t       snes_frame[SDEVKIT__W * SDEVKIT__H];
 static uint32_t  snes_rgba[SDEVKIT__W * SDEVKIT__H];
-static Sound     sounds[SFX_COUNT];
-static int       sound_loaded[SFX_COUNT];
 static Music     music[MUSIC_COUNT];
 static int       music_loaded[MUSIC_COUNT];
 static int       music_playing = MUSIC_NONE;
@@ -57,11 +55,59 @@ static const char *const music_files[MUSIC_COUNT] = {
 };
 #define MUSIC_VOLUME 0.5f
 
-static const char *const sfx_files[SFX_COUNT] = {
-    "jump", "shoot", "pop", "trap", "kill", "gem", "death",
-    "start", "clear", "hurry", "gameover", "menu", "pause", "extra",
-    "dash", "UhHelpMe", "vacuum", "multikill"
-};
+/* --- Sound effects: Rachael's sound chip ---------------------------------------
+ * The game plays its effects through superdevkit (sdevkit_sfx_play, ADR-0008),
+ * on the SNES and on Rachael alike. After each tick's game_vblank,
+ * sdevkit__sfx_frame starts the effects it asked for, as the kit's main loop
+ * does on the SNES; then the tick's samples of the S-DSP (32 kHz, stereo) go
+ * into a FIFO that raylib's audio stream empties. A tick makes 32000 / 60 of
+ * them, the frontend's tick rate, so that the stream neither runs dry nor
+ * fills up (as the kit's desktop frontend does). */
+#define AUDIO_CHUNK 1024                    /* frames the stream asks for at a time */
+#define FIFO_FRAMES (AUDIO_CHUNK * 8)
+static AudioStream sfx_stream;
+static int       sfx_on;                   /* the stream plays */
+static int16_t   sfx_fifo[FIFO_FRAMES * 2];
+static unsigned  sfx_fifo_n;
+static long      sfx_ticks;                /* ticks whose samples were made */
+static int       sfx_skip;                 /* a recording jumps ahead: no samples */
+
+static void sfx_tick(void)
+{
+    static int16_t buf[(SDEVKIT__DSP_RATE / TICK_HZ + 1) * 2];
+    long long a = (long long)sfx_ticks * SDEVKIT__DSP_RATE / TICK_HZ;
+    long long b = (long long)(sfx_ticks + 1) * SDEVKIT__DSP_RATE / TICK_HZ;
+    unsigned n = (unsigned)(b - a);
+
+    sdevkit__sfx_frame();
+    sfx_ticks++;
+    if (!sfx_on || sfx_skip) {
+        return;
+    }
+    sdevkit__dsp_render(buf, n);
+    if (sfx_fifo_n + n > FIFO_FRAMES) {     /* behind (a stall): the oldest go */
+        unsigned drop = sfx_fifo_n + n - FIFO_FRAMES;
+        memmove(sfx_fifo, sfx_fifo + drop * 2, (sfx_fifo_n - drop) * 2 * sizeof sfx_fifo[0]);
+        sfx_fifo_n -= drop;
+    }
+    memcpy(sfx_fifo + sfx_fifo_n * 2, buf, n * 2 * sizeof buf[0]);
+    sfx_fifo_n += n;
+}
+
+/* The stream asks for its next chunk: from the samples made, silence where there are none. */
+static void sfx_feed(void)
+{
+    static int16_t chunk[AUDIO_CHUNK * 2];
+
+    while (sfx_on && IsAudioStreamProcessed(sfx_stream)) {
+        unsigned n = sfx_fifo_n < AUDIO_CHUNK ? sfx_fifo_n : AUDIO_CHUNK;
+        memcpy(chunk, sfx_fifo, n * 2 * sizeof sfx_fifo[0]);
+        memset(chunk + n * 2, 0, (AUDIO_CHUNK - n) * 2 * sizeof chunk[0]);
+        memmove(sfx_fifo, sfx_fifo + n * 2, (sfx_fifo_n - n) * 2 * sizeof sfx_fifo[0]);
+        sfx_fifo_n -= n;
+        UpdateAudioStream(sfx_stream, chunk, AUDIO_CHUNK);
+    }
+}
 
 /* --- Assets --------------------------------------------------------------- */
 static void find_asset_root(void)
@@ -92,15 +138,12 @@ static void load_assets(void)
         UnloadImage(img);
         SetTextureFilter(snes_tex, TEXTURE_FILTER_POINT);
     }
-    for (i = 0; i < SFX_COUNT; i++) {
-        sound_loaded[i] = 0;
-    }
     for (i = 0; i < MUSIC_COUNT; i++) {
         music_loaded[i] = 0;
     }
 }
 
-/* Opens the audio device and loads sounds and music. On the PC at start;
+/* Opens the audio device, starts the sound effects' stream and loads the music. On the PC at start;
  * in the browser only after the first click or key press, because browsers
  * keep an audio device created earlier silent (autoplay rule). */
 static int audio_started;
@@ -112,13 +155,13 @@ static void start_audio(void)
     audio_started = 1;
     music_playing = MUSIC_NONE;   /* so the track the game wants starts now */
     InitAudioDevice();
-    for (i = 0; i < SFX_COUNT; i++) {
-        const char *path = asset_path(TextFormat("sfx/%s.wav", sfx_files[i]));
-        sound_loaded[i] = 0;
-        if (IsAudioDeviceReady() && FileExists(path)) {
-            sounds[i] = LoadSound(path);
-            sound_loaded[i] = 1;
-        }
+    if (IsAudioDeviceReady()) {
+        SetAudioStreamBufferSizeDefault(AUDIO_CHUNK);
+        sfx_stream = LoadAudioStream(SDEVKIT__DSP_RATE, 16, 2);
+        SetAudioStreamBufferSizeDefault(0);   /* the music streams keep raylib's default */
+        PlayAudioStream(sfx_stream);
+        sfx_fifo_n = 0;
+        sfx_on = 1;
     }
 
     for (i = 0; i < MUSIC_COUNT; i++) {
@@ -162,10 +205,9 @@ static void unload_assets(void)
             UnloadMusicStream(music[i]);
         }
     }
-    for (i = 0; i < SFX_COUNT; i++) {
-        if (sound_loaded[i]) {
-            UnloadSound(sounds[i]);
-        }
+    if (sfx_on) {
+        UnloadAudioStream(sfx_stream);
+        sfx_on = 0;
     }
     UnloadTexture(snes_tex);
 }
@@ -326,16 +368,6 @@ static void draw_snes_picture(void)
     }
     UpdateTexture(snes_tex, snes_rgba);
     DrawTexture(snes_tex, 0, 0, WHITE);
-}
-
-static void play_sounds(uint32_t mask)
-{
-    int i;
-    for (i = 0; i < SFX_COUNT; i++) {
-        if ((mask & ((uint32_t)1u << i)) && sound_loaded[i]) {
-            PlaySound(sounds[i]);
-        }
-    }
 }
 
 /* --- Command line -----------------------------------------------------------
@@ -1359,8 +1391,8 @@ static void start_game(void)
     TraceLog(LOG_INFO, "GAME: started");
 }
 
-/* One game tick with this frame's input. Returns the sounds it asked for. */
-static uint32_t game_step(void)
+/* One game tick with this frame's input, its vertical blank and its sound. */
+static void game_step(void)
 {
     uint16_t pad[NUM_PLAYERS];
 #ifdef BB_REPLAY
@@ -1368,7 +1400,7 @@ static uint32_t game_step(void)
         if (ticks_total >= (long)play.end_tick) {
             dbg_paused = opt_quit < 0;
             dbg_say("END OF THE RECORDING");
-            return 0;
+            return;
         }
         replay_before_tick(&player, (uint32_t)ticks_total, pad);
         /* scripted runs (--quit) never pause; a jump stops where it was told */
@@ -1382,12 +1414,13 @@ static uint32_t game_step(void)
         game_tick(pad);
         sdevkit__vblank();   /* the frame is done: OAM shadow to OAM */
         game_vblank();   /* the uploads, in the vertical blank */
+        sfx_tick();
         if (replay_after_tick(&player, (uint32_t)ticks_total) && !desync_said) {
             desync_said = 1;
             TraceLog(LOG_WARNING, "REPLAY: drifted apart at tick %ld (the game changed since the recording)", ticks_total);
         }
         ticks_total++;
-        return game_sfx();   /* the save RAM stays as it is */
+        return;   /* the save RAM stays as it is */
     }
 #endif
     pad[0] = (uint16_t)(read_keyboard(0) | read_gamepad(0));
@@ -1413,6 +1446,7 @@ static uint32_t game_step(void)
     game_tick(pad);
     sdevkit__vblank();   /* the frame is done: OAM shadow to OAM */
     game_vblank();     /* the uploads, in the vertical blank */
+    sfx_tick();
 #ifdef BB_REPLAY
     if (recording) {
         replay_write_tick(&rec, (uint32_t)ticks_total, pad);
@@ -1422,7 +1456,6 @@ static uint32_t game_step(void)
         sram_save();
     }
     ticks_total++;
-    return game_sfx();
 }
 
 /* One rendered frame: 0..MAX_CATCHUP game ticks, then the picture.
@@ -1479,9 +1512,11 @@ static int frame(void)
     if (replaying && ff_target >= 0) {
         /* jumping: run without pictures or sound, a limited number per frame */
         long n = 0;
+        sfx_skip = 1;
         while (ticks_total < ff_target && ticks_total < (long)play.end_tick && n++ < 20000) {
             game_step();
         }
+        sfx_skip = 0;
         if (ticks_total >= ff_target || ticks_total >= (long)play.end_tick) {
             ff_target = -1;
             if (opt_quit < 0) {
@@ -1495,7 +1530,7 @@ static int frame(void)
     }
 #endif
     while (accumulator >= tick && ticks < MAX_CATCHUP) {
-        play_sounds(game_step());
+        game_step();
         accumulator -= tick;
         ticks++;
     }
@@ -1503,6 +1538,7 @@ static int frame(void)
         accumulator = 0.0;   /* drop time after a long stall */
     }
     update_music(game_music());
+    sfx_feed();
 
     /* Render into the 256x224 "SNES" framebuffer. */
     BeginTextureMode(fb);

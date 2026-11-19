@@ -1,7 +1,7 @@
 # ADR-0007: The game is built with superdevkit, on the SNES and on the PC
 
 Date: 2026-11-19
-Status: accepted
+Status: accepted; amended by ADR-0008 (sound effects through superdevkit, the ROM included)
 
 ## Context
 

@@ -9,6 +9,7 @@
 #include "game/game.h"
 #include "game/fixed.h"
 #include "game/level_data.h"
+#include "sfx.h"           /* SFX_<ID>, sfx_bank: written from assets/sfx/sfx.json by superdevkit sfx */
 
 /* --- Fast variables ---------------------------------------------------------
  * BB_FAST marks a small variable the game uses very often, a candidate for the
@@ -250,7 +251,7 @@ extern uint16_t  g_level_frames;   /* frames since the round started */
 extern BB_FAST uint8_t   g_level;          /* 0-based index into level_defs */
 extern BB_FAST uint8_t   g_round;          /* 1-based round number shown to the player */
 extern BB_FAST uint8_t   g_hurry;          /* hurry-up mode active */
-extern BB_FAST uint32_t  g_sfx;
+extern BB_FAST uint32_t  g_sfx;          /* the effects this tick asked for, bit SFX_<ID>; played at its end */
 extern uint8_t   g_skip_rounds;    /* >0: end the round now and advance that many (round_skip) */
 extern BB_FAST uint16_t  g_freeze;         /* frames left of the Steam Whistle */
 

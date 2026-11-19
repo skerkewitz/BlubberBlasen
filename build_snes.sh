@@ -7,7 +7,8 @@
 # the timing report blubberblasen.timing.txt and the assembly next to it.
 #
 # The level and graphics data come from the host tools map2c and gfx2c as plain C. By default the
-# tools from the Windows build (build/tools/Debug) are used; HOSTTOOLS=<dir> picks others.
+# tools from the Windows build (build/tools/Debug) are used; HOSTTOOLS=<dir> picks others. The sound
+# effects come from assets/sfx/sfx.json through superdevkit sfx (ADR-0008).
 # dampf compiles the game, the data and the kit's library for the SNES (lib/snes: start-up, the
 # splash screen, the main loop that calls game_init, game_tick and game_vblank) as one program,
 # and assembles and links the ROM itself.
@@ -32,6 +33,7 @@ LEVELS=$(ls assets/levels/*.map | sort)
 "$HOSTTOOLS/map2c$EXE" -o "$GEN/level_data.c" $LEVELS > /dev/null
 # shellcheck disable=SC2086
 "$HOSTTOOLS/gfx2c$EXE" -o "$GEN/gfx_data.c" -H "$GEN/gfx_data.h" assets/gfx/gfx.txt $LEVELS > /dev/null
+"$SUPERDEVKIT_HOME/bin/superdevkit" sfx assets/sfx/sfx.json sfx "$GEN" > /dev/null
 
 "$SUPERDEVKIT_HOME/bin/dampf" build @blubberblasen.args \
     -I "$SUPERDEVKIT_HOME/lib/include" "$SUPERDEVKIT_HOME/lib/snes/" \
