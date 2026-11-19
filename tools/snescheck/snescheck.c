@@ -13,7 +13,8 @@
  *
  * The bot only presses buttons, so the ROM, which gets the same pads, plays the same game; it may
  * look at the game's state to decide. On the title it sets the options first (--cpu: player 2 is
- * the CPU partner, --plus: Plus mode), then starts a game, and it continues after a game over.
+ * the CPU partner, --plus: Plus mode, else Arcade; co-op rescue stays at its default, on), then
+ * starts a game, and it continues after a game over.
  * In play it walks, jumps and shoots (in Plus mode it also places a vacuum every 5 seconds), and
  * never presses Start, which would pause.
  *

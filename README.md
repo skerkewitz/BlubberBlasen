@@ -328,7 +328,7 @@ Keeping `game` as a separate library without a raylib link dependency makes acci
 | Start | `Enter` | `Right Ctrl` | Start |
 | Select | `Shift` (either) | | Back / Select |
 
-On the title screen, Select opens the options: **mode** (Arcade, or Plus with dash, push bubble and vacuum), **co-op rescue** (on/off) and **player 2** (human or CPU partner). They are saved with the high scores.
+On the title screen, Select opens the options: **mode** (Arcade, or Plus with dash, push bubble and vacuum), **co-op rescue** (on/off) and **player 2** (human or CPU partner). A new game starts in Plus mode with co-op rescue on and a human player 2. The options are saved with the high scores, so a save that already has options keeps them.
 
 The first gamepad belongs to player 1, the second to player 2. The game starts on the title screen: press Start to begin. The other player can join at any time with their Start button. A player with no lives left can continue the same way (the score is kept). During play, Start pauses.
 

@@ -76,8 +76,8 @@ void options_load(void)
 {
     for (uint8_t i = 0; i < 4; i++) {
         if (sram[OPTIONS_OFS + i] != opt_magic[i]) {
-            g_opt.plus = 0;
-            g_opt.rescue = 0;
+            g_opt.plus = 1;        /* no options saved yet: Plus with co-op rescue, the game as meant */
+            g_opt.rescue = 1;
             g_opt.p2_cpu = 0;
             return;
         }
