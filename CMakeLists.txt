@@ -41,9 +41,15 @@ add_custom_command(
 
 # --- superdevkit: the console API and Rachael, the SNES rebuilt in C (ADR-0007) ------
 # SUPERDEVKIT_HOME is a superdevkit home (the folder with bin/dampf and lib/). From
-# the environment, or -DSUPERDEVKIT_HOME=...; for MSVC on Windows a WSL home is
-# reached as \\wsl.localhost\<distribution>\... (README, "Building").
-set(SUPERDEVKIT_HOME "$ENV{SUPERDEVKIT_HOME}" CACHE PATH "superdevkit home (contains bin/dampf and lib/)")
+# -DSUPERDEVKIT_HOME=..., the environment, or superdevkit.env (SUPERDEVKIT_HOME=..., the file
+# superdevkitw.sh reads); for MSVC on Windows a WSL home is reached as
+# \\wsl.localhost\<distribution>\... (README, "superdevkit").
+set(BB_SDK_DEFAULT "$ENV{SUPERDEVKIT_HOME}")
+if(NOT BB_SDK_DEFAULT AND EXISTS "${PROJECT_SOURCE_DIR}/superdevkit.env")
+    file(STRINGS "${PROJECT_SOURCE_DIR}/superdevkit.env" BB_SDK_LINE REGEX "^SUPERDEVKIT_HOME=")
+    string(REGEX REPLACE "^SUPERDEVKIT_HOME=\"?([^\"]*)\"?$" "\\1" BB_SDK_DEFAULT "${BB_SDK_LINE}")
+endif()
+set(SUPERDEVKIT_HOME "${BB_SDK_DEFAULT}" CACHE PATH "superdevkit home (contains bin/dampf and lib/)")
 if(NOT EXISTS "${SUPERDEVKIT_HOME}/lib/include/sdevkit/snes.h")
     message(FATAL_ERROR "SUPERDEVKIT_HOME (\"${SUPERDEVKIT_HOME}\") is not a superdevkit home: set it to the folder with bin/dampf and lib/")
 endif()

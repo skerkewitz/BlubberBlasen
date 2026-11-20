@@ -23,3 +23,6 @@ recordings/
 original/
 build-release/
 build-web/
+
+# Local superdevkit home for superdevkitw.sh
+superdevkit.env

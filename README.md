@@ -68,7 +68,8 @@ BlubberBlasen/
 │                            #   palettes, checks the SNES limits), mapview (room previews), snescheck (the ROM
 │                            #   against the PC, tick by tick); see tools/README.md
 ├── superdevkit.toml         # the project for superdevkit: sources, save RAM, sound effects, music
-├── build_snes.sh            # builds the SNES ROM with superdevkit
+├── build_snes.sh            # builds the SNES ROM with superdevkit (--data: only the level and graphics data)
+├── superdevkitw.sh          # the superdevkit command for this game; the kit's home comes from superdevkit.env (not committed)
 └── tests/                   # Headless tests of the game library; replays/: stored recordings
 ```
 
@@ -82,20 +83,29 @@ Level data is generated at build time: CMake builds `map2c`, runs it over `asset
 | CMake | 3.20+ | |
 | Git | any recent | |
 | Ninja | optional | Faster builds |
-| superdevkit | 0.5.1 or newer | a superdevkit home, see below |
-| Java | JDK 25 or newer | for every build: superdevkit converts the sound effects (on Windows too, e.g. Eclipse Temurin); the SNES build also needs gcc (`gcc -E`) and Python 3 in Linux or WSL |
+| superdevkit | 0.7 or newer | a superdevkit home, see below |
+| Java | JDK 25 or newer | for every build: superdevkit converts the sound effects (on Windows too, e.g. Eclipse Temurin) |
+| gcc | any recent | the SNES build, in Linux or WSL: dampf runs `gcc -E` as its preprocessor |
 
 raylib does **not** need to be installed. CMake fetches it automatically via `FetchContent` on the first configure (internet access required once).
 
 ### superdevkit
 
-The game is built with superdevkit, a development kit for SNES games in C (not public yet): its console API and Rachael (the SNES rebuilt in C) for the PC and web builds, and dampf, its compiler, with its SNES library for the ROM (ADR-0007). The build needs a superdevkit home, the folder with `bin/dampf` and `lib/` (in a checkout of superdevkit, `./gradlew installDist` writes one to `build/install/superdevkit`). Tell the build where it is with the environment variable `SUPERDEVKIT_HOME` or with `-DSUPERDEVKIT_HOME=...` when configuring. Visual Studio on Windows reaches a home inside WSL by its UNC path, for example:
+The game is built with superdevkit, a development kit for SNES games in C (not public yet): its console API and Rachael (the SNES rebuilt in C) for the PC and web builds, and dampf, its compiler, with its SNES library for the ROM (ADR-0007). The build needs a superdevkit home, the folder with `bin/superdevkit`, `bin/dampf` and `lib/` (in a checkout of superdevkit, `./gradlew installDist` writes one to `build/install/superdevkit`).
+
+Name it once in `superdevkit.env` in the project folder (not committed, each machine has its own):
+
+```bash
+SUPERDEVKIT_HOME=/home/<you>/superdevkit/build/install/superdevkit
+```
+
+`superdevkitw.sh` (the superdevkit command for this game), `build_snes.sh` and CMake read it from there. `SUPERDEVKIT_HOME` in the environment or `-DSUPERDEVKIT_HOME=...` for CMake work too and win over the file. Visual Studio on Windows reaches a home inside WSL by its UNC path, so it needs the path on the command line:
 
 ```bash
 cmake -S . -B build "-DSUPERDEVKIT_HOME=\\wsl.localhost\<distribution>\home\<you>\superdevkit"   # from WSL: "$(wslpath -w <home>)"
 ```
 
-The path is kept in the build folder's cache, so it is given once per build folder. The build also converts the sound effects (`assets/sfx/sfx.json`) with superdevkit's converter, which runs on Java: configuring stops with a message when no JDK 25 or newer is found (on the `PATH` or through `JAVA_HOME`).
+CMake keeps the path in the build folder's cache, so it is given once per build folder. Every build converts the sound effects (`assets/sfx/sfx.json`) with superdevkit's converter, which runs on Java: configuring stops with a message when no JDK 25 or newer is found (on the `PATH` or through `JAVA_HOME`).
 
 ### Windows
 
@@ -125,12 +135,22 @@ brew install cmake ninja git
 
 ## Getting started
 
+The game is built two ways for now (ADR-0010). The superdevkit command builds the SNES ROM and can build and run the desktop version with the kit's own window. CMake builds the PC version with the game's own frontend, which still has more for development (the bot, the start options, the debug panels, recordings with stepping back), the web version, the tests and the game's own tools (`map2c`, `gfx2c`, `snescheck`). The SNES build needs those tools, so a fresh checkout starts with CMake. When the kit's desktop and web builds can do what the game's frontend does (the kit's M8), the CMake side goes.
+
+| What | How |
+| --- | --- |
+| PC version for development, tests, tools | CMake, below |
+| Web version | CMake with Emscripten, *Web build* |
+| SNES ROM | `./build_snes.sh`, *SNES build* |
+| Desktop with the kit's window | `./build_snes.sh --data`, then `./superdevkitw.sh run`, *Desktop from superdevkit* |
+
 ```bash
 git clone https://github.com/<your-account>/BlubberBlasen.git
 cd BlubberBlasen
+echo "SUPERDEVKIT_HOME=$HOME/superdevkit/build/install/superdevkit" > superdevkit.env   # once, see "superdevkit"
 
-# Configure (fetches raylib on first run; SUPERDEVKIT_HOME: see "superdevkit" above)
-SUPERDEVKIT_HOME=~/superdevkit cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
+# Configure (fetches raylib on first run)
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
 
 # Build
 cmake --build build --config Debug
@@ -153,7 +173,7 @@ The picture goes through a retro TV filter when it is scaled into the window (pl
 Needs Emscripten (Arch: `sudo pacman -Syu emscripten`, then a new shell or `source /etc/profile.d/emscripten.sh`):
 
 ```bash
-SUPERDEVKIT_HOME=~/superdevkit emcmake cmake -S . -B build-web -DCMAKE_BUILD_TYPE=Release -DBB_DEBUG_SWITCHES=OFF
+emcmake cmake -S . -B build-web -DCMAKE_BUILD_TYPE=Release -DBB_DEBUG_SWITCHES=OFF
 cmake --build build-web -j8
 cd build-web && python3 -m http.server 8000      # then open http://localhost:8000/blubberblasen.html
 ```
@@ -162,10 +182,10 @@ The result is `blubberblasen.html`, `.js`, `.wasm` and `.data` (the assets, abou
 
 ### SNES build (Linux or WSL)
 
-Needs a superdevkit home (see *superdevkit*) and the host tools of a Windows or Linux CMake build (`map2c`, `gfx2c`; by default from `build/tools/Debug`, `HOSTTOOLS=<dir>` picks others):
+Needs a superdevkit home (see *superdevkit*), gcc, and the game's tools `map2c` and `gfx2c` from a CMake build in `build/` (Windows or Linux; the script takes them from `build/tools/Debug`, `build/tools/Release` or `build/tools`, `HOSTTOOLS=<dir>` picks others):
 
 ```bash
-SUPERDEVKIT_HOME=~/superdevkit ./build_snes.sh
+./build_snes.sh                 # or ./build_snes.sh --plan, --verbose: options go to superdevkit build
 ```
 
 The result is `build/snes/blubberblasen.sfc`, a 512 KB LoROM image for an emulator (Mesen for exact timing) or a flash cartridge, with `blubberblasen.dbg` next to it, which lets Mesen show the C source and the globals, and `blubberblasen.timing.txt`, the best and worst case of every function in CPU cycles. `build_snes.sh` converts the levels and graphics as plain C (`build/data`) and calls `superdevkit build snes`, which does the rest as `superdevkit.toml` says (ADR-0009): it converts the sound effects and writes `music.h` into `build/gen`, and dampf compiles the game, the data and the kit's library for the SNES, `lib/snes`: its start-up, the kit's splash screen and the main loop that calls `game_init`, `game_tick` and `game_vblank`. Options of `build_snes.sh` go to `superdevkit build` (`--verbose`, `--plan`). The game code is the same as on the PC. The sound samples are uploaded to the sound chip in `game_init`, about two seconds of black screen after the kit's splash. The cartridge has 128 bytes of battery-backed save RAM for the high scores and options. No music yet (the kit plays none on the SNES so far).
@@ -174,7 +194,7 @@ The result is `build/snes/blubberblasen.sfc`, a 512 KB LoROM image for an emulat
 
 ```bash
 build/Debug/snescheck.exe --ticks 3600 -o build/snes/check.txt      # or build/snescheck on Linux
-"$SUPERDEVKIT_HOME/dev/replay.sh" build/snes/blubberblasen.sfc build/snes/check.txt
+<superdevkit home>/dev/replay.sh build/snes/blubberblasen.sfc build/snes/check.txt
 ```
 
 On both machines the game keeps the console's rhythm: `game_tick()` runs while the picture is drawn and only prepares; `game_vblank()` copies into VRAM and CGRAM in the vertical blank, within a budget. Rachael on the PC enforces this: writes outside the vertical blank or over about 5.7 KB are lost and counted, so tests notice them.
@@ -185,19 +205,20 @@ Sound effects work the same way on every platform (ADR-0008): the game asks for 
 
 ### Desktop from superdevkit (Linux, Windows)
 
-The kit builds and runs the game on the desktop too, with its own frontend (ADR-0010). It needs the level and graphics data in `build/data` first, which `./build_snes.sh` writes (or copy `level_data.c`, `gfx_data.c` and `gfx_data.h` from a CMake build's `generated` folder):
+The kit builds and runs the game on the desktop too, with its own frontend (ADR-0010). `superdevkitw.sh` is the superdevkit command for this game: it takes the kit from `superdevkit.env` and passes every argument on. The kit converts the sound and the music list itself, but not the levels and graphics, which come from the game's own tools: `./build_snes.sh --data` writes them to `build/data` (it needs the CMake build in `build/`, as the SNES build does), once and again after a change to `assets/levels` or `assets/gfx`.
 
 ```bash
-"$SUPERDEVKIT_HOME/bin/superdevkit" build linux      # build/linux/blubberblasen
-"$SUPERDEVKIT_HOME/bin/superdevkit" build win64      # build/win64/blubberblasen.exe (MSVC, also from WSL)
-"$SUPERDEVKIT_HOME/bin/superdevkit" run              # builds and starts it
+./build_snes.sh --data               # the level and graphics data, build/data
+./superdevkitw.sh build linux        # build/linux/blubberblasen
+./superdevkitw.sh build win64        # build/win64/blubberblasen.exe (MSVC, also from WSL)
+./superdevkitw.sh run                # builds and starts it
 ```
 
 The window has the retro TV filter (`Tab`), sound and music, and keeps the save RAM in `blubberblasen.srm` next to the program. Every session is recorded in the kit's check format; `F11` marks the moment and saves it, and `--replay <file>` plays it (also on the ROM: `dev/replay.sh`). `F5` pauses, `F6` steps, `F7` runs fast, `F8` slowly. `--check <file>` runs a recording without a window and without sound and fails when a checksum differs: `snescheck`'s files work there too.
 
 `F1` opens the kit's debug view beside the picture: pause and step, CGRAM, VRAM's tiles and the sprites, and what the game registers (`src/game/debug.c`): the debug switches, "spawn what" with a "spawn" button, "round" with "go to round", and "clear round". Hit boxes are drawn per kind (player green, enemy red, bubble blue, item yellow, boss magenta), the CPU partner's dangers red, and the air currents as boxes coloured by direction (up cyan, down orange, left white, right magenta). A change made there is not recorded.
 
-The kit's desktop has no bot, no start options, no mute and no text panels yet; for those use the CMake build above with its developer options and debug view. Both builds are development builds: `BB_DEBUG` is on wherever the compiler is not dampf, unless a build defines `BB_NO_DEBUG` (`game.h`).
+The kit's desktop has no bot, no start options, no mute and no text panels yet; for those use the CMake build with its developer options and debug view. Both builds are development builds: `BB_DEBUG` is on wherever the compiler is not dampf, unless a build defines `BB_NO_DEBUG` (`game.h`).
 
 ### Tests
 
