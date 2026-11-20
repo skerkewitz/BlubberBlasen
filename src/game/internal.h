@@ -21,6 +21,18 @@
  * variable it goes after the star, `Sprite *BB_FAST p;`. */
 #define BB_FAST
 
+/* --- dampf's hints -----------------------------------------------------------
+ * DAMPF_RANGE(v, lo, hi) tells dampf that v lies in lo..hi at this point. The
+ * game uses it where a 16-bit index reaches an array of more than 256 elements:
+ * without it dampf goes through a 24-bit pointer for every element (C_STYLE.md,
+ * fast-range-index). dampf.h comes with dampf; other compilers get an empty
+ * hint (dampf's own include folder would replace the host's stdint.h). */
+#ifdef __DAMPF__
+#include <dampf.h>
+#else
+#define DAMPF_RANGE(v, lo, hi) ((void)0)
+#endif
+
 /* --- Playfield -------------------------------------------------------------
  * The level (32 x 26 tiles) sits below a two-row HUD. Map row 0 is drawn at
  * screen y FIELD_Y. All object positions are screen space. */
@@ -311,6 +323,8 @@ void     round_skip(uint8_t rounds, uint8_t why, uint8_t player);   /* end the r
 
 /* --- level.c ---------------------------------------------------------------- */
 void     level_load(uint8_t index, uint8_t page);   /* collision + draw into a page */
+void     level_begin(uint8_t index, uint8_t page);  /* collision now; the page drawn by level_draw */
+uint8_t  level_draw(uint8_t rows);                  /* draws up to rows more page rows; 1 while some are left */
 uint8_t  level_solid_tile(int16_t tx, int16_t ty);
 uint8_t  level_air_at(uint8_t sx, uint8_t sy);       /* screen pixel */
 uint8_t  level_cell(uint8_t tx, uint8_t ty);         /* raw CELL_* byte, 0 outside */
@@ -346,6 +360,7 @@ void     video_tileset(uint8_t page, uint8_t tileset);   /* level_load: the page
 void     video_title(void);                              /* the title logo's tiles */
 void     bg_mark_row(uint8_t layer, uint8_t row);        /* a map row changed: copy it to VRAM */
 void     bg_mark_all(uint8_t layer);
+uint8_t  bg_row_written(uint8_t row);            /* layer 1 row written since its last clear; forgets it */
 extern BB_FAST uint16_t g_bg1_changes;   /* counts bg_mark_row(1, ..): any change to layer 1 */
 extern BB_FAST uint16_t g_hud_changes;          /* counts changes of the scores and the high score table
                                                    (game.c, draw_hud_values: the HUD draws them again) */

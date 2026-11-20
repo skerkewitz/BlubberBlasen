@@ -6,18 +6,32 @@
 
 #include "game/internal.h"
 
+/* Layer 1 clears only the rows written since their last clear: the others
+ * are empty already. Clearing and uploading all 28 rows made the first tick
+ * of every round intro take five frames on the SNES. */
 void bg_clear(uint8_t layer)
 {
     if (layer == 0) {
         for (uint16_t i = 0; i < BG_W * BG0_ROWS; i++) {
             g_bg0[i] = 0;
         }
-    } else {
-        for (uint16_t i = 0; i < BG_W * BG_H; i++) {
-            g_bg1[i] = 0;
-        }
+        bg_mark_all(0);
+        return;
     }
-    bg_mark_all(layer);
+    g_bg1_changes++;   /* a clear counts as a change even when every row was empty (the HUD draws again) */
+    for (uint8_t r = 0; r < BG_H; r++) {
+        if (!bg_row_written(r)) {
+            continue;
+        }
+        uint16_t k = (uint16_t)r << 5;
+        for (uint8_t c = 0; c < BG_W; c++) {
+            DAMPF_RANGE(k, 0, BG_W * BG_H - 1);
+            g_bg1[k] = 0;
+            k++;
+        }
+        bg_mark_row(1, r);
+        (void)bg_row_written(r);   /* empty again */
+    }
 }
 
 static uint16_t char_tile(char c)

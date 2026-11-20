@@ -70,6 +70,25 @@ about 0.5), with a few long single ticks:
 The room change is the one a player notices: the scroll stops for about a fifth of a second at
 its start, every round.
 
+**Fixed the same day** (item 1 below), measured the same way:
+
+| Moment | Before | After |
+| --- | ---: | ---: |
+| Room change, worst tick | 12.7 to 13.3 | 1.3 to 1.5 |
+| Round intro, first tick | about 4.9 | about 2.4 |
+| Title and story pages, once | 7.9 to 8.5 | 4.6 to 5.9 |
+| First round of a game, once | about 14 | about 7.5 |
+
+`level_load` reads a cell's neighbours along the row instead of four bounds-checked calls, and a
+room change draws the next room two rows a tick during the scroll's first 16 ticks, before any of
+it comes into view (`level_begin`, `level_draw`). `stage_rows` works out a row's tile offset and
+palette once instead of calling a function per entry. The big maps are reached by index with
+`DAMPF_RANGE`, since dampf otherwise builds a 24-bit pointer for every element of an array of
+more than 256 (C_STYLE.md, `fast-range-index`). `bg_clear` of the text layer clears and uploads
+only the rows written since their last clear. The game plays the same; the tile maps fill more
+slowly during a scroll, so the checksums of those ticks changed and `plus_bot_seed42.bbr` was
+recorded again (one checksum differs, at tick 2820).
+
 ## Where the time goes
 
 Share of the work (the wait for the vertical blank left out), ticks 1,000 to 36,000:
@@ -116,11 +135,9 @@ remaining 20 KB with the effects, or the effects get shorter.
 
 Ordered by what a player notices, with an estimate of the work on the game's side:
 
-1. **The stall at every room change** (13-frame and 5-frame ticks). `level_load` can work out
-   the cells' shapes from one row of solid bits at a time instead of four bounds-checked calls per
-   cell, and `stage_rows` can stage a few rows per tick during the scroll instead of the whole page
-   at once (the copy to VRAM takes several vertical blanks anyway). *About half a day; measurable
-   right away.*
+1. **The stall at every room change** (13-frame and 5-frame ticks). *Done 2026-11-20 (see
+   above): now 1.3 to 1.5 frames at worst during the scroll, about 2.4 at the start of the round
+   intro.*
 2. **Vacuums** (about 1.1 to 1.2 frames while one is on the screen). The window's lines are
    written fresh every tick; a vacuum that does not move or change size could keep last tick's.
    *About half a day to measure whether it helps.*

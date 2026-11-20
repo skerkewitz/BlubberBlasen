@@ -179,11 +179,12 @@ uint8_t level_can_gap_jump(uint16_t x, uint16_t y, int8_t dir)
     return 0;
 }
 
-/* Pick the tileset graphic for a cell from its neighbours (blocks, and the
- * drop shadow they cast to the bottom right). */
-static uint8_t autotile(int16_t x, int16_t y)
+/* The tileset graphic for a cell from its neighbours (blocks, and the drop
+ * shadow they cast to the bottom right): solid is the cell itself, above,
+ * left and above_left its neighbours, 0 or CELL_SOLID; 0xFF is empty. */
+static uint8_t autotile(uint8_t x, uint8_t y, uint8_t solid, uint8_t above, uint8_t left, uint8_t above_left)
 {
-    if (level_solid_tile(x, y) && x >= 0 && x < LEVEL_W) {
+    if (solid) {
         if (x == 0 || x == LEVEL_W - 2) {
             return (y & 1) ? TS_BLOCK_BL : TS_BLOCK_TL;
         }
@@ -192,11 +193,6 @@ static uint8_t autotile(int16_t x, int16_t y)
         }
         return TS_DEFAULT;
     }
-
-    uint8_t above      = (uint8_t)(y > 0 && level_solid_tile(x, (int16_t)(y - 1)));
-    uint8_t left       = (uint8_t)(x > 0 && level_solid_tile((int16_t)(x - 1), y));
-    uint8_t above_left = (uint8_t)(x > 0 && y > 0 && level_solid_tile((int16_t)(x - 1), (int16_t)(y - 1)));
-
     if (above) {
         if (left) {
             return TS_SHADOW_INNER;
@@ -209,7 +205,7 @@ static uint8_t autotile(int16_t x, int16_t y)
     if (above_left) {
         return TS_SHADOW_OUTER;
     }
-    return 0xFF;   /* empty */
+    return 0xFF;
 }
 
 /* Special bubbles drift in through a gap in the bottom row, else the top
@@ -232,32 +228,67 @@ void level_opening(uint16_t *x, uint16_t *y)
     *y = TO_POS(FIELD_BOTTOM - 40);
 }
 
-void level_load(uint8_t index, uint8_t page)
+/* The room being drawn into its page, a few rows a tick (level_draw). */
+static uint16_t draw_base;     /* the tileset's first tile number */
+static uint16_t draw_first;    /* g_bg0 index of the page's first entry */
+static uint8_t  draw_page;
+static uint8_t  draw_row = PAGE_ROWS;   /* next page row to draw; PAGE_ROWS: done */
+
+void level_begin(uint8_t index, uint8_t page)
 {
     uint8_t ts = level_defs[index].tileset;
 
     if (ts >= CHR_TILESET_COUNT) {
         ts = 0;
     }
-    uint16_t base = (uint16_t)(CHR_TILESET_BASE + ((uint16_t)ts << 5));
-
+    draw_base = (uint16_t)(CHR_TILESET_BASE + ((uint16_t)ts << 5));
     cells = level_defs[index].cells;
     video_tileset(page, ts);
+    draw_page = page;
+    draw_first = (uint16_t)((uint16_t)(page * PAGE_ROWS) << 5);
+    draw_row = 0;
+}
 
-    {
-        uint16_t *dst = &g_bg0[(uint16_t)(page * PAGE_ROWS) << 5];
-        for (uint16_t i = 0; i < BG_W * PAGE_ROWS; i++) {
-            dst[i] = 0;
+/* Draws up to `rows` more rows of the page: the rows above and below the
+ * room empty, the room's rows from its cells. Each cell's graphic depends on
+ * the cell, the one above, the one to the left and the one above that, all
+ * inside the room, so a pass along a row carries them. On the SNES a whole
+ * page costs about two and a half frames (the neighbour lookups as calls and
+ * stores through a pointer made it eight), so a room change draws it over the
+ * first ticks of its scroll, before any of it comes into view. */
+uint8_t level_draw(uint8_t rows)
+{
+    for (; rows && draw_row < PAGE_ROWS; rows--, draw_row++) {
+        uint16_t k = (uint16_t)(draw_first + ((uint16_t)draw_row << 5));
+        uint8_t y = (uint8_t)(draw_row - HUD_ROWS);
+        if (draw_row < HUD_ROWS || y >= LEVEL_H) {
+            for (uint8_t x = 0; x < BG_W; x++) {
+                DAMPF_RANGE(k, 0, BG_W * BG0_ROWS - 1);
+                g_bg0[k] = 0;
+                k++;
+            }
+        } else {
+            const uint8_t *row_cells = cells + ((uint16_t)y << 5);
+            const uint8_t *above_cells = y ? row_cells - LEVEL_W : row_cells;   /* read only below row 0 */
+            uint8_t left = 0, above_left = 0;   /* left of the room: nothing that casts a shadow */
+            for (uint8_t x = 0; x < LEVEL_W; x++) {
+                uint8_t solid = (uint8_t)(row_cells[x] & CELL_SOLID);
+                uint8_t above = (uint8_t)(y ? above_cells[x] & CELL_SOLID : 0);
+                uint8_t t = autotile(x, y, solid, above, left, above_left);
+                DAMPF_RANGE(k, 0, BG_W * BG0_ROWS - 1);
+                g_bg0[k] = (t == 0xFF) ? 0u : (uint16_t)(draw_base + t);
+                k++;
+                left = solid;
+                above_left = above;
+            }
         }
+        bg_mark_row(0, (uint8_t)(draw_page * PAGE_ROWS + draw_row));
     }
-    for (int16_t y = 0; y < PAGE_ROWS; y++) {
-        bg_mark_row(0, (uint8_t)(page * PAGE_ROWS + y));
-    }
-    for (int16_t y = 0; y < LEVEL_H; y++) {
-        uint16_t *row = &g_bg0[(uint16_t)(page * PAGE_ROWS + y + HUD_ROWS) << 5];
-        for (int16_t x = 0; x < LEVEL_W; x++) {
-            uint8_t t = autotile(x, y);
-            row[x] = (t == 0xFF) ? 0u : (uint16_t)(base + t);
-        }
-    }
+    return (uint8_t)(draw_row < PAGE_ROWS);
+}
+
+void level_load(uint8_t index, uint8_t page)
+{
+    level_begin(index, page);
+    (void)level_draw(PAGE_ROWS);
 }

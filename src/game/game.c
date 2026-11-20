@@ -22,6 +22,7 @@
 #define CHASER_DELAY    600      /* frames after HURRY UP until the chaser comes */
 #define CONTINUE_FROM   9        /* the continue countdown starts here, one per second */
 #define SCROLL_SPEED    2        /* pixels per frame while the next round scrolls in */
+#define TRANSITION_DRAW_ROWS 2   /* rows of the next room drawn per frame of its scroll */
 #define STORY_PAGE_FRAMES 360    /* each intro page stays up to 6 s */
 #define STORY_PAGES     3
 
@@ -577,7 +578,7 @@ static void start_round(void)
  * Everything in the old room disappears; the players drift along. */
 static void begin_transition(void)
 {
-    level_load(g_level, (uint8_t)(page ^ 1));
+    level_begin(g_level, (uint8_t)(page ^ 1));   /* drawn during the scroll (update_transition) */
     bubbles_clear();
     items_clear();
     effects_clear();
@@ -599,6 +600,10 @@ static void update_transition(void)
     for (uint8_t i = 0; i < NUM_PLAYERS; i++) {
         player_update(&g_players[i], 0, 0);
     }
+    /* The next room, two rows a tick: its first row comes into view after
+     * (BG0 page - screen) / SCROLL_SPEED = 16 ticks, each further row after
+     * 8 / SCROLL_SPEED = 4 more, so every row is in VRAM well before. */
+    (void)level_draw(TRANSITION_DRAW_ROWS);
     g_scroll_y = (uint16_t)((g_scroll_y + SCROLL_SPEED) & (BG0_ROWS * 8 - 1));
     if (g_scroll_y == target) {
         page = (uint8_t)(page ^ 1);

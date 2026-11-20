@@ -17,7 +17,7 @@ halves, so that real 65816 measurements steer the second half instead of arrivin
 | 1 | Playable prototype on PC (C99 + raylib) | Done |
 | 2a | Data and limits shaped like the SNES | Done (2026-11-16) |
 | 3-spike | Game code compiled for the 65816 and measured | Done (2026-11-20): the whole game runs as a ROM; [report](docs/snes-spike-report.md) |
-| 2b | Fix what the spike found | Next: room change stalls, vacuums; then measure the kit's M9 |
+| 2b | Fix what the spike found | In progress: room change stall fixed (2026-11-20); next vacuums, then measure the kit's M9 |
 | 3-POC | One complete room group running on SNES | Technically overtaken (the whole game runs); left: the art of one group, real hardware |
 | Full game | The items in GAME-TODO.md | After the POC |
 
@@ -101,7 +101,7 @@ second. No single function dominates, and hand-written assembly is not needed.
 
 What, in this order:
 
-- The stall at every room change: `level_load` and `stage_rows` (report, item 1).
+- Done (2026-11-20): the stall at every room change, 13 frames down to 1.5 (report, item 1).
 - Vacuums: keep the window's lines while a vacuum does not change (report, item 2).
 - Measure again when the kit's register allocation (M9) is in, on the same four scenarios. Then
   decide the rest: a design limit on floating bubbles, fewer sprites per frame, a cheaper CPU

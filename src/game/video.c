@@ -111,6 +111,10 @@ static const uint16_t text_colors[8] = {
 };
 
 /* --- Map rows ------------------------------------------------------------------ */
+/* Rows of layer 1 written since they were last cleared: the others are empty,
+ * and bg_clear leaves them alone. */
+static uint8_t written1[BG_H];
+
 void bg_mark_row(uint8_t layer, uint8_t row)
 {
     if (layer == 0) {
@@ -120,11 +124,21 @@ void bg_mark_row(uint8_t layer, uint8_t row)
         }
     } else {
         g_bg1_changes++;
-        if (row < BG_H && !dirty1[row]) {
-            dirty1[row] = 1;
-            dirty1_count++;
+        if (row < BG_H) {
+            written1[row] = 1;
+            if (!dirty1[row]) {
+                dirty1[row] = 1;
+                dirty1_count++;
+            }
         }
     }
+}
+
+uint8_t bg_row_written(uint8_t row)
+{
+    uint8_t w = written1[row];
+    written1[row] = 0;
+    return w;
 }
 
 void bg_mark_all(uint8_t layer)
@@ -134,32 +148,15 @@ void bg_mark_all(uint8_t layer)
     }
 }
 
-/* A g_bg0 entry as the VRAM entry of BG1. */
-static uint16_t room_entry(uint16_t e, uint8_t row)
-{
-    uint16_t t = (uint16_t)(e & BG_TILE_MASK);
-    if (t == 0) {
-        return 0;
-    }
-    if (t >= CHR_TITLE_BASE) {
-        uint16_t k = (uint16_t)(t - CHR_TITLE_BASE);
-        uint16_t m = gfx_title_map[k];   /* the title map is 32 wide, like the game's tile numbers */
-        return (uint16_t)((m & 0xFC00u) | ((m & 0x03FFu) + 1));
-    }
-    if (t >= CHR_TILESET_BASE) {
-        uint8_t page = (uint8_t)(row >= PAGE_ROWS);
-        uint16_t k = (uint16_t)((t - CHR_TILESET_BASE) & (CHR_TILESET_STRIDE - 1));
-        return (uint16_t)((1 + (page ? GFX_TILESET_TILES : 0) + k) | SDEVKIT_BG_TIL_PAL(2 + page));
-    }
-    return 0;
-}
+/* The game's map entries keep their palette where the console's do (stage_rows
+ * copies it as it is). */
+typedef char bg_pal_is_the_consoles[BG_ENTRY(0, 7) == SDEVKIT_BG_TIL_PAL(7) ? 1 : -1];
 
-static uint16_t text_entry(uint16_t e)
+/* A title tile of g_bg0 (CHR_TITLE_BASE on) as the VRAM entry of BG1. */
+static uint16_t title_entry(uint16_t t)
 {
-    if (!(e & BG_TILE_MASK)) {
-        return 0;
-    }
-    return (uint16_t)((e & BG_TILE_MASK) | SDEVKIT_BG_TIL_PAL((e >> BG_PAL_SHIFT) & 7) | SDEVKIT_BG_TIL_PRIO);
+    uint16_t m = gfx_title_map[t - CHR_TITLE_BASE];   /* the title map is 32 wide, like the game's tile numbers */
+    return (uint16_t)((m & 0xFC00u) | ((m & 0x03FFu) + 1));
 }
 
 /* Translates changed rows into the staging buffer (in the frame), once the
@@ -172,15 +169,35 @@ static void stage_rows(void)
         return;
     }
     stage_count = stage_next = 0;
+    /* The entries are written by index into the static buffer, and a room tile
+     * is its tileset index plus the page's first tile and palette, worked out
+     * once a row, and the indices' ranges are told to dampf (else every
+     * element goes through a 24-bit pointer): a call per entry and stores
+     * through a pointer made a room page (32 rows) cost over three frames on
+     * the SNES. */
     for (uint8_t r = 0; r < BG0_ROWS && dirty0_count && stage_count < STAGE_ROWS; r++) {
         if (!dirty0[r]) continue;
         dirty0[r] = 0;
         dirty0_count--;
-        uint8_t *buf = &stage[(uint16_t)stage_count << 6];
+        /* BG1: tile 0 empty, then the page's tileset; palette 2 + page */
+        uint16_t add = r >= PAGE_ROWS ? (uint16_t)((1 + GFX_TILESET_TILES) | SDEVKIT_BG_TIL_PAL(3))
+                                      : (uint16_t)(1 | SDEVKIT_BG_TIL_PAL(2));
+        uint16_t i = (uint16_t)r << 5;
+        uint16_t o = (uint16_t)stage_count << 6;
         for (uint8_t c = 0; c < BG_W; c++) {
-            uint16_t v = room_entry(g_bg0[(r << 5) + c], r);
-            buf[c * 2] = (uint8_t)v;
-            buf[c * 2 + 1] = (uint8_t)(v >> 8);
+            DAMPF_RANGE(i, 0, BG_W * BG0_ROWS - 1);
+            DAMPF_RANGE(o, 0, sizeof stage - 2);
+            uint16_t t = (uint16_t)(g_bg0[i] & BG_TILE_MASK);
+            uint16_t v = 0;
+            if (t >= CHR_TITLE_BASE) {
+                v = title_entry(t);
+            } else if (t >= CHR_TILESET_BASE) {
+                v = (uint16_t)(((t - CHR_TILESET_BASE) & (CHR_TILESET_STRIDE - 1)) + add);
+            }
+            stage[o] = (uint8_t)v;
+            stage[o + 1] = (uint8_t)(v >> 8);
+            i++;
+            o += 2;
         }
         stage_vram[stage_count++] = (uint16_t)(VRAM_BG1_MAP + (r << 5));
     }
@@ -188,11 +205,21 @@ static void stage_rows(void)
         if (!dirty1[r]) continue;
         dirty1[r] = 0;
         dirty1_count--;
-        uint8_t *buf = &stage[(uint16_t)stage_count << 6];
+        uint16_t i = (uint16_t)r << 5;
+        uint16_t o = (uint16_t)stage_count << 6;
         for (uint8_t c = 0; c < BG_W; c++) {
-            uint16_t v = text_entry(g_bg1[(r << 5) + c]);
-            buf[c * 2] = (uint8_t)v;
-            buf[c * 2 + 1] = (uint8_t)(v >> 8);
+            DAMPF_RANGE(i, 0, BG_W * BG_H - 1);
+            DAMPF_RANGE(o, 0, sizeof stage - 2);
+            uint16_t e = g_bg1[i];
+            uint16_t v = 0;
+            if (e & BG_TILE_MASK) {
+                /* BG3 with priority; the palette is in the console's bits already */
+                v = (uint16_t)((e & (BG_TILE_MASK | SDEVKIT_BG_TIL_PAL(7))) | SDEVKIT_BG_TIL_PRIO);
+            }
+            stage[o] = (uint8_t)v;
+            stage[o + 1] = (uint8_t)(v >> 8);
+            i++;
+            o += 2;
         }
         stage_vram[stage_count++] = (uint16_t)(VRAM_BG3_MAP + (r << 5));
     }
@@ -680,9 +707,36 @@ uint8_t video_pending(void)
 }
 
 #ifdef BB_DEBUG
+/* The VRAM entries of the game's maps, written out case by case: the
+ * reference that stage_rows' faster translation is checked against. */
+static uint16_t room_entry(uint16_t e, uint8_t row)
+{
+    uint16_t t = (uint16_t)(e & BG_TILE_MASK);
+    if (t == 0) {
+        return 0;
+    }
+    if (t >= CHR_TITLE_BASE) {
+        return title_entry(t);
+    }
+    if (t >= CHR_TILESET_BASE) {
+        uint8_t page = (uint8_t)(row >= PAGE_ROWS);
+        uint16_t k = (uint16_t)((t - CHR_TILESET_BASE) & (CHR_TILESET_STRIDE - 1));
+        return (uint16_t)((1 + (page ? GFX_TILESET_TILES : 0) + k) | SDEVKIT_BG_TIL_PAL(2 + page));
+    }
+    return 0;
+}
+
+static uint16_t text_entry(uint16_t e)
+{
+    if (!(e & BG_TILE_MASK)) {
+        return 0;
+    }
+    return (uint16_t)((e & BG_TILE_MASK) | SDEVKIT_BG_TIL_PAL((e >> BG_PAL_SHIFT) & 7) | SDEVKIT_BG_TIL_PRIO);
+}
+
 /* Map entries in VRAM that differ from the game's maps (should be 0 once
  * nothing is pending: a difference means a write to g_bg0/g_bg1 was not
- * marked). */
+ * marked, or stage_rows translated an entry wrongly). */
 uint16_t video_check_maps(void)
 {
     const uint16_t *vram = sdevkit_dbg_vram();
