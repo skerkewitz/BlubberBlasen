@@ -249,6 +249,45 @@ So the order for this benchmark is unchanged: register allocation (point 2) is w
 cycles go, with the two items above as smaller pieces of the same work, and the slot multiply
 (point 3) is what keeps D from being clearly below A.
 
+### Measured again with the kit at f02e78d (2026-11-20, evening)
+
+The kit's home was rebuilt from commit f02e78d (still 0.7.1: CountedLoops, the L1 to L5 counter
+work, loads out of loops, the range work R1 to R4). The benchmark was built unchanged as its own
+project and measured as before (work per tick of a case minus that of case 0, over the 32
+frames; the per-tick work from a copy of `ExampleBench` that prints every tick):
+
+| Variant | 0.7.1 (00:32) | f02e78d | Change |
+| --- | ---: | ---: | ---: |
+| A counter, struct array (the game) | 93,991 | 74,657 | −20.6 % |
+| B sorted list, struct array | 93,497 | 89,286 | −4.5 % |
+| C counter, one array per field | 109,374 | 87,979 | −19.6 % |
+| D sorted list, one array per field | 93,973 | 83,899 | −10.7 % |
+
+The old figures could not be measured again with the same tool, since the compiler they came from
+is no longer installed, so the comparison is between this run and the table above.
+
+What the assembly shows now:
+
+- **Point 6 is fixed.** A's inner loop has one induction variable, the offset in X stepped by 23
+  (`txa / clc / adc #$17 / tax`, then `cpx #$015A`); the copy in the direct page is gone.
+- **Point 7 is half fixed.** C's word offset now lives in X and steps with `inx / inx`, but the
+  byte index `j` (for `fld_state`) is still a second counter in the direct page (`inc
+  z:dampf_frame+8`), and each byte load reloads Y from it. A byte array and a word array indexed
+  by the same counter need both offsets, but the byte one could live in Y (`iny`) instead of the
+  direct page, which saves the reload before each byte load.
+- **Points 2 and 5 are open.** Every intermediate value still goes through the direct page
+  (`dx` is stored and loaded again for the range test and the `abs`), and a far pair, the most
+  common case, still leaves through `bcs @L; jmp b10_step`.
+- **Point 3 is open**, which is why B and D gained less than A and C: their totals are still
+  above A's, so the sorted list does not yet pay.
+
+The game itself did not get faster with this kit: built from the same sources before (08:38) and
+after (f02e78d), its `separate()` is the same 838 bytes (only jump targets moved) and costs the same
+27,699 master cycles a tick in `ExampleProfile`. Its four `snescheck` scenarios of 36,000 ticks
+take the same work per tick within ±0.2 %. So the game already had the single stepped offset at
+08:38; the kit work in between may have brought it. More important for the kit: with the new
+optimizer the ROM still matches the PC in every checksum of all four scenarios (4 × 36,000 ticks).
+
 ## 10. M7 for a game with its own converters and its own frontend (2026-11-19)
 
 Blubber Blasen moved to superdevkit 0.7.0: `sdevkit_sram()`, `sdevkit_music_play`/`stop`,
