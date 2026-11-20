@@ -345,12 +345,17 @@ void     video_sprites_begin(void);   /* before the frame's oam_add calls: the s
 void     video_sprites_end(void);     /* after them: the palettes that wait for the frame's tints, the rest hidden */
 void     video_frame(void);   /* once per tick, after the sprites: prepare */
 /* Window i's HDMA table for this frame, written while the window is drawn: video_window_lines
- * writes the empty lines above `from` and returns where the lines go, two bytes each (left,
- * right) for from .. to - 1, at most WINDOW_MAX_LINES (one HDMA run); video_window_done, given
- * the byte after them, writes the empty lines from `to` on. */
+ * writes the empty lines above `from` and returns the index in g_window_bytes where the lines
+ * go, two bytes each (left, right) for from .. to - 1, at most WINDOW_MAX_LINES (one HDMA run);
+ * video_window_done, given the index after them, writes the empty lines from `to` on. The
+ * bytes are written by index (with DAMPF_RANGE(k, 0, WINDOW_BYTES - 2)): through a pointer
+ * dampf stores a byte in about 57 cycles. */
 #define WINDOW_MAX_LINES 127
-uint8_t *video_window_lines(uint8_t i, uint8_t from, uint8_t to);
-void     video_window_done(uint8_t *after, uint8_t to);
+#define WINDOW_TABLE_BYTES (2 * 3 + 2 + SCREEN_H * 2 + 2 * 3 + 1)   /* the most a table can need */
+#define WINDOW_BYTES (2 * NUM_WINDOWS * WINDOW_TABLE_BYTES)        /* both buffers of both windows */
+extern uint8_t g_window_bytes[WINDOW_BYTES];
+uint16_t video_window_lines(uint8_t i, uint8_t from, uint8_t to);
+void     video_window_done(uint16_t after, uint8_t to);
 #ifdef BB_DEBUG
 const Sprite *video_sprite_list(void);   /* the game's own list of this frame's sprites (game_oam) */
 #endif

@@ -138,9 +138,15 @@ Ordered by what a player notices, with an estimate of the work on the game's sid
 1. **The stall at every room change** (13-frame and 5-frame ticks). *Done 2026-11-20 (see
    above): now 1.3 to 1.5 frames at worst during the scroll, about 2.4 at the start of the round
    intro.*
-2. **Vacuums** (about 1.1 to 1.2 frames while one is on the screen). The window's lines are
-   written fresh every tick; a vacuum that does not move or change size could keep last tick's.
-   *About half a day to measure whether it helps.*
+2. **Vacuums** (about 1.1 to 1.2 frames while one is on the screen). *Partly done 2026-11-20:
+   1.10 to 1.03 frames in Plus (1.21 to 1.14 with the CPU partner); the ticks of a Plus game
+   over one frame went from 28.5 % to 26 %.* The window tables are written by index into one
+   static array, which dampf turns into indexed stores instead of a 24-bit pointer per byte.
+   Keeping last tick's lines does not work: the wobble changes the shape every two frames, and
+   the two HDMA buffers alternate, so each table is written over a different shape. The window
+   still costs about 0.3 frames a tick (about 90 CPU cycles a line, every value through the
+   direct page); writing a line as one 16-bit store would save about 0.08 of it, but dampf
+   loses the index's range when it steps it (kit finding 13), so that waits for the kit.
 3. **Many bubbles** (about 1.0 frame at 12 to 16). Two ways, not exclusive: wait for the kit's
    register allocation (M9), which the separation benchmark will measure; or a design limit on
    floating bubbles (fewer at once, or older bubbles popping sooner). The limit is a game design

@@ -1273,18 +1273,18 @@ static void intro_box_window(ColorWindow *w)
 {
     w->add_r = w->add_g = w->add_b = INTRO_BOX_DARKEN;
     w->math = CMATH_SUB | CMATH_HALF;
-    uint8_t *t = video_window_lines(0, intro_box_t, (uint8_t)(intro_box_b + 1));   /* a few rows of text */
-    uint16_t k = 0;
+    uint16_t k = video_window_lines(0, intro_box_t, (uint8_t)(intro_box_b + 1));   /* a few rows of text */
     for (uint8_t y = intro_box_t; y <= intro_box_b; y++) {
-        t[k] = intro_box_l;
-        t[k + 1] = intro_box_r;
+        DAMPF_RANGE(k, 0, WINDOW_BYTES - 2);
+        g_window_bytes[k] = intro_box_l;
+        g_window_bytes[k + 1] = intro_box_r;
         k = (uint16_t)(k + 2);
 #ifdef BB_DEBUG
         w->left[y] = intro_box_l;
         w->right[y] = intro_box_r;
 #endif
     }
-    video_window_done(t + k, (uint8_t)(intro_box_b + 1));
+    video_window_done(k, (uint8_t)(intro_box_b + 1));
     g_window_from[0] = intro_box_t;
     g_window_to[0] = (uint8_t)(intro_box_b + 1);
 }

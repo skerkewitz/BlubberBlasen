@@ -89,9 +89,10 @@ static struct {
 /* HDMA tables: built in one buffer while the other is read by the picture
  * being drawn; the vertical blank switches. Window tables: the lines above
  * and below the window's lines held empty (3 bytes per run of up to 127
- * lines), its lines in repeat mode (two bytes per line, a count per 127). */
-#define WINDOW_TABLE_BYTES (2 * 3 + 2 + SCREEN_H * 2 + 2 * 3 + 1)
-static uint8_t window_table[2][NUM_WINDOWS][WINDOW_TABLE_BYTES];
+ * lines), its lines in repeat mode (two bytes per line, a count per 127).
+ * Window i of buffer b starts at WINDOW_TABLE(b, i) in g_window_bytes. */
+uint8_t g_window_bytes[WINDOW_BYTES];
+#define WINDOW_TABLE(b, i) ((uint16_t)(((b) * NUM_WINDOWS + (i)) * WINDOW_TABLE_BYTES))
 static uint8_t tm_table[2][8];
 static BB_FAST uint8_t hdma_back;              /* the buffer video_frame fills */
 
@@ -460,31 +461,36 @@ void video_sprites_end(void)
  * lines above the window held empty (3 bytes per run of up to 127 lines), its lines in one run
  * in repeat mode (a count, then two bytes per line), the lines below held empty, then 0. The
  * same values on every line as a table of all 224 lines. */
-static uint8_t *hold_empty(uint8_t *t, uint8_t n)
+static uint16_t hold_empty(uint16_t k, uint8_t n)
 {
     while (n) {
-        uint8_t k = n > 127 ? 127 : n;
-        *t++ = k;
-        *t++ = 255;
-        *t++ = 0;
-        n = (uint8_t)(n - k);
+        uint8_t run = n > 127 ? 127 : n;
+        DAMPF_RANGE(k, 0, WINDOW_BYTES - 3);
+        g_window_bytes[k] = run;
+        g_window_bytes[k + 1] = 255;
+        g_window_bytes[k + 2] = 0;
+        k = (uint16_t)(k + 3);
+        n = (uint8_t)(n - run);
     }
-    return t;
+    return k;
 }
 
-uint8_t *video_window_lines(uint8_t i, uint8_t from, uint8_t to)
+uint16_t video_window_lines(uint8_t i, uint8_t from, uint8_t to)
 {
-    uint8_t *t = hold_empty(window_table[hdma_back][i], from);
+    uint16_t k = hold_empty(WINDOW_TABLE(hdma_back, i), from);
     if (to > from) {
-        *t++ = (uint8_t)(0x80 + (to - from));   /* at most WINDOW_MAX_LINES (internal.h) */
+        DAMPF_RANGE(k, 0, WINDOW_BYTES - 1);
+        g_window_bytes[k] = (uint8_t)(0x80 + (to - from));   /* at most WINDOW_MAX_LINES */
+        k++;
     }
-    return t;
+    return k;
 }
 
-void video_window_done(uint8_t *after, uint8_t to)
+void video_window_done(uint16_t after, uint8_t to)
 {
     after = hold_empty(after, (uint8_t)(SCREEN_H - to));
-    *after = 0;
+    DAMPF_RANGE(after, 0, WINDOW_BYTES - 1);
+    g_window_bytes[after] = 0;
 }
 
 static uint8_t window_on(const ColorWindow *w)
@@ -496,7 +502,7 @@ static void build_windows(void)
 {
     const ColorWindow *w = g_windows;
     uint8_t on = 0, math = 0;
-    uint8_t *t = window_table[hdma_back][0];
+    uint8_t *t = &g_window_bytes[WINDOW_TABLE(hdma_back, 0)];
     regs.r = regs.g = regs.b = 0;
     regs.wobjsel = 0;
     for (uint8_t i = 0; i < NUM_WINDOWS; i++, w++, t += WINDOW_TABLE_BYTES) {
@@ -634,8 +640,8 @@ void video_vblank(void)
     sdevkit_set_color_intensity(SDEVKIT_CM_APPLY_BLUE, regs.b);
     if (hdma_ready) {
         sdevkit_hdma_set(3, SDEVKIT_PPU_TM, 0, tm_table[hdma_back]);
-        sdevkit_hdma_set(4, SDEVKIT_PPU_WH0, 1, window_table[hdma_back][0]);
-        sdevkit_hdma_set(5, SDEVKIT_PPU_WH2, 1, window_table[hdma_back][1]);
+        sdevkit_hdma_set(4, SDEVKIT_PPU_WH0, 1, &g_window_bytes[WINDOW_TABLE(hdma_back, 0)]);
+        sdevkit_hdma_set(5, SDEVKIT_PPU_WH2, 1, &g_window_bytes[WINDOW_TABLE(hdma_back, 1)]);
         sdevkit_hdma_enable(SDEVKIT_HDMA_CHANNEL3 | SDEVKIT_HDMA_CHANNEL4 | SDEVKIT_HDMA_CHANNEL5);
         hdma_back ^= 1;
         hdma_ready = 0;

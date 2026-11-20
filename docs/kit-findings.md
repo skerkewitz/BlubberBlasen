@@ -144,6 +144,7 @@ far pairs (an unsigned range compare instead of two `abs` and two compares).
 | 10 | M7 for a game with its own converters and its own frontend | tool |
 | 11 | What Blubber Blasen still needs from the kit's desktop before its own frontend can go | frontend |
 | 12 | Measuring a game's ticks: the sample upload, and tools that look for `lib/snes/snes.c` | tool |
+| 13 | `DAMPF_RANGE` is lost when dampf steps the scaled index | optimizer |
 
 ## 8. `ExampleCheck` records the ROM's sound but does not write it (2026-11-19)
 
@@ -315,3 +316,41 @@ kit:
    screen while the sound CPU takes them). If the kit's main loop started the upload while its
    splash screen shows, the black would mostly disappear. The game cannot do that itself, since
    `game_init` runs after the splash.
+
+## 13. `DAMPF_RANGE` is lost when dampf steps the scaled index (2026-11-20)
+
+The game writes its HDMA window tables by index into static arrays, with `DAMPF_RANGE` on the
+index (`fast-range-index`), and for byte arrays that works: `sta _g_window_bytes,y`. To halve the
+stores it tried one 16-bit store a line into a `uint16_t` array:
+
+```c
+uint16_t g_window_words[928];
+static uint16_t edges[45];
+
+for (uint8_t c = 0; c < n_up; c++, dy_up--) {
+    DAMPF_RANGE(w, 0, 927);
+    g_window_words[w] = edges[dy_up];
+    w++;
+}
+```
+
+dampf 0.7.1 steps the byte offset `w * 2` by 2 per pass (good), but the stepped offset has lost
+the range of `w`, so the store goes through a 24-bit pointer again:
+
+```
+        clc
+        lda     #.loword(_g_window_words)
+        adc     z:dampf_frame+40
+        sta     z:dampf_frame+54
+        lda     #$007E
+        sta     z:dampf_frame+56
+        lda     z:dampf_frame+52
+        ldy     #$0000
+        sta     [dampf_frame+54],y      ; 52 cycles for the line
+```
+
+The same loop also keeps two equal stepped offsets (`%100` and `%101`, both from `%96`, both
+`+ 2`), as in finding 9, point 6. The range of `w` (0..927) gives the offset's (0..1854), which is
+what the indexed store needs. With it, a line would cost about half of what the byte version
+costs now (two byte stores and `k + 1`): about 0.08 frames a tick while a vacuum is on, the most
+expensive single feature of the game on the SNES. The game went back to bytes for now.

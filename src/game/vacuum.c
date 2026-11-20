@@ -285,8 +285,7 @@ void vacuums_windows(ColorWindow *w, uint8_t *from, uint8_t *to)
         }
         /* the HDMA table, directly (at most 2 * VACUUM_MAX + 1 lines, one run): the lines above
          * the middle with the distance counting down, then the middle and below counting up */
-        uint8_t *t = video_window_lines(i, (uint8_t)first, (uint8_t)end);
-        uint16_t k = 0;
+        uint16_t k = video_window_lines(i, (uint8_t)first, (uint8_t)end);
         int16_t up_end = end < cy ? end : cy;             /* lines first .. up_end - 1: above the middle */
         int16_t down = first > cy ? first : cy;            /* lines down .. end - 1: the middle and below */
         uint8_t n_up = (uint8_t)(up_end > first ? up_end - first : 0);
@@ -294,13 +293,15 @@ void vacuums_windows(ColorWindow *w, uint8_t *from, uint8_t *to)
         uint8_t dy_up = (uint8_t)(cy - first);             /* the distance of line first */
         uint8_t dy0 = (uint8_t)(down - cy);                /* the distance of line down */
         for (uint8_t c = 0; c < n_up; c++, dy_up--) {
-            t[k] = edge_l[dy_up];
-            t[k + 1] = edge_r[dy_up];
+            DAMPF_RANGE(k, 0, WINDOW_BYTES - 2);
+            g_window_bytes[k] = edge_l[dy_up];
+            g_window_bytes[k + 1] = edge_r[dy_up];
             k = (uint16_t)(k + 2);
         }
         for (uint8_t dy = dy0; dy < (uint8_t)(dy0 + n_down); dy++) {
-            t[k] = edge_l[dy];
-            t[k + 1] = edge_r[dy];
+            DAMPF_RANGE(k, 0, WINDOW_BYTES - 2);
+            g_window_bytes[k] = edge_l[dy];
+            g_window_bytes[k + 1] = edge_r[dy];
             k = (uint16_t)(k + 2);
         }
 #ifdef BB_DEBUG
@@ -310,6 +311,6 @@ void vacuums_windows(ColorWindow *w, uint8_t *from, uint8_t *to)
             wi->right[line] = edge_r[ady];
         }
 #endif
-        video_window_done(t + k, (uint8_t)end);
+        video_window_done(k, (uint8_t)end);
     }
 }
