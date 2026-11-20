@@ -12,11 +12,12 @@
 # the timing report blubberblasen.timing.txt and the assembly next to it.
 #
 # The level and graphics data come from the game's host tools map2c and gfx2c as plain C, into
-# build/data: the kit cannot run them itself. They come from the CMake build in build/ (the first
-# of build/tools/Debug, build/tools/Release and build/tools that has them); HOSTTOOLS=<dir> picks
-# others. Then `superdevkit build snes` does the rest as superdevkit.toml says: the sound effects
-# and music.h into build/gen, and dampf compiles the game, the data and the kit's library for the
-# SNES (lib/snes: start-up, the splash screen, the main loop that calls game_init, game_tick and
+# build/data: the kit cannot run them itself. The script compiles the two tools with the host's C
+# compiler (CC, else cc) into build/hosttools, again whenever their sources change; HOSTTOOLS=<dir>
+# uses ready ones instead (for example build/tools/Debug of a CMake build). Then
+# `superdevkit build snes` does the rest as superdevkit.toml says: the sound effects and music.h
+# into build/gen, and dampf compiles the game, the data and the kit's library for the SNES
+# (lib/snes: start-up, the splash screen, the main loop that calls game_init, game_tick and
 # game_vblank) as one program.
 #
 # To check the ROM against the PC, tick by tick (tools/snescheck, README "SNES build"):
@@ -26,18 +27,26 @@ set -e
 cd "$(dirname "$0")"
 DATA=build/data
 if [ -z "$HOSTTOOLS" ]; then
-    for dir in build/tools/Debug build/tools/Release build/tools; do   # Visual Studio, then one-config builds
-        if [ -x "$dir/map2c.exe" ] || [ -x "$dir/map2c" ]; then
-            HOSTTOOLS=$dir
-            break
+    HOSTTOOLS=build/hosttools
+    mkdir -p "$HOSTTOOLS"
+    COMMON="tools/common/mapfile.c tools/common/reach.c tools/common/pngread.c"
+    for tool in map2c gfx2c; do
+        # Compiled again when it is missing or a source or header it may use is newer.
+        if [ ! -x "$HOSTTOOLS/$tool" ] ||
+           [ -n "$(find tools/common "tools/$tool" src/game -newer "$HOSTTOOLS/$tool" -name '*.[ch]' | head -n 1)" ]; then
+            # shellcheck disable=SC2086
+            "${CC:-cc}" -std=c99 -O2 -Itools -Isrc -o "$HOSTTOOLS/$tool" "tools/$tool/$tool.c" $COMMON -lm || {
+                echo "build_snes: could not compile $tool with ${CC:-cc}: install a C compiler (gcc)," \
+                     "or set HOSTTOOLS to the tools of a CMake build" >&2
+                exit 1
+            }
         fi
     done
 fi
 EXE=
 [ -x "$HOSTTOOLS/map2c.exe" ] && EXE=.exe
-[ -n "$HOSTTOOLS" ] && [ -x "$HOSTTOOLS/map2c$EXE" ] || {
-    echo "build_snes: no map2c in ${HOSTTOOLS:-build/tools/Debug, build/tools/Release or build/tools}:" \
-         "build the PC version with CMake first (README, Getting started), or set HOSTTOOLS" >&2
+[ -x "$HOSTTOOLS/map2c$EXE" ] && [ -x "$HOSTTOOLS/gfx2c$EXE" ] || {
+    echo "build_snes: no map2c and gfx2c in $HOSTTOOLS (HOSTTOOLS)" >&2
     exit 1
 }
 

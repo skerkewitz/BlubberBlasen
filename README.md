@@ -135,7 +135,7 @@ brew install cmake ninja git
 
 ## Getting started
 
-The game is built two ways for now (ADR-0010). The superdevkit command builds the SNES ROM and can build and run the desktop version with the kit's own window. CMake builds the PC version with the game's own frontend, which still has more for development (the bot, the start options, the debug panels, recordings with stepping back), the web version, the tests and the game's own tools (`map2c`, `gfx2c`, `snescheck`). The SNES build needs those tools, so a fresh checkout starts with CMake. When the kit's desktop and web builds can do what the game's frontend does (the kit's M8), the CMake side goes.
+The game is built two ways for now (ADR-0010). The superdevkit command builds the SNES ROM and can build and run the desktop version with the kit's own window. CMake builds the PC version with the game's own frontend, which still has more for development (the bot, the start options, the debug panels, recordings with stepping back), the web version, the tests and the game's own tools (`map2c`, `gfx2c`, `snescheck`). The SNES build compiles the two converters it needs itself, so it does not need CMake. When the kit's desktop and web builds can do what the game's frontend does (the kit's M8), the CMake side goes.
 
 | What | How |
 | --- | --- |
@@ -182,7 +182,7 @@ The result is `blubberblasen.html`, `.js`, `.wasm` and `.data` (the assets, abou
 
 ### SNES build (Linux or WSL)
 
-Needs a superdevkit home (see *superdevkit*), gcc, and the game's tools `map2c` and `gfx2c` from a CMake build in `build/` (Windows or Linux; the script takes them from `build/tools/Debug`, `build/tools/Release` or `build/tools`, `HOSTTOOLS=<dir>` picks others):
+Needs a superdevkit home (see *superdevkit*) and gcc. The script compiles the game's converters `map2c` and `gfx2c` with gcc into `build/hosttools`, again when their sources change (`CC=<compiler>` picks another compiler, `HOSTTOOLS=<dir>` ready-made tools, for example `build/tools/Debug` of a CMake build):
 
 ```bash
 ./build_snes.sh                 # or ./build_snes.sh --plan, --verbose: options go to superdevkit build
@@ -205,7 +205,7 @@ Sound effects work the same way on every platform (ADR-0008): the game asks for 
 
 ### Desktop from superdevkit (Linux, Windows)
 
-The kit builds and runs the game on the desktop too, with its own frontend (ADR-0010). `superdevkitw.sh` is the superdevkit command for this game: it takes the kit from `superdevkit.env` and passes every argument on. The kit converts the sound and the music list itself, but not the levels and graphics, which come from the game's own tools: `./build_snes.sh --data` writes them to `build/data` (it needs the CMake build in `build/`, as the SNES build does), once and again after a change to `assets/levels` or `assets/gfx`.
+The kit builds and runs the game on the desktop too, with its own frontend (ADR-0010). `superdevkitw.sh` is the superdevkit command for this game: it takes the kit from `superdevkit.env` and passes every argument on. The kit converts the sound and the music list itself, but not the levels and graphics, which come from the game's own tools: `./build_snes.sh --data` writes them to `build/data`, once and again after a change to `assets/levels` or `assets/gfx`.
 
 ```bash
 ./build_snes.sh --data               # the level and graphics data, build/data
