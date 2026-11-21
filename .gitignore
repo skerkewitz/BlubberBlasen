@@ -27,5 +27,5 @@ build-web/
 # Local superdevkit home for superdevkitw.sh
 superdevkit.env
 
-# Abelton Live stuff
+# Ableton Live stuff
 assets/music/*.asd 
