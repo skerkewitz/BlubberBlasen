@@ -91,7 +91,7 @@ raylib does **not** need to be installed. CMake fetches it automatically via `Fe
 
 ### superdevkit
 
-The game is built with superdevkit, a development kit for SNES games in C (not public yet): its console API and Rachael (the SNES rebuilt in C) for the PC and web builds, and dampf, its compiler, with its SNES library for the ROM (ADR-0007). The build needs a superdevkit home, the folder with `bin/superdevkit`, `bin/dampf` and `lib/` (in a checkout of superdevkit, `./gradlew installDist` writes one to `build/install/superdevkit`).
+The game is built with superdevkit, a development kit for SNES games in C (not public yet): its console API and Rachael (the SNES rebuilt in C) for the PC and web builds, and dampf, its compiler, with its SNES library for the ROM (ADR-0007). The build needs a superdevkit home, the folder with `bin/superdevkit`, `bin/dampf` and `lib/` (in a checkout of superdevkit, `./gradlew installDist` writes one to `build/install/superdevkit`). Use a checkout of a release version of the kit, not its development branch.
 
 Name it once in `superdevkit.env` in the project folder (not committed, each machine has its own):
 
