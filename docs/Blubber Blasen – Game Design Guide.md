@@ -1,6 +1,6 @@
 # Blubber Blasen – Game Design Guide
 
-Blubber Blasen is a single-screen, two-player co-op platformer for a 256 × 224 screen at 60 Hz, built so it can later run on a Super Nintendo. It started as a remake of Taito's arcade *Bubble Bobble* and does not hide that: the bubble loop, the combos, EXTEND and the hundred rounds come from there. What the original does is described in [Bubble Bobble (Arcade) – Game Design Reference Guide](Bubble%20Bobble%20(Arcade)%20–%20Game%20Design%20Reference%20Guide.md).
+Blubber Blasen is a single-screen, two-player co-op platformer for a 256 × 224 screen at 60 Hz, built so it can later run on a Super Nintendo. It started as a remake of Taito's arcade *Bubble Bobble* and does not hide that: the bubble loop, the combos, EXTEND and the hundred rounds come from there. Where we depart from it is listed in [Differences from the original](#differences-from-the-original).
 
 The game has grown into something of its own. The Plus mode adds a dash, aiming upward, a push bubble and a vacuum, and these change how a round is played: players move bubbles around the room instead of waiting for the air to bring them. This guide describes the game we are building. The [story](story.md) has the world, the characters and the texts.
 

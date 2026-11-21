@@ -1,6 +1,6 @@
 # Blubber Blasen
 
-A non-commercial fan remake of the arcade classic *Bubble Bobble*, with the long-term goal of running on real Super Nintendo hardware.
+A non-commercial single-screen co-op bubble platformer inspired by the arcade classic *Bubble Bobble*, with the long-term goal of running on real Super Nintendo hardware.
 
 > This is a hobby project. It is not affiliated with or endorsed by Taito or Nintendo. No original assets are distributed in this repository.
 
@@ -425,7 +425,6 @@ grep -rnE 'raylib\.h|\bfloat\b|\bdouble\b|\b(malloc|calloc|realloc|free)\s*\(' s
 - [ADR-0010](docs/adr/0010-the-desktop-from-superdevkit-beside-the-games-own.md): the desktop from superdevkit, beside the game's own frontend
 - [SNES spike report](docs/snes-spike-report.md): how fast the ROM is, where the time goes, ROM and RAM use, and what has to change (2026-11-20)
 - [Game Design Guide](docs/Blubber%20Blasen%20–%20Game%20Design%20Guide.md): the game we are building, Plus and Classic mode, and where it differs from the original
-- [Bubble Bobble (Arcade) – Game Design Reference Guide](docs/Bubble%20Bobble%20(Arcade)%20–%20Game%20Design%20Reference%20Guide.md): how the arcade original works, as reference
 - [Story](docs/story.md): the Blubber Factory, heroes, floors, secret rooms, boss and endings
 
 Project language is **English**: code, comments, commit messages, issues and documentation.
