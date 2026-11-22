@@ -6,7 +6,7 @@
  * enemy in one chain is worth twice as much as the one before. Everything
  * one dash sweeps through counts as one chain. Floating bubbles that are
  * close but not touching cling together, like soap.
- * Plus mode adds the push bubble: it traps nothing and shoves the floating
+ * The push bubble traps nothing and shoves the floating
  * bubble it hits, like a cue ball.
  * Ported from AiBubbleSystem / AirflowSystem, extended per the design guide.
  */
@@ -30,13 +30,13 @@
 #define STICK_REACH   24           /* ...and closer than this cling together (soap) */
 #define STICK_PULL    FX(0, 64)    /* 0.25 px/frame each, until they touch */
 #define SPECIAL_LIFE  1200         /* special and letter bubbles: 20 s */
-#define PUSH_SPEED    FX(6, 0)     /* Plus mode push bubble: small and fast */
+#define PUSH_SPEED    FX(6, 0)     /* push bubble: small and fast */
 #define PUSH_FRAMES   12           /* about 72 px, then it vanishes */
 #define PUSH_HIT      10           /* hit box of the push bubble against others */
 #define PUSH_THIRD    4            /* |dy| below this hits the middle of a bubble */
 #define SHOVE_SPEED   FX(3, 0)     /* momentum a hit bubble gets */
 #define SHOVE_STOP    FX(0, 32)    /* below this the air takes over again */
-#define SHOT_EDGE     6            /* Plus mode: leading edge of a shot, from its centre */
+#define SHOT_EDGE     6            /* leading edge of a shot, from its centre */
 #define SHOT_RANGE_POWER 14        /* SHOOT_FRAMES with the range candy */
 #define SHOOT_SPEED_POWER FX(6, 0)
 #define TOP_LIMIT     (FIELD_Y + 6)
@@ -46,7 +46,7 @@ static uint8_t chain_kills;   /* trapped enemies popped in the running chain */
 static int8_t  chain_dir;     /* direction the first defeated enemy flies */
 static uint8_t chain_owner;   /* player who started the chain */
 
-/* Plus mode push bubble, one per player: it traps nothing, it shoves the
+/* Push bubble, one per player: it traps nothing, it shoves the
  * floating bubble it hits (like a cue ball) and bursts. */
 typedef struct {
     uint8_t  active;
@@ -112,16 +112,16 @@ void bubble_spawn_special(uint8_t kind, uint8_t letter, uint16_t x, uint16_t y)
     b->y = y;
 }
 
-/* Plus mode: a bubble's centre inside a solid tile. */
+/* A bubble's centre inside a solid tile. */
 static uint8_t in_wall(uint16_t x, uint16_t y)
 {
-    return (uint8_t)(g_opt.plus && level_solid_px((int16_t)(PX(x) + 8), (int16_t)(PX(y) + 8)));
+    return level_solid_px((int16_t)(PX(x) + 8), (int16_t)(PX(y) + 8));
 }
 
 void bubble_shoot(uint16_t x, uint16_t y, uint8_t dir, uint16_t powers)
 {
     if (in_wall(x, y)) {
-        /* Plus mode: blown into a wall at point-blank, it pops at once */
+        /* blown into a wall at point-blank, it pops at once */
         item_spawn(IT_BURST, x, y, 0);
         sfx(SFX_POP);
         return;
@@ -318,15 +318,11 @@ static uint8_t catch_enemy(Bubble *b)
     return 0;
 }
 
-/* Plus mode: shots stop at walls and platforms (only a push gets a bubble
- * through); the leading edge decides. In Arcade mode they only know the
- * room's outer walls. */
+/* Shots stop at walls and platforms (only a push gets a bubble through);
+ * the leading edge decides. */
 static uint8_t shot_hits_wall(const Bubble *b)
 {
     int16_t x = (int16_t)(PX(b->x) + 8), y = (int16_t)(PX(b->y) + 8);
-    if (!g_opt.plus) {
-        return 0;
-    }
     if (b->dir == AIR_LEFT) {
         x = (int16_t)(x - SHOT_EDGE);
     } else if (b->dir == AIR_RIGHT) {
@@ -626,7 +622,7 @@ void bubbles_update(void)
 
     /* A chain is over when nothing is popping any more. A dash holds it
      * open: everything one dash sweeps through is one chain, even bubbles
-     * that do not touch (Plus mode, design guide "Dash"). Its letters were
+     * that do not touch (design guide "Dash"). Its letters were
      * earned as it ran (multikill_kill). */
     for (uint8_t i = 0; i < MAX_BUBBLES && !popping; i++) {
         popping = (uint8_t)(g_bubbles[i].state == BS_POPPING);

@@ -1,5 +1,5 @@
 /*
- * Plus mode vacuum (docs/brainstorm/vacuum_2026-11-14.md): the player puts
+ * Vacuum (docs/brainstorm/vacuum_2026-11-14.md): the player puts
  * a vacuum where they stand. For a short time the air inside a circle
  * around it points to its centre instead of following the room's airflow,
  * so floating bubbles (and a partner's rescue bubble) gather there; then the

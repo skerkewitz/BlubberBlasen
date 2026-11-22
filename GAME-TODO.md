@@ -158,11 +158,10 @@ come first.
 - **How-to-play screen.**
   Now: nothing in the game explains the mechanics. New players have to find out by themselves
   that you trap an enemy and then touch the bubble, that you can bounce on bubbles, what a chain
-  does and what the Plus moves (push bubble, vacuum, dash) are for.
+  does and what the push bubble, the vacuum and the dash are for.
   Done when there is a screen, reachable from the title, that shows each mechanic as a short
   scene played by the game itself (scripted input in a small room) with one line of text: trap
-  and pop, bubble bounce, chain and multikill, BLASEN letters, and in Plus mode dash, push bubble
-  and vacuum. It uses the same game code as real play, so it cannot drift from the rules.
+  and pop, bubble bounce, chain and multikill, BLASEN letters, dash, push bubble and vacuum. It uses the same game code as real play, so it cannot drift from the rules.
 
 - **Attract mode.**
   Now: the title screen waits forever. There is no gameplay demo.
@@ -182,8 +181,7 @@ come first.
 - **Full playthrough and difficulty curve.**
   Now: nobody has played all 100 rounds in one go. The room test only proves that every room
   can be cleared, not that the difficulty rises evenly.
-  Done when at least one full game in Plus and one in Classic has been played by a human on
-  Normal, rooms that are far too hard or too easy for their place have been fixed, and the
+  Done when at least one full game has been played by a human on Normal, rooms that are far too hard or too easy for their place have been fixed, and the
   findings are noted in the design guide.
 
 - **Difficulty settings.**
@@ -200,8 +198,8 @@ come first.
 - **Open questions in the design guide.**
   Now: the "Open questions" section of the design guide has seven items: vacuum strength,
   enemies in rounds 34/39/69/99 that only a bubble bounce reaches, the dash jump, walls and
-  bubbles inside the vacuum, the CPU partner and the Plus tools, push bubble hit zones, and the
-  CPU navigation.
+  bubbles inside the vacuum, the CPU partner and the push bubble and vacuum, push bubble hit
+  zones, and the CPU navigation.
   Done when each one is decided (built, dropped or accepted as it is), with an ADR where the
   decision changes the rules, and the section is empty or removed.
 
@@ -217,17 +215,16 @@ come first.
 
 - **Navigation that knows walls and dashes.**
   Now: the CPU's navigation data uses the lenient movement model from `tools/common/reach.c`, in
-  which a sideways jump may pass through a wall. In Arcade the CPU cannot leave the start pocket
-  of rounds 16 and 34, so the room test (`test_cpu_rooms`) skips them. It does not plan dashes
-  into pockets and does not know that a Riveter's front blocks bubbles.
+  which a sideways jump may pass through a wall. It gets out of the start pocket of rounds 16
+  and 34 only by chance, after several tries in the room test (`test_cpu_rooms`). It does not
+  plan dashes into pockets and does not know that a Riveter's front blocks bubbles.
   Done when map2c builds the navigation with the strict wall model (`REACH_WALLS`) and dash edges
-  for Plus (`REACH_DASH`), the CPU uses them, and the room test passes for every round in both
-  modes with the exceptions in `cpu_cannot_leave_start()` removed.
+  (`REACH_DASH`), the CPU uses them, and the room test passes for every round.
 
 ## Options and controls
 
 - **More options.**
-  Now: the options screen has MODE, CO-OP RESCUE and PLAYER 2. There is no difficulty, no volume
+  Now: the options screen has CO-OP RESCUE and PLAYER 2. There is no difficulty, no volume
   setting and no way to change the controls.
   Done when there are separate music and sound volumes, saved in the save RAM next to the other
   options, and the README describes them.

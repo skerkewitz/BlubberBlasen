@@ -178,7 +178,7 @@ enum {
     DBG_HITBOXES,         /* platform draws collision boxes (game_debug_boxes) */
     DBG_AIR,              /* platform draws the air currents (game_debug_cell) */
     DBG_CPU_VIEW,         /* platform draws the CPU partner's danger check (game_debug_cpu_view) */
-    DBG_VACUUM_WALLS,     /* Plus mode: walls stop bubbles inside a vacuum (A/B test) */
+    DBG_VACUUM_WALLS,     /* walls stop bubbles inside a vacuum (A/B test) */
     DBG_NO_STICKY,        /* floating bubbles don't cling together (A/B test) */
     DBG_COUNT
 };
@@ -202,7 +202,7 @@ void            game_debug_clear_round(void);          /* remove all enemies now
 void            game_debug_skip_story(uint8_t skip);   /* no intro after the title */
 void            game_debug_show_ending(uint8_t happy); /* jump to an ending */
 void            game_debug_cpu(uint8_t mask);          /* bit i: CPU plays player i+1 (room tests) */
-void            game_debug_options(uint8_t plus, uint8_t rescue, uint8_t p2_cpu);  /* not saved */
+void            game_debug_options(uint8_t rescue, uint8_t p2_cpu);  /* not saved */
 void            game_debug_open_options(void);         /* show the options screen */
 /* The CPU partner's last danger check: predicted danger positions (boxes)
  * and the name of the action it chose. Returns the number of boxes. */
@@ -247,7 +247,6 @@ typedef struct {
     uint8_t  lives[NUM_PLAYERS];
     uint8_t  letters[NUM_PLAYERS];   /* BLASEN bits */
     uint8_t  score[NUM_PLAYERS][8];  /* decimal digits */
-    uint8_t  plus;          /* Plus mode */
 } DebugStatus;
 
 uint8_t         game_debug_objects(DebugObject *out, uint8_t max);   /* returns the count */

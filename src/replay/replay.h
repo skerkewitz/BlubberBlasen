@@ -36,7 +36,7 @@ typedef struct {
     uint8_t  sram[SRAM_SIZE];
     uint8_t  round;             /* game_debug_start_round */
     uint8_t  skip_story;
-    uint8_t  set_options, plus, rescue, cpu2;   /* game_debug_options, if set_options */
+    uint8_t  set_options, rescue, cpu2;   /* game_debug_options, if set_options */
     uint8_t  open_options;
     int8_t   ending;            /* -1 none, 0 sad, 1 happy */
     uint8_t  switches[DBG_COUNT];

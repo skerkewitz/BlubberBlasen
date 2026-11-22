@@ -183,7 +183,7 @@ static void panel_round(void)
         DebugStatus s;
         int i;
         game_debug_status(&s);
-        ImGui::Text("%s, round %u, %s mode", s.state, (unsigned)s.round, s.plus ? "Plus" : "Arcade");
+        ImGui::Text("%s, round %u", s.state, (unsigned)s.round);
         ImGui::Text("Round time %u frames (%.1f s)%s", (unsigned)s.round_frames, s.round_frames / 60.0f,
                     s.hurry ? ", HURRY UP" : "");
         if (s.freeze) {

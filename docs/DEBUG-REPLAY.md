@@ -128,7 +128,7 @@ The recordings in `tests/replays/` are tests: each one is replayed by `ctest` an
 drifts apart. After an intended rule change, record it again and copy it over:
 
 ```sh
-./rungame.sh --autoplay --record --plus --seed 42 --quit 3000
+./rungame.sh --autoplay --record --seed 42 --quit 3000
 cp build/Debug/recordings/<newest>.bbr tests/replays/plus_bot_seed42.bbr
 ```
 
@@ -149,7 +149,7 @@ These work in every development build, while playing and (where noted above) whi
 | `F9` | Slow motion (quarter speed) |
 | `F10` | Spawn the next item or special bubble in front of player 1 (each press: the next one) |
 | `F11` | Full screen (all builds) |
-| `F12` | Vacuum walls: walls stop bubbles inside a vacuum (Plus mode, to compare) |
+| `F12` | Vacuum walls: walls stop bubbles inside a vacuum (to compare) |
 | `Backspace` | Mark this moment in the recording; while replaying: jump to the next mark |
 | `Tab` | Retro TV filter on / off (all builds) |
 | `` ` `` (`^` on a German keyboard) | Debug view on / off (opening it pauses the game): the game in a panel, with panels for the switches, the round, all objects and the CPU partner (desktop only; see the README, *Debug view*) |
@@ -170,7 +170,7 @@ Pass them to `rungame.sh`, `rungame.bat` or `replay.sh`.
 | `--autoplay2` | Bots play both players (sound off) |
 | `--seed <n>` | Fixed random seed |
 | `--round <n>` | New games start at round n |
-| `--plus`, `--rescue`, `--cpu2` | Switch those game options on for this run (not saved) |
+| `--rescue`, `--cpu2` | Switch those game options on for this run (not saved) |
 | `--options` | Start on the options screen |
 | `--skip-intro` / `--intro` | Leave out / show the story pages |
 | `--ending <happy\|sad>` | Start with that ending |

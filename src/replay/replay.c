@@ -7,7 +7,8 @@
  *   sram 0a1b...              save RAM, two hex digits per byte
  *   round 1                   developer options the run started with
  *   skip_story 0
- *   options 1 0 0             plus, rescue, cpu2 (only if set on the command line)
+ *   options 1 0               rescue, cpu2 (only if set on the command line; older
+ *                             recordings have a third number first, the old mode)
  *   open_options              (only if the run started on the options screen)
  *   ending 1                  (only if the run started with an ending)
  *   switch invincible 1       (one line per switch that was on)
@@ -67,7 +68,7 @@ void replay_apply_setup(const ReplaySetup *s)
         game_debug_set(k, s->switches[k]);
     }
     if (s->set_options) {
-        game_debug_options(s->plus, s->rescue, s->cpu2);
+        game_debug_options(s->rescue, s->cpu2);
     }
     if (s->open_options) {
         game_debug_open_options();
@@ -138,7 +139,7 @@ int replay_write_begin(ReplayWriter *w, const char *path, const ReplaySetup *s)
     }
     fprintf(w->f, "\nround %u\nskip_story %u\n", (unsigned)s->round, (unsigned)s->skip_story);
     if (s->set_options) {
-        fprintf(w->f, "options %u %u %u\n", (unsigned)s->plus, (unsigned)s->rescue, (unsigned)s->cpu2);
+        fprintf(w->f, "options %u %u\n", (unsigned)s->rescue, (unsigned)s->cpu2);
     }
     if (s->open_options) {
         fprintf(w->f, "open_options\n");
@@ -287,10 +288,13 @@ int replay_load(const char *path, Replay *r, char *err, size_t err_size)
             } else if (sscanf(line, "skip_story %lu", &a) == 1) {
                 r->setup.skip_story = (uint8_t)(a != 0);
             } else if (sscanf(line, "options %lu %lu %lu", &a, &b, &c) == 3) {
-                r->setup.set_options = 1;
-                r->setup.plus = (uint8_t)(a != 0);
+                r->setup.set_options = 1;   /* older recordings: the old mode first, ignored */
                 r->setup.rescue = (uint8_t)(b != 0);
                 r->setup.cpu2 = (uint8_t)(c != 0);
+            } else if (sscanf(line, "options %lu %lu", &a, &b) == 2) {
+                r->setup.set_options = 1;
+                r->setup.rescue = (uint8_t)(a != 0);
+                r->setup.cpu2 = (uint8_t)(b != 0);
             } else if (strcmp(line, "open_options") == 0) {
                 r->setup.open_options = 1;
             } else if (sscanf(line, "ending %lu", &a) == 1) {
