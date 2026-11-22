@@ -38,7 +38,7 @@ Source lines are for checking, and are only valid for this version.
 
 | # | Code | Guide |
 | --- | --- | --- |
-| G1 | A new cartridge starts with co-op rescue on. | Rescue off. (Arcade/Plus is gone; the guide now says on, to be confirmed.) |
+| G1 | A new cartridge starts with co-op rescue on. | Also on. Ruled 2026-11-22: rescue stays on by default. |
 | G2 | A player in a rescue bubble cannot be hurt by anything, shots, soot and chaser included. | Shots still kill. |
 | G3 | A dash press is honoured on the press frame and 5 more (6 checks). | "6 frames" (same thing, depending on how you count). |
 | G4 | A fired bubble moves 9 times, 36 px. | 32 px. |
