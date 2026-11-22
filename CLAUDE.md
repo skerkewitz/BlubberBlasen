@@ -6,10 +6,10 @@ docs/adr/). It is built with superdevkit (ADR-0007): the console API `sdevkit/sn
 
 - The superdevkit home is `/home/tropper/develop_projects/superdevkit_main/build/install/superdevkit`
   (`SUPERDEVKIT_HOME`, in `superdevkit.env`): a separate clone of the kit's `main`, pinned to a
-  release commit (now "Version 0.7.3", e273b5d; the kit has no tags) and built with
+  release tag (now v0.8.0) and built with
   `./gradlew installDist`. Use only what a release holds (ADR 41 of the kit), as an end user would;
   what the game needs and a release lacks goes into `docs/kit-findings.md`. Never build or edit
-  there; to move to a newer version: `git fetch`, check out the new "Version x.y.z" commit,
+  there; to move to a newer version: `git fetch`, check out the new release tag,
   `./gradlew installDist`, run the replay check. `/home/tropper/develop_projects/superdevkit` is
   the kit's development checkout (`develop`, another agent works there, may be broken): do not
   use it. Change the kit only when the user asks.
