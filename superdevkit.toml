@@ -3,7 +3,7 @@
 # first (the game's own map2c and gfx2c), then calls it. The PC and web builds (CMake) read the
 # music list below too, so the tracks and their numbers are listed only here.
 name = "blubberblasen"
-superdevkit = "0.7"
+superdevkit = "0.8"
 sram = 128                    # the high score table and the options (SRAM_SIZE, src/game/hiscore.c)
 sources = ["src/game", "build/data"]
 include = ["src", "build/data"]
