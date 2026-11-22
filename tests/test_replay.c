@@ -35,7 +35,7 @@ static uint16_t random_pad(void)
     return moves[(lcg >> 16) % (sizeof moves / sizeof moves[0])];
 }
 
-/* Plays a Plus game with changing input and developer actions, recording it.
+/* Plays a game with changing input and developer actions, recording it.
  * Returns the checksum at the end. */
 static uint32_t record_run(const char *path)
 {
@@ -52,7 +52,7 @@ static uint32_t record_run(const char *path)
     s.round = 3;
     s.skip_story = 1;
     s.set_options = 1;
-    s.plus = 1;
+    s.rescue = 0;   /* rescue on would hide the changed input below (a player in a rescue bubble) */
     s.ending = -1;
     s.switches[DBG_INFINITE_LIVES] = 1;
 
@@ -96,7 +96,7 @@ static void test_round_trip(void)
 
     CHECK(replay_load(TMP_FILE, &r, err, sizeof err) == 0, "%s", err);
     CHECK(r.end_tick == RUN_TICKS, "end tick %lu", (unsigned long)r.end_tick);
-    CHECK(r.setup.seed == 777 && r.setup.round == 3 && r.setup.plus && r.setup.set_options, "setup read back");
+    CHECK(r.setup.seed == 777 && r.setup.round == 3 && !r.setup.rescue && !r.setup.cpu2 && r.setup.set_options, "setup read back");
     CHECK(r.setup.switches[DBG_INFINITE_LIVES] && !r.setup.switches[DBG_INVINCIBLE], "switches read back");
     CHECK(strcmp(r.setup.version, GAME_VERSION) == 0, "version '%s'", r.setup.version);
     for (i = 0; i < r.count; i++) {
@@ -166,6 +166,24 @@ static void test_bad_files(void)
     remove(TMP_FILE);
 }
 
+/* The options line: rescue and cpu2; older recordings have the removed
+ * Arcade/Plus mode in front, which is read and ignored. */
+static void test_options_line(void)
+{
+    Replay r;
+    char err[256];
+
+    write_file(TMP_FILE, "BLUBBERBLASEN REPLAY 1\noptions 1 0\nstart\n");
+    CHECK(replay_load(TMP_FILE, &r, err, sizeof err) == 0 && r.setup.set_options && r.setup.rescue && !r.setup.cpu2,
+          "options rescue cpu2: %s", err);
+    replay_free(&r);
+    write_file(TMP_FILE, "BLUBBERBLASEN REPLAY 1\noptions 0 1 0\nstart\n");
+    CHECK(replay_load(TMP_FILE, &r, err, sizeof err) == 0 && r.setup.set_options && r.setup.rescue && !r.setup.cpu2,
+          "old options line with the mode in front: %s", err);
+    replay_free(&r);
+    remove(TMP_FILE);
+}
+
 static int check_recordings(int argc, char **argv)
 {
     int i;
@@ -197,6 +215,7 @@ int main(int argc, char **argv)
     }
     test_round_trip();
     test_bad_files();
+    test_options_line();
     if (failures) {
         printf("%d check(s) failed\n", failures);
         return 1;

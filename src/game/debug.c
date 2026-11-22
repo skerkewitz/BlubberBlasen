@@ -231,7 +231,6 @@ void game_debug_status(DebugStatus *out)
     out->frame = g_frame;
     out->hurry = g_hurry;
     out->freeze = g_freeze;
-    out->plus = g_opt.plus;
     for (uint8_t i = 0; i < NUM_PLAYERS; i++) {
         out->lives[i] = g_players[i].lives;
         out->letters[i] = g_players[i].letters;

@@ -15,7 +15,7 @@
 
 #define ENTRY_SIZE 12
 #define TABLE_OFS  4
-#define OPTIONS_OFS 64   /* 4 bytes magic "OPT1", then plus, rescue, p2_cpu */
+#define OPTIONS_OFS 64   /* 4 bytes magic "OPT1", then 1 (was Arcade/Plus), rescue, p2_cpu */
 
 Options g_opt;
 
@@ -68,13 +68,11 @@ void options_load(void)
 {
     for (uint8_t i = 0; i < 4; i++) {
         if (sram[OPTIONS_OFS + i] != opt_magic[i]) {
-            g_opt.plus = 1;        /* no options saved yet: Plus with co-op rescue, the game as meant */
-            g_opt.rescue = 1;
+            g_opt.rescue = 1;      /* no options saved yet: co-op rescue on */
             g_opt.p2_cpu = 0;
             return;
         }
     }
-    g_opt.plus = (uint8_t)(sram[OPTIONS_OFS + 4] != 0);
     g_opt.rescue = (uint8_t)(sram[OPTIONS_OFS + 5] != 0);
     g_opt.p2_cpu = (uint8_t)(sram[OPTIONS_OFS + 6] != 0);
 }
@@ -84,7 +82,7 @@ void options_save(void)
     for (uint8_t i = 0; i < 4; i++) {
         sram[OPTIONS_OFS + i] = opt_magic[i];
     }
-    sram[OPTIONS_OFS + 4] = g_opt.plus;
+    sram[OPTIONS_OFS + 4] = 1;   /* Plus, for builds that still read the mode */
     sram[OPTIONS_OFS + 5] = g_opt.rescue;
     sram[OPTIONS_OFS + 6] = g_opt.p2_cpu;
 }

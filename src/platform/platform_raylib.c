@@ -391,7 +391,7 @@ static void draw_snes_picture(void)
  *   --intro           show the story pages anyway (for screenshots with --autoplay)
  *   --ending <happy|sad>  start with that ending (to look at it)
  *   --invincible, --infinite-lives, --hitboxes, --air, --cpu-view   switch those debug switches on
- *   --plus, --rescue, --cpu2   set those options for this run (not saved)
+ *   --rescue, --cpu2  set those options for this run (not saved)
  *   --options         start on the options screen
  * Recordings (desktop development builds, see README "Recordings"):
  *   --replay <file>   play a recording instead of the keyboard
@@ -416,7 +416,7 @@ static int      opt_skip_intro;
 static int      opt_intro;
 static int      opt_ending = -1;
 static int      opt_switch[DBG_COUNT];
-static int      opt_plus, opt_rescue, opt_cpu2, opt_options, opt_set_options;
+static int      opt_rescue, opt_cpu2, opt_options, opt_set_options;
 static const char *opt_replay;
 static long     opt_jump = -1;
 static int      opt_record = -1;   /* -1: record unless it's a bot run */
@@ -472,8 +472,6 @@ static void parse_args(int argc, char **argv)
             opt_switch[DBG_AIR] = 1;
         } else if (strcmp(argv[i], "--cpu-view") == 0) {
             opt_switch[DBG_CPU_VIEW] = 1;
-        } else if (strcmp(argv[i], "--plus") == 0) {
-            opt_plus = opt_set_options = 1;
         } else if (strcmp(argv[i], "--rescue") == 0) {
             opt_rescue = opt_set_options = 1;
         } else if (strcmp(argv[i], "--cpu2") == 0) {
@@ -1358,7 +1356,6 @@ static void start_game(void)
         s.round = round;
         s.skip_story = skip;
         s.set_options = (uint8_t)opt_set_options;
-        s.plus = (uint8_t)opt_plus;
         s.rescue = (uint8_t)opt_rescue;
         s.cpu2 = (uint8_t)opt_cpu2;
         s.open_options = (uint8_t)opt_options;
@@ -1378,7 +1375,7 @@ static void start_game(void)
             game_debug_set((uint8_t)k, (uint8_t)opt_switch[k]);
         }
         if (opt_set_options) {
-            game_debug_options((uint8_t)opt_plus, (uint8_t)opt_rescue, (uint8_t)opt_cpu2);
+            game_debug_options((uint8_t)opt_rescue, (uint8_t)opt_cpu2);
         }
         if (opt_options) {
             game_debug_open_options();

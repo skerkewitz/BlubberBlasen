@@ -1113,6 +1113,16 @@ static void test_music(void)
     g_state = GS_GAME_OVER;
     game_tick(pad);
     CHECK(sdevkit__music.track < 0, "game over is silent");
+
+    /* the options screen is a menu like the title: the title music */
+    game_init(1);
+    game_tick(idle);
+    pad[0] = PAD_SELECT;
+    game_tick(pad);
+    CHECK(g_state == GS_OPTIONS && sdevkit__music.track == MUSIC_TITLE,
+          "the options screen should keep the title music (state %d, track %d)", g_state, sdevkit__music.track);
+    pad[0] = PAD_START;
+    game_tick(pad);   /* back to the title */
 }
 
 /* Every room can be played (design guide "CPU partner"): the CPU plays both
@@ -1124,20 +1134,10 @@ static void test_music(void)
  * as the room. Also catches crashes and players outside the walls. */
 #define ROOM_TRIES  15
 
-/* Known gaps of the CPU partner, not of the rooms: rounds 16 and 34 start
- * the players in a pocket that in Arcade only a bubble bounce leaves (the
- * ledge above is 6 rows up, a jump reaches 5). The CPU's navigation data is
- * built with the lenient movement model (tools/common/reach.h) and thinks
- * it can jump through the wall. Remove these once the navigation uses the
- * real walls and the CPU partner can get out. */
-static int cpu_cannot_leave_start(uint8_t round, uint8_t plus)
-{
-    return !plus && (round == 16 || round == 34);
-}
 #define TRY_FRAMES  (3 * 60 * 60)   /* 3 min: well past Hurry Up and the Soot Cloud */
 
 /* One try at a round; returns 1 if the room was left (cleared or skipped). */
-static int try_room(uint8_t round, uint8_t plus, uint16_t seed, int *deaths)
+static int try_room(uint8_t round, uint16_t seed, int *deaths)
 {
     uint16_t pad[NUM_PLAYERS] = { 0, 0 };
     uint32_t f;
@@ -1147,8 +1147,7 @@ static int try_room(uint8_t round, uint8_t plus, uint16_t seed, int *deaths)
         sdevkit_sram()[i] = 0;
     }
     game_init(seed);
-    g_opt.plus = plus;
-    g_opt.rescue = plus;
+    g_opt.rescue = 1;
     g_opt.p2_cpu = 0;
     game_debug_cpu(3);
     game_debug_set(DBG_INFINITE_LIVES, 1);
@@ -1157,7 +1156,7 @@ static int try_room(uint8_t round, uint8_t plus, uint16_t seed, int *deaths)
         pad[0] = (uint16_t)((g_state == GS_TITLE && (f % 120) < 2) ? PAD_START : 0);
         game_tick(pad);
         *deaths += (game_sfx() >> SFX_DEATH) & 1;
-        if (getenv("BB_DEATHS") && ((game_sfx() >> SFX_DEATH) & 1) && *deaths <= 25 && plus == 0) {
+        if (getenv("BB_DEATHS") && ((game_sfx() >> SFX_DEATH) & 1) && *deaths <= 25) {
             int k, j;
             DebugBox bx[1];
             const char *act = "";
@@ -1199,12 +1198,11 @@ static int try_room(uint8_t round, uint8_t plus, uint16_t seed, int *deaths)
     game_debug_set(DBG_INFINITE_LIVES, 0);
     game_debug_start_round(1);
     game_debug_cpu(0);
-    g_opt.plus = 0;
     g_opt.rescue = 0;
     return left;
 }
 
-static void rooms_playable_by_cpu(uint8_t plus)
+static void test_cpu_rooms(void)
 {
     static const char *const names[DEBUG_DEATH_CAUSES] = {
         "?", "walker", "bouncer", "thrower", "flutter", "hopper", "spitter", "dropper",
@@ -1217,14 +1215,10 @@ static void rooms_playable_by_cpu(uint8_t plus)
     for (i = 0; i < DEBUG_DEATH_CAUSES; i++) {
         c[i] = 0;
     }
-    printf("cpu rooms (%s):", plus ? "plus + rescue" : "arcade");
+    printf("cpu rooms (co-op rescue on):");
     for (round = 1; round < 100; round++) {
-        if (cpu_cannot_leave_start(round, plus)) {
-            printf(" round %u: skipped (known gap),", round);
-            continue;
-        }
         for (t = 0; t < ROOM_TRIES; t++) {
-            if (try_room(round, plus, (uint16_t)(round * ROOM_TRIES + t + 1), &deaths)) {
+            if (try_room(round, (uint16_t)(round * ROOM_TRIES + t + 1), &deaths)) {
                 break;
             }
         }
@@ -1234,8 +1228,7 @@ static void rooms_playable_by_cpu(uint8_t plus)
             retried++;
             printf(" round %u: %u tries,", round, t + 1u);
         }
-        CHECK(t < ROOM_TRIES, "round %u (%s): the CPU players did not clear it in %d tries of 3 min", round,
-              plus ? "plus" : "arcade", ROOM_TRIES);
+        CHECK(t < ROOM_TRIES, "round %u: the CPU players did not clear it in %d tries of 3 min", round, ROOM_TRIES);
         if (failures > 10) {
             break;
         }
@@ -1247,12 +1240,6 @@ static void rooms_playable_by_cpu(uint8_t plus)
         }
     }
     printf("\n");
-}
-
-static void test_cpu_rooms(void)
-{
-    rooms_playable_by_cpu(0);
-    rooms_playable_by_cpu(1);
 }
 
 static void setup_two_players(uint8_t level)
@@ -1323,16 +1310,15 @@ static void test_rescue(void)
     g_opt.rescue = 0;
 }
 
-/* Plus mode dash: free, invulnerable, a grace time, a cooldown that keeps
+/* Dash: free, invulnerable, a grace time, a cooldown that keeps
  * dashes from being chained into lasting invulnerability. */
-static void test_plus_mode(void)
+static void test_dash(void)
 {
     int f, unprotected, dashes;
     uint16_t x0;
 
     /* dash: about 7 tiles, invulnerable in the middle, costs nothing */
     setup_room(0);
-    g_opt.plus = 1;
     g_players[0].x = TO_POS(60);
     x0 = g_players[0].x;
     player_update(&g_players[0], PAD_R, PAD_R);
@@ -1353,7 +1339,6 @@ static void test_plus_mode(void)
 
     /* after the dash: still safe long enough to jump clear */
     setup_room(0);
-    g_opt.plus = 1;
     g_players[0].x = TO_POS(60);
     player_update(&g_players[0], PAD_R, PAD_R);
     CHECK(player_dash_invulnerable(&g_players[0]), "invulnerable from the first dash frame");
@@ -1371,7 +1356,6 @@ static void test_plus_mode(void)
 
     /* cooldown: no new dash right after one; a short glow when it is ready */
     setup_room(0);
-    g_opt.plus = 1;
     g_players[0].x = TO_POS(40);
     player_update(&g_players[0], PAD_R, PAD_R);
     for (f = 0; f < DASH_FRAMES + 2; f++) {
@@ -1388,7 +1372,6 @@ static void test_plus_mode(void)
 
     /* hammering the dash button leaves gaps without protection */
     setup_room(0);
-    g_opt.plus = 1;
     g_players[0].x = TO_POS(40);
     unprotected = 0;
     dashes = 0;
@@ -1405,7 +1388,6 @@ static void test_plus_mode(void)
 
     /* the dash pops bubbles in a band taller than the body */
     setup_room(0);
-    g_opt.plus = 1;
     g_players[0].x = TO_POS(60);
     g_bubbles[0] = make_trapped(100, (uint8_t)(PLAYER_SPAWN_Y - 16));
     g_bubbles[0].state = BS_FLOAT;
@@ -1415,7 +1397,6 @@ static void test_plus_mode(void)
         player_update(&g_players[0], 0, 0);
     }
     CHECK(g_bubbles[0].state == BS_POPPING, "a dash under a bubble should pop it");
-    g_opt.plus = 0;
 }
 
 /* Everything one dash pops is one chain, also bubbles that do not touch:
@@ -1426,7 +1407,6 @@ static void test_dash_combo(void)
     uint8_t best_tier = 0, thrown = 0;
 
     setup_room(0);
-    g_opt.plus = 1;
     g_players[0].x = TO_POS(60);
     g_bubbles[0] = make_trapped(80, PLAYER_SPAWN_Y);
     g_bubbles[1] = make_trapped(108, PLAYER_SPAWN_Y);   /* 28 px apart: too far for a chain reaction */
@@ -1443,7 +1423,6 @@ static void test_dash_combo(void)
     }
     CHECK(g_bubbles[0].state == BS_OFF && g_bubbles[1].state == BS_OFF, "the dash popped both bubbles");
     CHECK(best_tier == 1 && (thrown & 1), "two enemies in one dash are one combo (food tiers mask 0x%02X)", thrown);
-    g_opt.plus = 0;
 }
 
 /* Shield enemy: bubbles from the front burst on the plate, from behind they
@@ -1477,7 +1456,6 @@ static void test_shield(void)
 
     /* a dash through it knocks the plate off */
     setup_room(0);
-    g_opt.plus = 1;
     g_players[0].x = TO_POS(60);
     e = &g_enemies[0];
     enemy_spawn(TO_POS(90), g_players[0].y, ENEMY_TYPE_SHIELD, 0, 1);
@@ -1497,7 +1475,6 @@ static void test_shield(void)
         enemies_update();
     }
     CHECK(e->x != ex, "then walks on");
-    g_opt.plus = 0;
 
     /* round 11 introduces it */
     {
@@ -1513,16 +1490,13 @@ static void test_shield(void)
 static void test_options(void)
 {
     game_init(1);
-    g_opt.plus = 1;
     g_opt.rescue = 1;
     g_opt.p2_cpu = 1;
     options_save();
-    g_opt.plus = 0;
     g_opt.rescue = 0;
     g_opt.p2_cpu = 0;
     game_init(1);
-    CHECK(g_opt.plus && g_opt.rescue && g_opt.p2_cpu, "options should survive in SRAM");
-    g_opt.plus = 0;
+    CHECK(g_opt.rescue && g_opt.p2_cpu, "options should survive in SRAM");
     g_opt.rescue = 0;
     g_opt.p2_cpu = 0;
     options_save();
@@ -1594,11 +1568,10 @@ static void test_round_change_resets(void)
           "the rescue bubble opens at a round change, no life lost");
 }
 
-/* Plus mode push bubble (docs/brainstorm/special-shot_2026-11-14.md). */
+/* Push bubble (docs/brainstorm/special-shot_2026-11-14.md). */
 static Bubble *push_setup(int bubble_dy, uint8_t kind)
 {
     setup_room(0);
-    g_opt.plus = 1;
     g_players[0].x = TO_POS(60);
     g_players[0].y = TO_POS(FIELD_Y + 80);
     g_players[0].facing_left = 0;
@@ -1677,7 +1650,6 @@ static void test_push_bubble(void)
         for (k = 0; k <= 12; k++) {
             uint16_t x_float = 0;
             setup_room(0);
-            g_opt.plus = 1;
             g_players[0].x = TO_POS(40);
             g_players[0].facing_left = 0;
             for (f = 0; f < 60; f++) {
@@ -1734,14 +1706,10 @@ static void test_push_bubble(void)
     }
     CHECK(food == 1 && b->vx > 0, "the push bubble collects nothing (food %d, vx %d)", food, b->vx);
 
-    /* one at a time; nothing in Arcade mode */
+    /* one at a time */
     push_setup(0, BK_NORMAL);
     player_update(&g_players[0], PAD_X, PAD_X);
     CHECK(push_active(0) && !push_shoot(0, g_players[0].x, g_players[0].y, AIR_RIGHT), "only one push bubble at a time");
-    push_setup(0, BK_NORMAL);
-    g_opt.plus = 0;
-    player_update(&g_players[0], PAD_X, PAD_X);
-    CHECK(!push_active(0), "no push bubble in Arcade mode");
 
     /* through the whole game: X during play shows the push bubble */
     {
@@ -1752,7 +1720,7 @@ static void test_push_bubble(void)
             sdevkit_sram()[i] = 0;
         }
         game_init(5);
-        game_debug_options(1, 0, 0);
+        game_debug_options(0, 0);
         game_tick(pad);
         pad[0] = 0;
         for (f = 0; f < 600 && g_state != GS_PLAY; f++) {
@@ -1765,18 +1733,16 @@ static void test_push_bubble(void)
         for (i = 0; i < MAX_SPRITES; i++) {
             drawn |= oam[i].y < SCREEN_H && oam[i].tile == SPR_PUSH;
         }
-        CHECK(g_state == GS_PLAY && push_active(0) && drawn, "X in a Plus game blows a visible push bubble (state %d)",
+        CHECK(g_state == GS_PLAY && push_active(0) && drawn, "X in a game blows a visible push bubble (state %d)",
               g_state);
-        game_debug_options(0, 0, 0);
+        game_debug_options(0, 0);
     }
-    g_opt.plus = 0;
 }
 
-/* Plus mode vacuum (docs/brainstorm/vacuum_2026-11-14.md). */
+/* Vacuum (docs/brainstorm/vacuum_2026-11-14.md). */
 static void vacuum_setup(void)
 {
     setup_room(0);
-    g_opt.plus = 1;
     g_players[0].x = TO_POS(100);
     g_players[0].y = TO_POS(PLAYER_SPAWN_Y);
 }
@@ -1910,7 +1876,7 @@ static void test_vacuum(void)
     player_update(&g_players[0], PAD_A, PAD_A);
     cx = g_players[0].x;
     cy = g_players[0].y;
-    CHECK(vacuum_active(0), "A starts a vacuum in Plus mode");
+    CHECK(vacuum_active(0), "A starts a vacuum");
     bubble_spawn_special(BK_NORMAL, 0, (uint16_t)(cx + TO_POS(30)), (uint16_t)(cy - TO_POS(20)));
     bubble_spawn_special(BK_NORMAL, 0, (uint16_t)(cx - TO_POS(80)), cy);
     near_b = &g_bubbles[0];
@@ -1971,14 +1937,14 @@ static void test_vacuum(void)
         CHECK(g_bubbles[1].x - x0 < TO_POS(1), "42 px away, outside the shown circle: not pulled");
     }
 
-    /* through the whole game: A in a Plus game reports a window */
+    /* through the whole game: A in a game reports a window */
     {
         uint16_t pad[NUM_PLAYERS] = { PAD_START, 0 };
         for (f = 0; f < SRAM_SIZE; f++) {
             sdevkit_sram()[f] = 0;
         }
         game_init(5);
-        game_debug_options(1, 0, 0);
+        game_debug_options(0, 0);
         game_tick(pad);
         pad[0] = 0;
         for (f = 0; f < 600 && g_state != GS_PLAY; f++) {
@@ -1987,7 +1953,7 @@ static void test_vacuum(void)
         g_players[0].invulnerable = 200;
         pad[0] = PAD_A;
         game_tick(pad);
-        CHECK(game_windows()[0].add_b > 0, "A in a Plus game shows the vacuum window");
+        CHECK(game_windows()[0].add_b > 0, "A in a game shows the vacuum window");
         CHECK(game_sfx() & (1u << SFX_VACUUM), "placing a vacuum plays its sound");
         pad[0] = 0;
         for (f = 0; f < 100; f++) {
@@ -1995,7 +1961,7 @@ static void test_vacuum(void)
             game_tick(pad);
         }
         CHECK(game_windows()[0].add_b == 0, "the window is gone when the vacuum ends");
-        game_debug_options(0, 0, 0);
+        game_debug_options(0, 0);
     }
 
     /* faster the closer to the centre */
@@ -2023,16 +1989,9 @@ static void test_vacuum(void)
     bubbles_update();
     CHECK(g_bubbles[0].x > x0, "a pushed bubble slides on through a vacuum");
 
-    /* nothing in Arcade mode */
-    vacuum_setup();
-    g_opt.plus = 0;
-    player_update(&g_players[0], PAD_A, PAD_A);
-    CHECK(!vacuum_active(0), "no vacuum in Arcade mode");
-
     /* a partner's rescue bubble is drawn in, and freed on reaching the player */
     g_opt.rescue = 1;
     setup_two_players(0);
-    g_opt.plus = 1;
     g_players[0].x = TO_POS(100);
     g_players[0].y = TO_POS(PLAYER_SPAWN_Y);
     g_players[1].state = PS_RESCUE;
@@ -2087,13 +2046,12 @@ static void test_vacuum(void)
         }
         game_debug_set(DBG_VACUUM_WALLS, 0);
     }
-    g_opt.plus = 0;
 }
 
-/* Plus mode: shots stop at walls, Up aims both shots, and only a push gets
+/* Shots stop at walls, Up aims both shots, and only a push gets
  * a bubble through a platform. Played out in round 16's start shaft (a
  * pillar to the right, a ledge above, the thrower's ledge the way out). */
-static void test_plus_walls_and_up(void)
+static void test_walls_and_up(void)
 {
     Player *p = &g_players[0];
     int16_t cx, cy, wall_x, ceil_y, ledge_top;
@@ -2111,27 +2069,19 @@ static void test_plus_walls_and_up(void)
     CHECK(wall_x < 240 && ceil_y > FIELD_Y + 40, "round 16 start: a pillar to the right and a ledge above (%d, %d)",
           wall_x, ceil_y);
 
-    /* sideways: Plus stops in front of the pillar, Arcade passes it */
-    for (i = 0; i < 2; i++) {
-        setup_room(15);
-        g_opt.plus = (uint8_t)(i == 0);
-        p->x = TO_POS(wall_x - 8 - 20);
-        p->facing_left = 0;
-        player_update(p, PAD_Y, PAD_Y);
-        for (f = 0; f < 15; f++) {
-            bubbles_update();
-        }
-        if (i == 0) {
-            CHECK(g_bubbles[0].state == BS_FLOAT && PX(g_bubbles[0].x) + 8 + 6 <= wall_x,
-                  "Plus: a shot stops in front of the wall (x %u, wall %d)", PX(g_bubbles[0].x), wall_x);
-        } else {
-            CHECK(PX(g_bubbles[0].x) + 8 > wall_x, "Arcade: a shot still passes the wall (x %u)", PX(g_bubbles[0].x));
-        }
+    /* sideways: the shot stops in front of the pillar */
+    setup_room(15);
+    p->x = TO_POS(wall_x - 8 - 20);
+    p->facing_left = 0;
+    player_update(p, PAD_Y, PAD_Y);
+    for (f = 0; f < 15; f++) {
+        bubbles_update();
     }
+    CHECK(g_bubbles[0].state == BS_FLOAT && PX(g_bubbles[0].x) + 8 + 6 <= wall_x,
+          "a shot stops in front of the wall (x %u, wall %d)", PX(g_bubbles[0].x), wall_x);
 
     /* point-blank into the wall: it pops at once */
     setup_room(15);
-    g_opt.plus = 1;
     p->x = TO_POS(wall_x - 8 - 6);
     p->facing_left = 0;
     player_update(p, PAD_Y, PAD_Y);
@@ -2141,25 +2091,17 @@ static void test_plus_walls_and_up(void)
     for (i = 0; i < MAX_ITEMS; i++) {
         bursts += g_items[i].kind == IT_BURST;
     }
-    CHECK(live == 0 && bursts == 1, "Plus: a bubble blown into the wall pops at once (%d bubbles, %d bursts)", live, bursts);
-
-    /* Arcade: Up does not aim */
-    setup_room(15);
-    g_opt.plus = 0;
-    p->facing_left = 0;
-    player_update(p, PAD_UP | PAD_Y, PAD_Y);
-    CHECK(g_bubbles[0].state == BS_SHOOT && g_bubbles[0].dir == AIR_RIGHT, "Arcade: Up + Y still shoots sideways");
+    CHECK(live == 0 && bursts == 1, "a bubble blown into the wall pops at once (%d bubbles, %d bursts)", live, bursts);
 
     /* Up + Y: the shot flies up and stops under the ledge */
     setup_room(15);
-    g_opt.plus = 1;
     enemy_spawn(p->x, TO_POS(ledge_top - 15), ENEMY_TYPE_WALKER, 0, 0);   /* on the ledge above */
     player_update(p, PAD_UP | PAD_Y, PAD_Y);
     for (f = 0; f < 15 && g_bubbles[0].state == BS_SHOOT; f++) {
         bubbles_update();
     }
     CHECK(g_bubbles[0].state == BS_FLOAT && PX(g_bubbles[0].y) + 8 - 6 > ceil_y,
-          "Plus: an upward shot stops under the ledge (y %u, ledge bottom %d)", PX(g_bubbles[0].y), ceil_y);
+          "an upward shot stops under the ledge (y %u, ledge bottom %d)", PX(g_bubbles[0].y), ceil_y);
     CHECK(g_enemies[0].active, "the enemy on the ledge is out of reach of the shot");
 
     /* ... and Up + push shoves it up through the ledge, into the enemy */
@@ -2168,8 +2110,7 @@ static void test_plus_walls_and_up(void)
         bubbles_update();
     }
     CHECK(!g_enemies[0].active && g_bubbles[0].state == BS_TRAPPED,
-          "Plus: shoot up, push up: the bubble goes through the ledge and traps the enemy (y %u)", PX(g_bubbles[0].y));
-    g_opt.plus = 0;
+          "shoot up, push up: the bubble goes through the ledge and traps the enemy (y %u)", PX(g_bubbles[0].y));
 }
 
 /* The CPU partner climbs to a platform five rows up (a full jump): it
@@ -2227,7 +2168,6 @@ static void test_dash_rules(void)
 
     /* round 13 has a tower (columns 15-16) rising from the floor */
     setup_room(12);
-    g_opt.plus = 1;
     g_players[0].x = TO_POS(76);
     player_update(&g_players[0], PAD_R, PAD_R);
     for (f = 0; f < 14; f++) {
@@ -2243,7 +2183,6 @@ static void test_dash_rules(void)
 
     /* input buffer: pressed while not possible, done when it becomes possible */
     setup_room(0);
-    g_opt.plus = 1;
     g_players[0].dash_cooldown = 3;
     g_players[0].x = TO_POS(60);
     player_update(&g_players[0], PAD_R, PAD_R);
@@ -2255,7 +2194,6 @@ static void test_dash_rules(void)
 
     /* R dashes right while walking left and facing left, and keeps the facing */
     setup_room(0);
-    g_opt.plus = 1;
     g_players[0].x = TO_POS(120);
     g_players[0].facing_left = 1;
     player_update(&g_players[0], PAD_LEFT | PAD_R, PAD_R);
@@ -2264,12 +2202,10 @@ static void test_dash_rules(void)
 
     /* L dashes left while holding right */
     setup_room(0);
-    g_opt.plus = 1;
     g_players[0].x = TO_POS(120);
     g_players[0].facing_left = 0;
     player_update(&g_players[0], PAD_RIGHT | PAD_L, PAD_L);
     CHECK(g_players[0].dash > 0 && g_players[0].dash_dir < 0, "L dashes left whatever the D-pad holds");
-    g_opt.plus = 0;
 }
 
 /* "ROUND n" and the floor name get a darkened box (a subtract-and-halve
@@ -2644,7 +2580,6 @@ static int cpu_dashes_right(int letter_in_path)
 
     setup_two_players(0);
     effects_clear();
-    g_opt.plus = 1;
     g_players[1].cpu = 1;
     g_players[1].letters = 0x02;   /* has the L */
     g_players[0].x = TO_POS(24);
@@ -2663,7 +2598,6 @@ static int cpu_dashes_right(int letter_in_path)
         pad = cpu_pad(&g_players[1]);
         dashed = (pad & PAD_R) != 0;
     }
-    g_opt.plus = 0;
     return dashed;
 }
 
@@ -2799,7 +2733,6 @@ static void test_video_vacuum_glow(void)
     int n, f;
     start_at_round(4, 0);
     CHECK(run_until(GS_PLAY, 900), "round 4 did not start");
-    g_opt.plus = 1;
     game_tick(pad);
     pad[0] = 0;
     for (f = 0; f < 40; f++) {
@@ -2808,7 +2741,6 @@ static void test_video_vacuum_glow(void)
     }
     n = window_effect();
     CHECK(n > 100, "the vacuum glow brightens the room (%d pixels changed)", n);
-    g_opt.plus = 0;
 }
 
 /* The SNES palette (OAM attribute bits 1..3) of the sprite the game drew at x, y. */
@@ -2962,7 +2894,7 @@ int main(void)
     test_secret_room();
     test_boss_and_endings();
     test_rescue();
-    test_plus_mode();
+    test_dash();
     test_dash_rules();
     test_dash_combo();
     test_shield();
@@ -2972,7 +2904,7 @@ int main(void)
     test_push_bubble();
     test_vacuum();
     test_vacuum_animation();
-    test_plus_walls_and_up();
+    test_walls_and_up();
     test_cpu_climbs();
     test_cpu_letters();
     test_debug_switches();

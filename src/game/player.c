@@ -74,7 +74,7 @@ uint8_t player_dash_invulnerable(const Player *p)
 /* A dash would start now if the button were pressed. */
 uint8_t player_can_dash(const Player *p)
 {
-    return (uint8_t)(g_opt.plus && p->state == PS_ALIVE && !p->carried && !p->dash && !p->dash_used && !p->dash_cooldown);
+    return (uint8_t)(p->state == PS_ALIVE && !p->carried && !p->dash && !p->dash_used && !p->dash_cooldown);
 }
 
 /* The body (12 x 16 px) overlaps a solid tile. */
@@ -87,7 +87,7 @@ static uint8_t inside_wall(uint16_t x, uint16_t y)
 
 static uint8_t try_dash(Player *p, uint16_t pressed)
 {
-    if (!g_opt.plus || p->carried) {
+    if (p->carried) {
         return 0;
     }
     /* L dashes left, R dashes right, whatever the D-pad holds and whichever
@@ -147,7 +147,7 @@ static void dash_move(Player *p)
     }
 }
 
-/* Plus mode: counts the cooldown down; the player glows briefly when the
+/* Counts the dash cooldown down; the player glows briefly when the
  * next dash is ready. */
 static void dash_tick(Player *p)
 {
@@ -404,10 +404,10 @@ static void jump_and_fall(Player *p, uint16_t pad)
     }
 }
 
-/* Plus mode: holding Up aims both shots upward, from above the head. */
+/* Holding Up aims both shots upward, from above the head. */
 static uint8_t aim(const Player *p, uint16_t pad, uint16_t *bx, uint16_t *by)
 {
-    if (g_opt.plus && (pad & PAD_UP)) {
+    if (pad & PAD_UP) {
         *bx = p->x;
         *by = (uint16_t)(p->y - TO_POS(12));
         return AIR_UP;
@@ -429,9 +429,8 @@ static void shoot(Player *p, uint16_t pad, uint16_t pressed)
         p->shoot_pose--;
     }
 
-    /* Plus mode: X (the top face button) blows a push bubble (one at a
-     * time, free). */
-    if (g_opt.plus && (pressed & PAD_X)) {
+    /* X (the top face button) blows a push bubble (one at a time, free). */
+    if (pressed & PAD_X) {
         dir = aim(p, pad, &bx, &by);
         if (push_shoot(p->id, bx, by, dir)) {
             p->shoot_pose = SHOOT_POSE;
@@ -439,9 +438,9 @@ static void shoot(Player *p, uint16_t pad, uint16_t pressed)
         }
     }
 
-    /* Plus mode: A (the right face button) puts a vacuum where the player
-     * is; it stays there, also when placed mid-jump. */
-    if (g_opt.plus && (pressed & PAD_A)) {
+    /* A (the right face button) puts a vacuum where the player is; it stays
+     * there, also when placed mid-jump. */
+    if (pressed & PAD_A) {
         vacuum_start(p->id, p->x, p->y);
         sfx(SFX_VACUUM);
     }
@@ -615,7 +614,7 @@ void player_draw(const Player *p)
     }
     oam_add(PX(p->x), PX(p->y), tile, attr);
 
-    if (p->state != PS_ALIVE || !g_opt.plus) {
+    if (p->state != PS_ALIVE) {
         return;
     }
     if (p->dash) {

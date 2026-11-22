@@ -130,10 +130,9 @@ typedef enum {
 /* --- Objects --------------------------------------------------------------- */
 typedef enum { PS_OFF, PS_ALIVE, PS_DYING, PS_ENTERING, PS_RESCUE } PlayerState;
 
-/* Options (saved in SRAM). Plus mode = dash, push bubble, vacuum, upward aim. */
+/* Options (saved in SRAM). */
 typedef struct {
-    uint8_t plus;          /* 0 Arcade, 1 Plus */
-    uint8_t rescue;        /* co-op rescue on/off (both modes) */
+    uint8_t rescue;        /* co-op rescue on/off */
     uint8_t p2_cpu;        /* player 2 is a CPU partner */
 } Options;
 extern Options g_opt;
@@ -154,7 +153,7 @@ typedef struct {
     uint16_t rescue;       /* frames left in the rescue bubble */
     uint8_t  rescue_dir;   /* AIR_* the rescue bubble drifts in */
     uint8_t  cpu;          /* controlled by the CPU partner (cpu.c) */
-    uint8_t  dash;         /* Plus mode: frames left in a dash */
+    uint8_t  dash;         /* frames left in a dash */
     int8_t   dash_dir;
     uint8_t  dash_used;    /* one dash per jump */
     uint8_t  dash_cooldown;/* frames until the next dash is possible */
@@ -395,7 +394,7 @@ void     player_update(Player *p, uint16_t pad, uint16_t pressed);
 void     player_draw(const Player *p);
 uint8_t  player_dash_invulnerable(const Player *p);
 
-/* Plus mode dash (design guide "Dash"; tuning values there). It is free:
+/* Dash (design guide "Dash"; tuning values there). It is free:
  * one per jump in the air, and DASH_COOLDOWN frames after a dash ends
  * before the next one, longer than DASH_GRACE, so dashes cannot be chained
  * into lasting invulnerability. */
@@ -437,10 +436,10 @@ void     bubbles_clear(void);
 void     bubble_shoot(uint16_t x, uint16_t y, uint8_t dir, uint16_t powers);   /* dir: AIR_LEFT, AIR_RIGHT, AIR_UP (Plus) */
 uint8_t  bubbles_trapped_to_gems(void);   /* items: trapped enemies become gems; returns how many */
 void     bubble_spawn_special(uint8_t kind, uint8_t letter, uint16_t x, uint16_t y);
-uint8_t  push_shoot(uint8_t player, uint16_t x, uint16_t y, uint8_t dir);   /* Plus mode, dir as above; 0 = one already flying */
+uint8_t  push_shoot(uint8_t player, uint16_t x, uint16_t y, uint8_t dir);   /* dir as above; 0 = one already flying */
 uint8_t  push_active(uint8_t player);
 
-/* --- vacuum.c (Plus mode) ---------------------------------------------------- */
+/* --- vacuum.c --------------------------------------------------------------- */
 #define VACUUM_GROW 8   /* frames from a point to full size after placing */
 void     vacuums_clear(void);
 void     vacuum_start(uint8_t player, uint16_t x, uint16_t y);   /* 8.8 centre (a player's top left) */

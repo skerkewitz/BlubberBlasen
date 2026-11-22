@@ -4,7 +4,7 @@
  * pad 1, and writes the session as a recording in the kit's check format: the pad per tick and
  * the checksum of every tick (sdevkit_dbg_hash: the sprite table and the tilemaps).
  *
- *   snescheck [--ticks N] [--cpu] [--plus] [--trace FILE] [--sound FILE] -o build/snes/check.txt
+ *   snescheck [--ticks N] [--cpu] [--trace FILE] [--sound FILE] -o build/snes/check.txt
  *   <home>/dev/replay.sh build/snes/blubberblasen.sfc build/snes/check.txt
  *
  * replay.sh plays the same pads on the ROM in dampf's emulator and names the first tick whose
@@ -13,10 +13,10 @@
  *
  * The bot only presses buttons, so the ROM, which gets the same pads, plays the same game; it may
  * look at the game's state to decide. On the title it sets the options first (--cpu: player 2 is
- * the CPU partner, --plus: Plus mode, else Arcade; co-op rescue stays at its default, on), then
- * starts a game, and it continues after a game over.
- * In play it walks, jumps and shoots (in Plus mode it also places a vacuum every 5 seconds), and
- * never presses Start, which would pause.
+ * the CPU partner; co-op rescue stays at its default, on), then starts a game, and it continues
+ * after a game over.
+ * In play it walks, jumps and shoots, places a vacuum every 5 seconds, and never presses Start,
+ * which would pause.
  *
  * --trace FILE writes one line per tick, "tick state round bubbles enemies items vacuums"
  * (GameState, the round, the bubbles, enemies and items in use, bit i: player i's vacuum is on), to put a ROM's measurements per tick in
@@ -43,7 +43,7 @@ static const struct { const char *name; uint16_t bit; } BUTTONS[] = {
 };
 #define NBUTTONS (sizeof BUTTONS / sizeof BUTTONS[0])
 
-static uint8_t want_cpu, want_plus;
+static uint8_t want_cpu;
 
 static FILE *sound;                        /* --sound */
 static long sound_tick = -1;               /* the tick a DSP write belongs to; -1: game_init */
@@ -75,7 +75,7 @@ static uint16_t bot_pad(long t)
     case GS_PLAY:
         break;
     case GS_TITLE:
-        if (g_opt.p2_cpu != want_cpu || g_opt.plus != want_plus) {
+        if (g_opt.p2_cpu != want_cpu) {
             option_row = 0;
             return tap(t, PAD_SELECT);
         }
@@ -84,13 +84,8 @@ static uint16_t bot_pad(long t)
         if ((t % 6) != 0) {
             return 0;                /* one press every 6 ticks, released in between */
         }
-        if (g_opt.plus != want_plus) {
-            if (option_row == 0) return PAD_RIGHT;
-            option_row = (uint8_t)(option_row - 1);
-            return PAD_UP;
-        }
         if (g_opt.p2_cpu != want_cpu) {
-            if (option_row == 2) return PAD_RIGHT;
+            if (option_row == 1) return PAD_RIGHT;
             option_row = (uint8_t)(option_row + 1);
             return PAD_DOWN;
         }
@@ -105,7 +100,7 @@ static uint16_t bot_pad(long t)
     pad = dir;
     if ((t % 20) < 2)   pad |= PAD_Y;
     if ((t % 90) < 10)  pad |= PAD_B;
-    if (want_plus && (t % 300) < 2) pad |= PAD_A;   /* a vacuum */
+    if ((t % 300) < 2) pad |= PAD_A;   /* a vacuum */
     return pad;
 }
 
@@ -124,8 +119,6 @@ int main(int argc, char **argv)
             ticks = strtol(argv[++i], NULL, 10);
         } else if (strcmp(argv[i], "--cpu") == 0) {
             want_cpu = 1;
-        } else if (strcmp(argv[i], "--plus") == 0) {
-            want_plus = 1;
         } else if (strcmp(argv[i], "--sound") == 0 && i + 1 < argc) {
             sound_path = argv[++i];
         } else if (strcmp(argv[i], "--trace") == 0 && i + 1 < argc) {
@@ -138,7 +131,7 @@ int main(int argc, char **argv)
         }
     }
     if (out == NULL || ticks <= 0) {
-        fprintf(stderr, "usage: snescheck [--ticks N] [--cpu] [--plus] [--trace FILE] [--sound FILE] -o check.txt\n");
+        fprintf(stderr, "usage: snescheck [--ticks N] [--cpu] [--trace FILE] [--sound FILE] -o check.txt\n");
         return 2;
     }
     pads = calloc((size_t)ticks, sizeof pads[0]);

@@ -179,6 +179,7 @@ static void music_update(void)
     switch (g_state) {
     case GS_TITLE:
     case GS_STORY:
+    case GS_OPTIONS:
     case GS_HISCORES:
     case GS_NAME_ENTRY:
     case GS_ENDING:
@@ -1103,17 +1104,16 @@ static void draw_ending(void)
 }
 
 /* --- Options ------------------------------------------------------------------------- */
-#define OPTION_ROWS 4
+#define OPTION_ROWS 3
 
 static void draw_options(void)
 {
-    static const char *const labels[OPTION_ROWS] = { "MODE", "CO-OP RESCUE", "PLAYER 2", "BACK" };
+    static const char *const labels[OPTION_ROWS] = { "CO-OP RESCUE", "PLAYER 2", "BACK" };
     const char *values[OPTION_ROWS];
 
-    values[0] = g_opt.plus ? "PLUS  " : "ARCADE";
-    values[1] = g_opt.rescue ? "ON " : "OFF";
-    values[2] = g_opt.p2_cpu ? "CPU  " : "HUMAN";
-    values[3] = "";
+    values[0] = g_opt.rescue ? "ON " : "OFF";
+    values[1] = g_opt.p2_cpu ? "CPU  " : "HUMAN";
+    values[2] = "";
     for (uint8_t i = 0; i < OPTION_ROWS; i++) {
         uint8_t row = (uint8_t)(8 + i * 3);
         uint8_t pal = (uint8_t)(i == option_row ? PAL_YELLOW : PAL_NONE);
@@ -1121,8 +1121,8 @@ static void draw_options(void)
         text_put(6, row, labels[i], pal);
         text_put(21, row, values[i], pal);
     }
-    text_put(3, 21, g_opt.plus ? "PLUS: DASH WITH L/R, AIM UP," : "ARCADE: THE CLASSIC RULES.  ", PAL_GREY);
-    text_put(3, 22, g_opt.plus ? "PUSH: TOP. VACUUM: RIGHT.   " : "                            ", PAL_GREY);
+    text_put(3, 21, "DASH WITH L/R, AIM WITH UP,", PAL_GREY);
+    text_put(3, 22, "PUSH: TOP. VACUUM: RIGHT.", PAL_GREY);
     text_put(4, 25, "UP/DOWN, LEFT/RIGHT, START", PAL_GREY);
 }
 
@@ -1152,9 +1152,8 @@ static void update_options(uint16_t pressed)
         sfx(SFX_MENU);
     } else if (pressed & (PAD_LEFT | PAD_RIGHT | PAD_B | PAD_Y)) {
         switch (option_row) {
-        case 0: g_opt.plus = (uint8_t)!g_opt.plus; break;
-        case 1: g_opt.rescue = (uint8_t)!g_opt.rescue; break;
-        case 2: g_opt.p2_cpu = (uint8_t)!g_opt.p2_cpu; break;
+        case 0: g_opt.rescue = (uint8_t)!g_opt.rescue; break;
+        case 1: g_opt.p2_cpu = (uint8_t)!g_opt.p2_cpu; break;
         default:
             options_save();
             enter_title();
@@ -1570,9 +1569,8 @@ void game_debug_cpu(uint8_t mask)
     debug_cpu_mask = mask;
 }
 
-void game_debug_options(uint8_t plus, uint8_t rescue, uint8_t p2_cpu)
+void game_debug_options(uint8_t rescue, uint8_t p2_cpu)
 {
-    g_opt.plus = plus;
     g_opt.rescue = rescue;
     g_opt.p2_cpu = p2_cpu;
 }

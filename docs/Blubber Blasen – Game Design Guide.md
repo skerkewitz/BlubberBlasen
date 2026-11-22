@@ -2,22 +2,18 @@
 
 Blubber Blasen is a single-screen, two-player co-op platformer for a 256 × 224 screen at 60 Hz, built so it can later run on a Super Nintendo. It started as a remake of Taito's arcade *Bubble Bobble* and does not hide that: the bubble loop, the combos, EXTEND and the hundred rounds come from there. Where we depart from it is listed in [Differences from the original](#differences-from-the-original).
 
-The game has grown into something of its own. The Plus mode adds a dash, aiming upward, a push bubble and a vacuum, and these change how a round is played: players move bubbles around the room instead of waiting for the air to bring them. This guide describes the game we are building. The [story](story.md) has the world, the characters and the texts.
+The game has grown into something of its own. A dash, aiming upward, a push bubble and a vacuum change how a round is played: players move bubbles around the room instead of waiting for the air to bring them. This guide describes the game we are building. The [story](story.md) has the world, the characters and the texts.
 
 Numbers in this guide are the values in the code (`src/game/`) at the time of writing. If they disagree, the code is right and this guide needs fixing.
 
-## Modes
+## Options
 
-**Plus** is the game. Everything in this guide applies to it unless a section says otherwise.
+The options screen has two options, saved with the high scores:
 
-**Classic** is a switch on the options screen. It turns off the Plus tools (dash, aiming, push bubble, vacuum) and lets fired bubbles pass through inner walls, as in the arcade. The rounds, enemies, items and story stay ours. Classic is close to the original's rules, but it is not the original game: that would also need the original 100 room layouts and the full item system. If we ever want a faithful remake, it is easier to fork this project and build it there than to keep two games in one code base.
-
-The code still calls Classic "Arcade" and starts in it until the options are changed. Both are to be switched over.
-
-Two more options work in both modes:
-
-- **Co-op rescue** (off by default): an enemy that touches a player traps them in a rescue bubble instead of killing them. See Two players.
+- **Co-op rescue** (on by default): an enemy that touches a player traps them in a rescue bubble instead of killing them. See Two players.
 - **Player 2: CPU** (off by default): a computer partner plays player 2.
+
+There is no mode with the original's rules. It would need the original 100 room layouts and the full item system as well; if we ever want a faithful remake, it is easier to fork this project and build it there than to keep two games in one code base.
 
 ## Technical frame
 
@@ -65,16 +61,16 @@ Blubber (player 1, green) starts in the bottom-left corner, Blasi (player 2, cya
 
 **Controls** (SNES layout)
 
-| Button | Action | Mode |
-| --- | --- | --- |
-| D-pad left / right | Walk and turn | Both |
-| B | Jump | Both |
-| Y | Blow a bubble; with Up held, blow it upward | Up: Plus |
-| X | Push bubble; with Up held, upward | Plus |
-| A | Vacuum | Plus |
-| L / R | Dash left / right | Plus |
-| Start | Join, continue, pause | Both |
-| Select | Options (title screen) | Both |
+| Button | Action |
+| --- | --- |
+| D-pad left / right | Walk and turn |
+| B | Jump |
+| Y | Blow a bubble; with Up held, blow it upward |
+| X | Push bubble; with Up held, upward |
+| A | Vacuum |
+| L / R | Dash left / right |
+| Start | Join, continue, pause |
+| Select | Options (title screen) |
 
 **Movement**
 
@@ -98,11 +94,11 @@ An empty bubble lasts 10 s and turns orange and then red before it bursts. A tra
 
 Popping a bubble pops every bubble in reach, one link every 5 frames, so a chain is visible as it runs through a cluster. In reach means less than 18 px apart on both axes and at most 25 px for dx + dy together. A bubble is drawn 16 px wide, so bubbles that look touching always chain, like coyote time in jumping, and the dx + dy limit keeps diagonal neighbours from getting more reach than side-by-side ones. The values are a first guess and get tuned by play. All enemies in one chain form one combo. A popped enemy flies through the room in an arc and lands as food.
 
-**Walls and aiming (Plus).** A fired bubble stops at walls and platforms and starts floating in front of them. Blown into a wall at point-blank range, it pops at once. Holding Up shoots a bubble or a push bubble straight up. In Classic, fired bubbles pass through inner walls and Up does not aim.
+**Walls and aiming.** A fired bubble stops at walls and platforms and starts floating in front of them. Blown into a wall at point-blank range, it pops at once. Holding Up shoots a bubble or a push bubble straight up.
 
-## The Plus tools
+## Tools
 
-The three tools all answer the same problem: in the arcade, a bubble that drifts out of reach is lost unless the player takes a detour or a risky jump. In Plus the player moves bubbles to where they want the chain.
+The three tools all answer the same problem: in the arcade, a bubble that drifts out of reach is lost unless the player takes a detour or a risky jump. Here the player moves bubbles to where they want the chain.
 
 **Push bubble (X).** A small, fast bubble (6 px per frame, about 72 px) that traps nothing. It bursts on the first floating bubble it meets and shoves it, empty or with an enemy inside. A hit on the upper third pushes the bubble down, on the lower third up, in the middle along the push bubble's direction. The shoved bubble slides at 3 px per frame, ignoring the air, slows down and stops at walls. An empty shoved bubble traps the first enemy it slides into. A push bubble shot upward always shoves its target up, through the platform above. A special bubble or letter that gets hit is set off as if touched. The push bubble also destroys enemy shots, and bursts without effect on enemies, players and the boss. One per player at a time, free.
 
@@ -139,9 +135,9 @@ Every enemy is a factory worker bewitched by the Grumble Boiler (see the story).
 | Chaser | Soot Cloud | Hurry Up | Comes for its player through walls, faster over time | Contact, invincible |
 | Boss | Grumble Boiler | 100 | Floats around the top of the room | Spits soot |
 
-**Riveter.** The plate covers the side the Riveter faces. A bubble from the front, fired or shoved, bursts on it; a bubble from behind traps it as usual. A dash through a Riveter, from either side, knocks the plate off: it stands dazed for 1 s and then walks on as a plain Stoker. In Classic, without the dash, players have to get behind it. Round 11 introduces it on open platforms.
+**Riveter.** The plate covers the side the Riveter faces. A bubble from the front, fired or shoved, bursts on it; a bubble from behind traps it as usual. A dash through a Riveter, from either side, knocks the plate off: it stands dazed for 1 s and then walks on as a plain Stoker. Round 11 introduces it on open platforms.
 
-**Rooms that need the dash.** Rounds 12 and 14 have a pocket on the bottom floor: a low room closed by walls on both sides and by a platform above. A Riveter waits inside. Players get in only with a dash through a wall and get out by jumping up through the platform. The air in the pocket blows up, so a trapped enemy floats out. In Classic, fired bubbles pass through inner walls, so the pocket can be cleared from outside. `mapview --check` lists every enemy that only a dash reaches; in round 16 that is already all of them, because the next platform above the start is 6 rows up, one more than a jump.
+**Rooms that need the dash.** Rounds 12 and 14 have a pocket on the bottom floor: a low room closed by walls on both sides and by a platform above. A Riveter waits inside. Players get in only with a dash through a wall and get out by jumping up through the platform. The air in the pocket blows up, so a trapped enemy floats out. `mapview --check` lists every enemy that only a dash reaches; in round 16 that is already all of them, because the next platform above the start is 6 rows up, one more than a jump.
 
 Rules all enemies share:
 
@@ -217,8 +213,8 @@ Round 100 is the Grumble Boiler, a 32 × 32 px steam kettle with 24 hit points t
 | --- | --- | --- |
 | World | Two dragons rescue their girlfriends | Two soap blobs free a bubble factory from the Grumble Boiler |
 | Rounds | The original 100 layouts | Our own 100 rooms |
-| Bubble tools | Bubble and jump only | Plus: push bubble, vacuum, dash, upward aim |
-| Bubbles and walls | Fired bubbles pass through inner walls | Plus: they stop at walls |
+| Bubble tools | Bubble and jump only | Push bubble, vacuum, dash, upward aim |
+| Bubbles and walls | Fired bubbles pass through inner walls | They stop at walls |
 | Enemy types | 8, introduced every 10 rounds up to round 60 | 8 (no bottle thrower, but a shield bearer), all introduced by round 28 |
 | Enemy shots | Can come without warning | 30-frame wind-up before every shot |
 | Getting caught | Always costs a life | Option: rescue bubble in co-op |
@@ -235,7 +231,7 @@ Round 100 is the Grumble Boiler, a 32 × 32 px steam kettle with 24 hit points t
 - Is the vacuum too strong? Cooldown or limits are still open.
 - Rounds 34, 39, 69 and 99 have enemies that walking, jumping and dashing do not reach (`mapview --check` reports them). Players need a bubble bounce there, or wait for the enemy to come out. Is that intended?
 - Dash jump: a jump at the end of a dash that started on the ground, for a long jump sideways. On hold until the air dash (jump, then dash) has been tried in play.
-- The CPU partner neither knows that a Riveter's front blocks bubbles nor plans dashes into pockets. Its navigation data uses the lenient movement model, in which a sideways jump may pass through a wall, so it can get stuck against one. In Arcade it cannot leave the start pocket of rounds 16 and 34 (only a bubble bounce does that); the room test skips them there. In Plus it gets out of them by chance, after several tries.
+- The CPU partner neither knows that a Riveter's front blocks bubbles nor plans dashes into pockets. Its navigation data uses the lenient movement model, in which a sideways jump may pass through a wall, so it can get stuck against one. It gets out of the start pocket of rounds 16 and 34 only by chance, after several tries.
 - Should walls stop bubbles inside a vacuum? A developer switch (`F12`) lets both be compared in play.
 - The CPU partner dashes but uses neither the push bubble nor the vacuum. Should it?
 - Hit zones of the push bubble: most shots hit bubbles at the same height, so most pushes are sideways. Is that fine?
