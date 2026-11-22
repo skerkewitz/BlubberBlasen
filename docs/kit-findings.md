@@ -406,3 +406,44 @@ that `installDist` writes. Also: the kit has no git tags, so a version is a comm
 
 Behaviour: unchanged; the ROM of 0.7.3 plays all three snescheck scenarios (3,600 ticks each)
 with the PC's checksums.
+
+Done in 0.8.0 (2026-11-22): the kit has the tag `v0.8.0`, and `dev/replay.sh` is in the folder
+`installDist` writes. The game builds with `v0.8.0` and plays all three snescheck scenarios with
+the PC's checksums.
+
+## 15. Touch controls for the web page (2026-11-22)
+
+Blubber Blasen's own web page (`web/shell.html`, built with CMake and Emscripten) shows touch
+controls on a phone or a tablet: a D-pad and the buttons Jump, Bubble, Push, Suck, dash left,
+dash right, Start and Options, drawn only where `(pointer: coarse)` matches. The kit's page
+(`lib/web/shell.html`) has none, and the page is the kit's alone: the game cannot give its own
+(`superdevkit.toml` has no key for it). The game's move to `superdevkit build web` (finding 3 of
+`docs/game-findings.md`) would take the phone and tablet players' controls away, so the game
+keeps its CMake web build for the public page until the kit has something.
+
+What the game needs, in the order of how little the kit has to decide:
+
+1. **Touch controls in the kit's page,** as the game's page has them: when the pointer is coarse,
+   the 12 buttons of the joypad on screen, sending the same keys the keyboard sends (the game's
+   page does exactly that: each button dispatches `keydown` and `keyup` for a key, so neither the
+   game nor the frontend has touch code). Every game would get them, since all of them read the
+   joypad through the console API. The layout that works for a game with two action buttons plus
+   push, vacuum and dash: the D-pad on the left, the face buttons right, Start and Select small
+   under the picture; `touch-action: none` and `user-select: none` so the page does not scroll or
+   select text; `env(safe-area-inset-*)` for phones with a notch; the buttons light up while they
+   are held. Pressing a button must also give the page its first click ("Tap to start").
+2. **Or a page of the game's own:** a key in `superdevkit.toml` (`web_shell = "web/shell.html"`)
+   whose page replaces `lib/web/shell.html`, with the same placeholders. The game would keep its
+   buttons, its key list on the start layer, and its naming of the keys. This also covers what a
+   game wants on its start page and the kit cannot know.
+3. **Or a hook:** a `<game>/web/touch.html` snippet the kit pastes into its page.
+
+The game prefers 1: it moves the work to where every game benefits, and the game's page then has
+nothing the kit lacks. The kit's keys are the desktop's (`Z` is B, `X` is A, `A` is Y, `S` is X,
+`Q` and `W` are L and R); the game's touch buttons would map to the SNES buttons, not to keys of
+the game's own.
+
+Behaviour: unchanged. The kit's web build already plays the game: 3,600 ticks of `snescheck`
+(`build/snes/check.txt`) in headless Chromium with every checksum the PC's, 626 KB of
+WebAssembly without `--debug`. Only this is open before the CMake web build, `web/shell.html`
+and the Emscripten parts of `platform_raylib.c` can go.
