@@ -2695,7 +2695,8 @@ static int window_effect(void)
     }
     settle_video();
     sdevkit__render(pic_a);
-    sdevkit_set_color_effect(SDEVKIT_CM_NEVER_ENABLE, 0);
+    sdevkit__write_reg(SDEVKIT_PPU_CGWSEL, SDEVKIT_CM_NEVER_ENABLE);   /* colour math off, outside the game */
+    sdevkit__write_reg(SDEVKIT_PPU_CGADSUB, 0);
     sdevkit__render(pic_b);
     for (y = 0; y < SDEVKIT__H; y++) {
         for (x = 0; x < SDEVKIT__W; x++) {
@@ -2749,6 +2750,7 @@ static int oam_palette_at(uint8_t x, uint8_t y)
     const uint8_t *o;
     int i;
     sdevkit__vblank();
+    game_vblank();   /* it copies the game's sprite table into OAM */
     o = sdevkit__oam();
     for (i = 0; i < 128; i++) {
         if (o[i * 4] == x && o[i * 4 + 1] == y) {
@@ -2797,10 +2799,11 @@ static void test_video_consistency(void)
 {
     uint16_t pad[NUM_PLAYERS] = { 0, 0 };
     uint32_t f, lost = 0, checked = 0;
-    uint16_t worst = 0;
+    uint16_t worst = 0, drawing;
     game_debug_skip_story(0);
     game_init(99);
     g_video_missing = 0;
+    drawing = sdevkit__rachael.drawing;
     for (f = 0; f < 60u * 60u * 6u; f++) {
         pad[0] = (uint16_t)((f % 90) < 3 ? PAD_START : (f / 40) % 3 == 0 ? PAD_LEFT | PAD_Y : (f / 40) % 3 == 1 ? PAD_RIGHT | PAD_B : PAD_Y);
         sdevkit__display();   /* the tick runs while the picture is drawn */
@@ -2818,7 +2821,10 @@ static void test_video_consistency(void)
     game_debug_skip_story(1);
     CHECK(checked > 1000, "the uploads keep up: maps checked in %lu frames", (unsigned long)checked);
     CHECK(worst == 0, "VRAM maps differed from the game's maps (%u entries): a write was not marked", worst);
-    CHECK(lost == 0, "%lu bytes went to VRAM / CGRAM outside the vertical blank or over its budget", (unsigned long)lost);
+    CHECK(lost == 0, "%lu bytes went to VRAM / CGRAM / OAM outside the vertical blank or over its budget", (unsigned long)lost);
+    drawing = (uint16_t)(sdevkit__rachael.drawing - drawing);
+    CHECK(drawing == 0, "%u registers were written while the picture was drawn (the first: $21%02x = %02x)", drawing,
+          sdevkit__rachael.drawing_reg, sdevkit__rachael.drawing_value);
     CHECK(g_video_missing == 0, "%u sprites were drawn with a cell that is not in the sprite sheet", g_video_missing);
 }
 

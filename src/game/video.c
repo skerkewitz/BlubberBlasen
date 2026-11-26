@@ -8,8 +8,9 @@
  * halves, as a SNES game must:
  *
  * While the game draws, at the end of game_tick: oam_add writes each sprite
- * straight into the OAM shadow (the console's vertical blank copies it): the
- * cell's slot in the sprite sheet, its SNES palette (table below).
+ * straight into the game's sprite table (oam, in the SNES's format; the
+ * vertical blank copies the entries in use): the cell's slot in the sprite
+ * sheet, its SNES palette (table below).
  *
  * video_frame(), after the drawing, while the picture is drawn: it
  * prepares everything else that takes time. The game's line y is row y of
@@ -22,9 +23,11 @@
  * CGRAM and the registers is noted. The vertical blank is too short for C
  * code that loops over tiles: there, only copies run.
  *
- * video_vblank(), from game_vblank() in the vertical blank: it uploads. VRAM
- * and CGRAM only accept writes then, about 5.7 KB of them (snes.h), so it
- * keeps to VBLANK_BYTES per frame, most urgent first:
+ * video_vblank(), from game_vblank() in the vertical blank: it writes the
+ * registers and uploads. VRAM, CGRAM and OAM only accept writes then, about
+ * 6.2 KB of them (snes.h), so it keeps to VBLANK_BYTES per frame besides the
+ * sprite table, most urgent first:
+ *   0. the sprite table's entries in use (at most 512 bytes)
  *   1. registers: scroll, colour math, the HDMA tables just built
  *   2. per-frame palettes: a player's flash, frozen grey or the yellow flash
  *      before an enemy shoots
@@ -54,10 +57,10 @@
 #define VRAM_BG3_TILES 0x3000
 #define VRAM_OBJ       0x4000
 
-#define VBLANK_BYTES   4096     /* below SDEVKIT__VBLANK_DMA_BYTES: the uploading code takes time too */
+#define VBLANK_BYTES   4096     /* with the sprite table below the vertical blank's 6.2 KB: the uploading code takes time too */
 #define STAGE_ROWS     32       /* map rows translated per frame (2 KB, a room page) */
 #define SPR_PRIORITY   2        /* above the room, below the text (BG3 with priority) */
-#define SPR_OFF_Y      SDEVKIT_ATTR2_DISABLED
+#define SPR_OFF_Y      SDEVKIT_OAM_HIDE_Y
 
 /* Sprite palettes (ADR-0006) */
 enum { OP_P1, OP_P2, OP_EFFECTS, OP_ITEMS, OP_ENEMIES, OP_ENEMIES_RED, OP_ENEMIES_TINT, OP_PLAYER_GREY };
@@ -257,7 +260,7 @@ static uint16_t upload_rows(uint16_t used)
             n = 1;   /* not the whole run: one row */
             bytes = BG_W * 2;
         }
-        sdevkit_dma_copy_vram(&stage[(uint16_t)stage_next << 6], stage_vram[stage_next], bytes);
+        sdevkit_vram_copy(stage_vram[stage_next], &stage[(uint16_t)stage_next << 6], bytes);
         used = (uint16_t)(used + bytes);
         stage_next = (uint8_t)(stage_next + n);
     }
@@ -320,13 +323,15 @@ static uint8_t sprite_palette(uint8_t base, uint8_t pal)
     }
 }
 
-/* Sprites, written by oam_add straight into the OAM shadow
- * (sdevkit_oam_memory, the SNES layout) while the game draws: a sprite list of
- * the game's own, converted afterwards, cost a store and a load more per
- * sprite and a second pass over all of them. video_sprites_begin() before the
- * drawing picks the frame's sprite sheet; video_sprites_end() after it hides
- * the entries used last frame and not in this one. All sprites are large (the
- * high table is set once in video_init) and x stays below 256.
+/* Sprites, written by oam_add straight into the game's sprite table (oam, the
+ * SNES layout) while the game draws: a sprite list of the game's own,
+ * converted afterwards, cost a store and a load more per sprite and a second
+ * pass over all of them. video_sprites_begin() before the drawing picks the
+ * frame's sprite sheet; video_sprites_end() after it hides the entries used
+ * last frame and not in this one. All sprites are large (the high table is
+ * set once in video_init and copied then) and x stays below 256, so the
+ * vertical blank copies only the low table's entries written this frame or
+ * hidden by it (oam_copy).
  *
  * Some palettes depend on what the whole frame draws, known only at the end:
  * an enemy drawn grey or yellow (one tint palette for all enemies; grey wins
@@ -337,7 +342,9 @@ static uint8_t sprite_palette(uint8_t base, uint8_t pal)
  *
  * Development builds also keep the game's own sprite list (game_oam), for the
  * recordings' checksums and the tests; the console has only the OAM. */
+static uint8_t oam[SDEVKIT_OAM_BYTES];     /* the sprite table, copied into OAM in the vertical blank */
 static BB_FAST uint8_t oam_shown;          /* entries filled last frame */
+static BB_FAST uint8_t oam_copy;           /* entries the next vertical blank copies */
 static BB_FAST uint8_t sprites_added;      /* sprites drawn this frame (at most MAX_SPRITES) */
 static BB_FAST uint8_t sprites_filled;     /* OAM entries written this frame (those in the sheet) */
 static BB_FAST uint8_t later;              /* entries in tint_later */
@@ -415,7 +422,7 @@ void oam_add(uint8_t x, uint8_t y, uint8_t tile, uint8_t attr)
     }
     uint16_t name = (uint16_t)(((slot & 7u) << 1) | ((uint16_t)(slot >> 3) << 5));
     uint8_t palette = (uint8_t)(tinted ? 0 : sprite_palette(base, pal));   /* tinted: set in video_sprites_end */
-    uint8_t *o = sdevkit_oam_memory + ((uint16_t)sprites_filled << 2);
+    uint8_t *o = oam + ((uint16_t)sprites_filled << 2);
     o[0] = x;
     o[1] = y;
     o[2] = (uint8_t)name;
@@ -434,13 +441,17 @@ void video_sprites_end(void)
         tint6 = want6;
     }
     for (uint8_t i = 0; i < later; i++) {
-        uint8_t *e = sdevkit_oam_memory + ((uint16_t)tint_later[i] << 2);
+        uint8_t *e = oam + ((uint16_t)tint_later[i] << 2);
         e[3] = (uint8_t)((e[3] & 0xF1u) | (sprite_palette(tint_later_base[i], tint_later_pal[i]) << 1));   /* bits 1..3 */
     }
-    uint8_t *o = sdevkit_oam_memory + ((uint16_t)sprites_filled << 2);
+    uint8_t *o = oam + ((uint16_t)sprites_filled << 2);
     for (uint8_t i = sprites_filled; i < oam_shown; i++, o += 4) {
         o[1] = SPR_OFF_Y;
     }
+    /* the next vertical blank copies what changed: the entries written and those just hidden
+     * (and any a tick without its vertical blank left, as in the tests) */
+    if (oam_shown > oam_copy) oam_copy = oam_shown;
+    if (sprites_filled > oam_copy) oam_copy = sprites_filled;
     oam_shown = sprites_filled;
 #ifdef BB_DEBUG
     /* the list: hide what was used last frame and not this one (the rest is hidden already) */
@@ -554,32 +565,42 @@ void video_init(void)
 {
     static uint16_t text_pal[8 * 4];
 
-    sdevkit_set_screen_off();
-    sdevkit_set_mode(SDEVKIT_BG_MODE1, SDEVKIT_BG3_MODE1_PRIORITY_HIGH);
-    sdevkit_bg_set_map_ptr(0, VRAM_BG1_MAP, SDEVKIT_SC_32x64);
-    sdevkit_bg_set_gfx_ptr(0, VRAM_BG1_TILES);
-    sdevkit_bg_set_map_ptr(2, VRAM_BG3_MAP, SDEVKIT_SC_32x32);
-    sdevkit_bg_set_scroll(2, 0, 0x3FF);       /* one line up, as BG1 (see the top) */
-    sdevkit_bg_set_disable(1);
+    sdevkit_reg_write(SDEVKIT_PPU_INIDISP, SDEVKIT_FORCED_BLANK);   /* first: then everything may be written */
+    sdevkit_reg_write(SDEVKIT_PPU_BGMODE, SDEVKIT_BG_MODE1 | SDEVKIT_BG3_MODE1_PRIORITY_HIGH);
+    sdevkit_reg_write(SDEVKIT_PPU_TM, SDEVKIT_BG1_ENABLE | SDEVKIT_BG3_ENABLE | SDEVKIT_OBJ_ENABLE);   /* HDMA rewrites it per line */
+    sdevkit_reg_write(SDEVKIT_PPU_BG1SC, SDEVKIT_BGSC(VRAM_BG1_MAP, SDEVKIT_SC_32x64));
+    sdevkit_reg_write(SDEVKIT_PPU_BG3SC, SDEVKIT_BGSC(VRAM_BG3_MAP, SDEVKIT_SC_32x32));
+    sdevkit_reg_write(SDEVKIT_PPU_BG12NBA, SDEVKIT_BGNBA(VRAM_BG1_TILES, 0));
+    sdevkit_reg_write(SDEVKIT_PPU_BG34NBA, SDEVKIT_BGNBA(VRAM_BG3_TILES, 0));
+    sdevkit_reg_write_twice(SDEVKIT_PPU_BG3HOFS, 0);
+    sdevkit_reg_write_twice(SDEVKIT_PPU_BG3VOFS, 0x3FF);   /* one line up, as BG1 (see the top) */
+    sdevkit_reg_write(SDEVKIT_PPU_OBSEL, SDEVKIT_OBSEL(VRAM_OBJ, SDEVKIT_OBJ_SIZE8_L16));
     for (uint8_t i = 0; i < 8; i++) {
         text_pal[i * 4] = 0;
         text_pal[i * 4 + 1] = text_colors[i];
         text_pal[i * 4 + 2] = 0;             /* outline: black */
         text_pal[i * 4 + 3] = 0;
     }
-    sdevkit_bg_init_tile_set(2, gfx_font_tiles, (const uint8_t *)text_pal, 0, GFX_FONT_BYTES, sizeof text_pal, SDEVKIT_BG_4COLORS,
-                  VRAM_BG3_TILES);
-    sdevkit_set_palette_color(0, 0);                   /* backdrop: black */
-    sdevkit_oam_init_gfx_attr(VRAM_OBJ, SDEVKIT_OBJ_SIZE8_L16);
-    sdevkit_oam_init();
-    for (uint8_t i = 0; i < 32; i++) {
-        sdevkit_oam_memory[512 + i] = 0xAA;           /* all 128 sprites large, x below 256 */
+    sdevkit_vram_copy(VRAM_BG3_TILES, gfx_font_tiles, GFX_FONT_BYTES);
+    sdevkit_cgram_copy(0, text_pal, sizeof text_pal);   /* BG3's palettes 0..7: CGRAM 0..31 */
+    sdevkit_cgram_set(0, 0);                            /* backdrop: black */
+    /* the sprite table: every entry hidden (x 0, tile 0), all 128 sprites large with x below 256 */
+    for (uint16_t i = 0; i < 512; i += 4) {
+        oam[i] = 0;
+        oam[i + 1] = SPR_OFF_Y;
+        oam[i + 2] = 0;
+        oam[i + 3] = 0;
     }
+    for (uint16_t i = 512; i < SDEVKIT_OAM_BYTES; i++) {
+        oam[i] = 0xAA;
+    }
+    sdevkit_oam_copy(0, oam, SDEVKIT_OAM_BYTES);
     oam_shown = 0;
-    sdevkit_dma_copy_vram(gfx_sprites_shared, VRAM_OBJ, GFX_SPRITE_FIRST_ROW * 1024);
-    sdevkit_dma_copy_cgram((const uint8_t *)gfx_pal_effects[GFX_TINT_NONE], 128 + OP_EFFECTS * 16, 32);
-    sdevkit_dma_copy_cgram((const uint8_t *)gfx_pal_items[GFX_TINT_NONE], 128 + OP_ITEMS * 16, 32);
-    sdevkit_dma_copy_cgram((const uint8_t *)gfx_pal_player[0][GFX_TINT_GREY], 128 + OP_PLAYER_GREY * 16, 32);
+    oam_copy = 0;
+    sdevkit_vram_copy(VRAM_OBJ, gfx_sprites_shared, GFX_SPRITE_FIRST_ROW * 1024);
+    sdevkit_cgram_copy(128 + OP_EFFECTS * 16, gfx_pal_effects[GFX_TINT_NONE], 32);
+    sdevkit_cgram_copy(128 + OP_ITEMS * 16, gfx_pal_items[GFX_TINT_NONE], 32);
+    sdevkit_cgram_copy(128 + OP_PLAYER_GREY * 16, gfx_pal_player[0][GFX_TINT_GREY], 32);
     sheet = GFX_SHEET_SCREENS;
     sheet_rows_left = (uint8_t)(gfx_sheet_bytes[sheet] >> 10);
     page_tileset[0] = page_tileset[1] = 0;
@@ -608,11 +629,12 @@ void video_frame(void)
     build_hud_line();
     stage_rows();
     hdma_ready = 1;
-    /* The tick's checksum (the library adds the sprite table): the two tilemaps, so that a ROM
-     * that computes something else than the PC shows at the first tick it differs
-     * (tools/snescheck). On the SNES each call only hands address and size to the checker. */
+    /* The tick's checksum: the two tilemaps and the sprite table, so that a ROM that computes
+     * something else than the PC shows at the first tick it differs (tools/snescheck). On the
+     * SNES each call only hands address and size to the checker. */
     sdevkit_dbg_hash(g_bg0, sizeof g_bg0);
     sdevkit_dbg_hash(g_bg1, sizeof g_bg1);
+    sdevkit_dbg_hash(oam, sizeof oam);
 }
 
 /* Uploads what the last video_frame prepared (see the top of this file). */
@@ -620,28 +642,37 @@ void video_vblank(void)
 {
     uint16_t used = 0;
 
+    /* 0. the sprite table's entries that changed (the high table never does); outside
+     * VBLANK_BYTES, as when the kit copied all of it before game_vblank */
+    if (oam_copy) {
+        sdevkit_oam_copy(0, oam, (uint16_t)((uint16_t)oam_copy << 2));
+        oam_copy = 0;
+    }
+
     /* the title logo does not fit into a vertical blank: screen off for it */
     if (title_wanted && !title_loaded) {
-        sdevkit_set_screen_off();
-        sdevkit_dma_copy_vram(gfx_title_tiles, VRAM_BG1_TILES + 16, GFX_TITLE_TILES * 32);
-        sdevkit_dma_copy_cgram((const uint8_t *)gfx_title_pal, 2 * 16, GFX_TITLE_PALETTES * 32);
+        sdevkit_reg_write(SDEVKIT_PPU_INIDISP, SDEVKIT_FORCED_BLANK);
+        sdevkit_vram_copy(VRAM_BG1_TILES + 16, gfx_title_tiles, GFX_TITLE_TILES * 32);
+        sdevkit_cgram_copy(2 * 16, gfx_title_pal, GFX_TITLE_PALETTES * 32);
         title_loaded = 1;
         page_loaded[0] = page_loaded[1] = 0xFF;
         screen_on = 0;
     }
 
     /* 1. registers and the HDMA tables just built */
-    sdevkit_bg_set_scroll(0, 0, (uint16_t)((regs.scroll_y - 1) & 0x3FF));   /* one line up: see the top */
+    sdevkit_reg_write_twice(SDEVKIT_PPU_BG1HOFS, 0);
+    sdevkit_reg_write_twice(SDEVKIT_PPU_BG1VOFS, (uint16_t)((regs.scroll_y - 1) & 0x3FF));   /* one line up: see the top */
     sdevkit_reg_write(SDEVKIT_PPU_WOBJSEL, regs.wobjsel);
     sdevkit_reg_write(SDEVKIT_PPU_WOBJLOG, 0);   /* window 1 or window 2 */
-    sdevkit_set_color_effect(regs.cgwsel, regs.cgadsub);
-    sdevkit_set_color_intensity(SDEVKIT_CM_APPLY_RED, regs.r);
-    sdevkit_set_color_intensity(SDEVKIT_CM_APPLY_GREEN, regs.g);
-    sdevkit_set_color_intensity(SDEVKIT_CM_APPLY_BLUE, regs.b);
+    sdevkit_reg_write(SDEVKIT_PPU_CGWSEL, regs.cgwsel);
+    sdevkit_reg_write(SDEVKIT_PPU_CGADSUB, regs.cgadsub);
+    sdevkit_reg_write(SDEVKIT_PPU_COLDATA, (uint8_t)(SDEVKIT_CM_APPLY_RED | (regs.r & 0x1F)));
+    sdevkit_reg_write(SDEVKIT_PPU_COLDATA, (uint8_t)(SDEVKIT_CM_APPLY_GREEN | (regs.g & 0x1F)));
+    sdevkit_reg_write(SDEVKIT_PPU_COLDATA, (uint8_t)(SDEVKIT_CM_APPLY_BLUE | (regs.b & 0x1F)));
     if (hdma_ready) {
-        sdevkit_hdma_set(3, SDEVKIT_PPU_TM, 0, tm_table[hdma_back]);
-        sdevkit_hdma_set(4, SDEVKIT_PPU_WH0, 1, &g_window_bytes[WINDOW_TABLE(hdma_back, 0)]);
-        sdevkit_hdma_set(5, SDEVKIT_PPU_WH2, 1, &g_window_bytes[WINDOW_TABLE(hdma_back, 1)]);
+        sdevkit_hdma_set(3, SDEVKIT_PPU_TM, SDEVKIT_HDMA_ONE, tm_table[hdma_back]);
+        sdevkit_hdma_set(4, SDEVKIT_PPU_WH0, SDEVKIT_HDMA_TWO_REGS, &g_window_bytes[WINDOW_TABLE(hdma_back, 0)]);
+        sdevkit_hdma_set(5, SDEVKIT_PPU_WH2, SDEVKIT_HDMA_TWO_REGS, &g_window_bytes[WINDOW_TABLE(hdma_back, 1)]);
         sdevkit_hdma_enable(SDEVKIT_HDMA_CHANNEL3 | SDEVKIT_HDMA_CHANNEL4 | SDEVKIT_HDMA_CHANNEL5);
         hdma_back ^= 1;
         hdma_ready = 0;
@@ -649,7 +680,7 @@ void video_vblank(void)
 
     /* 2. per-frame palettes */
     if (tint6 != tint6_loaded && fits(used, 32)) {
-        sdevkit_dma_copy_cgram((const uint8_t *)gfx_pal_enemies[sheet][tint6], 128 + OP_ENEMIES_TINT * 16, 32);
+        sdevkit_cgram_copy(128 + OP_ENEMIES_TINT * 16, gfx_pal_enemies[sheet][tint6], 32);
         tint6_loaded = tint6;
         used = (uint16_t)(used + 32);
     }
@@ -657,7 +688,7 @@ void video_vblank(void)
         if (tint_p[i] != tint_p_loaded[i] && fits(used, 32)) {
             /* a flashing player shows player 1's colours tinted, as on the PC */
             const uint16_t *src = tint_p[i] == GFX_TINT_NONE ? gfx_pal_player[i][GFX_TINT_NONE] : gfx_pal_player[0][tint_p[i]];
-            sdevkit_dma_copy_cgram((const uint8_t *)src, (uint16_t)(128 + i * 16), 32);
+            sdevkit_cgram_copy((uint8_t)(128 + i * 16), src, 32);
             tint_p_loaded[i] = tint_p[i];
             used = (uint16_t)(used + 32);
         }
@@ -666,9 +697,9 @@ void video_vblank(void)
     /* 3. room tilesets, then the staged map rows */
     for (uint8_t i = 0; i < 2 && !title_wanted; i++) {
         if (page_tileset[i] != page_loaded[i] && fits(used, GFX_TILESET_TILES * 32 + 32)) {
-            sdevkit_dma_copy_vram(gfx_tileset_tiles[page_tileset[i]], (uint16_t)(VRAM_BG1_TILES + 16 + i * GFX_TILESET_TILES * 16),
-                        GFX_TILESET_TILES * 32);
-            sdevkit_dma_copy_cgram((const uint8_t *)gfx_tileset_pal[page_tileset[i]], (uint16_t)((2 + i) * 16), 32);
+            sdevkit_vram_copy((uint16_t)(VRAM_BG1_TILES + 16 + i * GFX_TILESET_TILES * 16), gfx_tileset_tiles[page_tileset[i]],
+                              GFX_TILESET_TILES * 32);
+            sdevkit_cgram_copy((uint8_t)((2 + i) * 16), gfx_tileset_pal[page_tileset[i]], 32);
             page_loaded[i] = page_tileset[i];
             title_loaded = 0;
             used = (uint16_t)(used + GFX_TILESET_TILES * 32 + 32);
@@ -679,20 +710,19 @@ void video_vblank(void)
     /* 4. the sprite sheet, a row at a time; its enemy palettes with the last row */
     while (sheet_rows_left && fits(used, 1024 + 64)) {
         uint16_t done = (uint16_t)((gfx_sheet_bytes[sheet] >> 10) - sheet_rows_left);
-        sdevkit_dma_copy_vram(gfx_sheet_tiles[sheet] + done * 1024, (uint16_t)(VRAM_OBJ + (GFX_SPRITE_FIRST_ROW + done) * 512), 1024);
+        sdevkit_vram_copy((uint16_t)(VRAM_OBJ + (GFX_SPRITE_FIRST_ROW + done) * 512), gfx_sheet_tiles[sheet] + done * 1024, 1024);
         used = (uint16_t)(used + 1024);
         if (--sheet_rows_left == 0) {
-            sdevkit_dma_copy_cgram((const uint8_t *)gfx_pal_enemies[sheet][GFX_TINT_NONE], 128 + OP_ENEMIES * 16, 32);
-            sdevkit_dma_copy_cgram((const uint8_t *)gfx_pal_enemies[sheet][GFX_TINT_RED], 128 + OP_ENEMIES_RED * 16, 32);
+            sdevkit_cgram_copy(128 + OP_ENEMIES * 16, gfx_pal_enemies[sheet][GFX_TINT_NONE], 32);
+            sdevkit_cgram_copy(128 + OP_ENEMIES_RED * 16, gfx_pal_enemies[sheet][GFX_TINT_RED], 32);
             tint6_loaded = 0xFF;   /* palette 6 copies this sheet's enemies: write it again */
             used = (uint16_t)(used + 64);
         }
     }
 
-    /* the screen goes on once the first picture is complete (not sdevkit_set_screen_on,
-     * which waits for a vertical blank, and this is one) */
+    /* the screen goes on once the first picture is complete, in this vertical blank */
     if (!screen_on) {
-        sdevkit_set_brightness(15);
+        sdevkit_reg_write(SDEVKIT_PPU_INIDISP, 15);
         screen_on = 1;
     }
 }

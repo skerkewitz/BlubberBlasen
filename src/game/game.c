@@ -1324,7 +1324,7 @@ static void build_windows(void)
     }
 }
 
-/* The frame's sprites, written by oam_add straight into the OAM shadow (video.c). */
+/* The frame's sprites, written by oam_add straight into the game's sprite table (video.c). */
 static void build_oam(void)
 {
     for (uint8_t i = 0; i < NUM_PLAYERS; i++) {

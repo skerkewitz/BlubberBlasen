@@ -1,6 +1,6 @@
 /*
  * Graphics from tools/gfx2c, end to end: the generated tiles, maps and
- * palettes are copied into the pseudo SNES (src/snes) as the game will do,
+ * palettes are copied into Rachael (the kit's SNES in C) as the game does,
  * rendered, and every pixel is compared with the PNG it came from. So the
  * converter and the renderer are checked against the art itself.
  *
@@ -57,23 +57,25 @@ static int compare(const PngImage *img, int ix, int iy, int sx, int sy, int w, i
     return bad;
 }
 
+/* The screen stays off while the test loads (Rachael starts with it off): no DMA limit, and
+ * registers may be written at any time. show() turns it on. */
 static void setup(void)
 {
     sdevkit__reset();
-    sdevkit_set_mode(SDEVKIT_BG_MODE1, SDEVKIT_BG3_MODE1_PRIORITY_HIGH);
-    sdevkit_set_palette_color(0, BACKDROP);
+    sdevkit_reg_write(SDEVKIT_PPU_BGMODE, SDEVKIT_BG_MODE1 | SDEVKIT_BG3_MODE1_PRIORITY_HIGH);
+    sdevkit_reg_write(SDEVKIT_PPU_TM, SDEVKIT_BG1_ENABLE | SDEVKIT_BG2_ENABLE | SDEVKIT_BG3_ENABLE | SDEVKIT_OBJ_ENABLE);
+    sdevkit_cgram_set(0, BACKDROP);
     /* Row y of the picture is scanline y + 1, as on the SNES: scrolled up by one line, the
      * picture starts with row 0 of each map, and a sprite at y is on row y. */
-    sdevkit_bg_set_scroll(0, 0, 0x3FF);
-    sdevkit_bg_set_scroll(1, 0, 0x3FF);
-    sdevkit_bg_set_scroll(2, 0, 0x3FF);
-    /* the screen stays off while the test loads: no DMA limit (show() turns it on) */
+    sdevkit_reg_write_twice(SDEVKIT_PPU_BG1VOFS, 0x3FF);
+    sdevkit_reg_write_twice(SDEVKIT_PPU_BG2VOFS, 0x3FF);
+    sdevkit_reg_write_twice(SDEVKIT_PPU_BG3VOFS, 0x3FF);
 }
 
 static void show(void)
 {
-    sdevkit_set_screen_on();
     sdevkit__vblank();
+    sdevkit_reg_write(SDEVKIT_PPU_INIDISP, 15);
     sdevkit__render(frame);
 }
 
@@ -82,7 +84,7 @@ static void map_entry(uint16_t map, uint16_t index, uint16_t entry)
     uint8_t b[2];
     b[0] = (uint8_t)entry;
     b[1] = (uint8_t)(entry >> 8);
-    sdevkit_dma_copy_vram(b, (uint16_t)(map + index), 2);
+    sdevkit_vram_copy((uint16_t)(map + index), b, 2);
 }
 
 static void test_font(void)
@@ -95,9 +97,11 @@ static void test_font(void)
         return;
     }
     setup();
-    sdevkit_bg_init_tile_set(2, gfx_font_tiles, (const uint8_t *)text_pal, 0, GFX_FONT_BYTES, sizeof text_pal, SDEVKIT_BG_4COLORS, 0x3000);
-    sdevkit_set_palette_color(0, BACKDROP);   /* the text palette's colour 0 is also the backdrop */
-    sdevkit_bg_set_map_ptr(2, 0x0800, SDEVKIT_SC_32x32);
+    sdevkit_vram_copy(0x3000, gfx_font_tiles, GFX_FONT_BYTES);
+    sdevkit_cgram_copy(0, text_pal, sizeof text_pal);
+    sdevkit_reg_write(SDEVKIT_PPU_BG34NBA, SDEVKIT_BGNBA(0x3000, 0));
+    sdevkit_cgram_set(0, BACKDROP);   /* the text palette's colour 0 is also the backdrop */
+    sdevkit_reg_write(SDEVKIT_PPU_BG3SC, SDEVKIT_BGSC(0x0800, SDEVKIT_SC_32x32));
     for (g = 0; g < 64; g++) {
         map_entry(0x0800, (uint16_t)((g / 32) * 32 + g % 32), (uint16_t)g);
     }
@@ -118,9 +122,10 @@ static void test_tilesets(void)
             continue;
         }
         setup();
-        sdevkit_bg_init_tile_set(0, gfx_tileset_tiles[t], (const uint8_t *)gfx_tileset_pal[t], 2, GFX_TILESET_TILES * 32, 32,
-                      SDEVKIT_BG_16COLORS, 0x1000);
-        sdevkit_bg_set_map_ptr(0, 0x0000, SDEVKIT_SC_32x32);
+        sdevkit_vram_copy(0x1000, gfx_tileset_tiles[t], GFX_TILESET_TILES * 32);
+        sdevkit_cgram_copy(2 * 16, gfx_tileset_pal[t], 32);
+        sdevkit_reg_write(SDEVKIT_PPU_BG12NBA, SDEVKIT_BGNBA(0x1000, 0));
+        sdevkit_reg_write(SDEVKIT_PPU_BG1SC, SDEVKIT_BGSC(0x0000, SDEVKIT_SC_32x32));
         for (i = 0; i < GFX_TILESET_TILES; i++) {
             map_entry(0x0000, (uint16_t)((i / 6) * 32 + i % 6), (uint16_t)(i | SDEVKIT_BG_TIL_PAL(2)));
         }
@@ -139,10 +144,10 @@ static void test_title(void)
         return;
     }
     setup();
-    sdevkit_dma_copy_vram(gfx_title_tiles, 0x1000, GFX_TITLE_TILES * 32);
-    sdevkit_bg_set_gfx_ptr(0, 0x1000);
-    sdevkit_dma_copy_cgram((const uint8_t *)gfx_title_pal, 2 * 16, GFX_TITLE_PALETTES * 32);
-    sdevkit_bg_set_map_ptr(0, 0x0000, SDEVKIT_SC_32x32);
+    sdevkit_vram_copy(0x1000, gfx_title_tiles, GFX_TITLE_TILES * 32);
+    sdevkit_reg_write(SDEVKIT_PPU_BG12NBA, SDEVKIT_BGNBA(0x1000, 0));
+    sdevkit_cgram_copy(2 * 16, gfx_title_pal, GFX_TITLE_PALETTES * 32);
+    sdevkit_reg_write(SDEVKIT_PPU_BG1SC, SDEVKIT_BGSC(0x0000, SDEVKIT_SC_32x32));
     for (i = 0; i < GFX_TITLE_W * GFX_TITLE_H; i++) {
         map_entry(0x0000, (uint16_t)((i / GFX_TITLE_W) * 32 + i % GFX_TITLE_W), gfx_title_map[i]);
     }
@@ -168,23 +173,31 @@ static void test_sprite_sheets(void)
         }
         for (first = 0; first < count; first += 112) {
             int k, n = count - first < 112 ? count - first : 112;
+            static uint8_t oam[SDEVKIT_OAM_BYTES];
             setup();
-            sdevkit_oam_init_gfx_attr(0x4000, SDEVKIT_OBJ_SIZE8_L16);
-            sdevkit_oam_init();
-            sdevkit_dma_copy_vram(gfx_sprites_shared, 0x4000, GFX_SPRITE_FIRST_ROW * 1024);
-            sdevkit_dma_copy_vram(gfx_sheet_tiles[s], (uint16_t)(0x4000 + GFX_SPRITE_FIRST_ROW * 512), gfx_sheet_bytes[s]);
-            sdevkit_dma_copy_cgram((const uint8_t *)gfx_pal_player[0][GFX_TINT_NONE], 128 + 0 * 16, 32);
-            sdevkit_dma_copy_cgram((const uint8_t *)gfx_pal_player[1][GFX_TINT_NONE], 128 + 1 * 16, 32);
-            sdevkit_dma_copy_cgram((const uint8_t *)gfx_pal_effects[GFX_TINT_NONE], 128 + 2 * 16, 32);
-            sdevkit_dma_copy_cgram((const uint8_t *)gfx_pal_items[GFX_TINT_NONE], 128 + 3 * 16, 32);
-            sdevkit_dma_copy_cgram((const uint8_t *)gfx_pal_enemies[s][GFX_TINT_NONE], 128 + 4 * 16, 32);
+            sdevkit_reg_write(SDEVKIT_PPU_OBSEL, SDEVKIT_OBSEL(0x4000, SDEVKIT_OBJ_SIZE8_L16));
+            sdevkit_vram_copy(0x4000, gfx_sprites_shared, GFX_SPRITE_FIRST_ROW * 1024);
+            sdevkit_vram_copy((uint16_t)(0x4000 + GFX_SPRITE_FIRST_ROW * 512), gfx_sheet_tiles[s], gfx_sheet_bytes[s]);
+            sdevkit_cgram_copy(128 + 0 * 16, gfx_pal_player[0][GFX_TINT_NONE], 32);
+            sdevkit_cgram_copy(128 + 1 * 16, gfx_pal_player[1][GFX_TINT_NONE], 32);
+            sdevkit_cgram_copy(128 + 2 * 16, gfx_pal_effects[GFX_TINT_NONE], 32);
+            sdevkit_cgram_copy(128 + 3 * 16, gfx_pal_items[GFX_TINT_NONE], 32);
+            sdevkit_cgram_copy(128 + 4 * 16, gfx_pal_enemies[s][GFX_TINT_NONE], 32);
+            memset(oam, 0, sizeof oam);
+            for (k = 0; k < 128; k++) {
+                oam[k * 4 + 1] = SDEVKIT_OAM_HIDE_Y;
+            }
             for (k = 0; k < n; k++) {
                 int cell = cells[first + k];
                 uint8_t slot = gfx_sheet_slot[s][cell];
                 uint16_t name = (uint16_t)((slot % 8) * 2 + (slot / 8) * 32);
-                sdevkit_oam_set((uint16_t)(k * 4), (uint16_t)((k % 16) * 16), (uint16_t)((k / 16) * 16), 0, 0, 0, name, gfx_cell_pal[cell]);
-                sdevkit_oam_set_ex((uint16_t)(k * 4), SDEVKIT_OBJ_LARGE, SDEVKIT_OBJ_SHOW);
+                oam[k * 4] = (uint8_t)((k % 16) * 16);
+                oam[k * 4 + 1] = (uint8_t)((k / 16) * 16);
+                oam[k * 4 + 2] = (uint8_t)name;
+                oam[k * 4 + 3] = (uint8_t)(SDEVKIT_OAM_ATTR(gfx_cell_pal[cell], 0, 0, 0) | (name >> 8));
+                oam[512 + k / 4] |= (uint8_t)(2 << (2 * (k % 4)));   /* large, x below 256 */
             }
+            sdevkit_oam_copy(0, oam, sizeof oam);
             show();
             for (k = 0; k < n; k++) {
                 int cell = cells[first + k];
