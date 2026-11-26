@@ -48,7 +48,8 @@ development kit for SNES games in C. The kit has:
    higher than the PC, and the HDMA effects one line late (the first line of the room under the
    HUD stayed black).
 5. **The ROM is checked against the PC tick by tick.** `video_frame` names both tilemaps with
-   `sdevkit_dbg_hash` (the kit's main loop adds the sprite table), and `tools/snescheck` writes a
+   `sdevkit_dbg_hash` (the kit's main loop added the sprite table; since kit 0.10.0, 2026-11-26,
+   the game keeps its own and names it there too), and `tools/snescheck` writes a
    recording of the game on Rachael for `dev/replay.sh`.
 6. `BB_FAST` stays as an empty marker on the hottest globals: dampf keeps only function frames
    in the direct page and has no hint for a global yet.

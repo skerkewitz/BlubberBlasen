@@ -933,7 +933,10 @@ static void draw_name_entry(void)
 {
     for (uint8_t i = 0; i < 3; i++) {
         char s[2];
-        s[0] = entry_name[i] == ' ' ? '_' : entry_name[i];
+        s[0] = entry_name[i];   /* copied, not through ?: (dampf's rule for plain char) */
+        if (s[0] == ' ') {
+            s[0] = '_';
+        }
         s[1] = 0;
         if (i == entry_pos && (state_timer & 16)) {
             s[0] = ' ';
@@ -1321,7 +1324,7 @@ static void build_windows(void)
     }
 }
 
-/* The frame's sprites, written by oam_add straight into the OAM shadow (video.c). */
+/* The frame's sprites, written by oam_add straight into the game's sprite table (video.c). */
 static void build_oam(void)
 {
     for (uint8_t i = 0; i < NUM_PLAYERS; i++) {

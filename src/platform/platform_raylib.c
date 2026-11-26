@@ -1414,7 +1414,7 @@ static void game_step(void)
         shown_pad[1] = pad[1];
         sdevkit__dbg_nboxes = 0;   /* the boxes for the kit's debug view, which this frontend does not show */
         game_tick(pad);
-        sdevkit__vblank();   /* the frame is done: OAM shadow to OAM */
+        sdevkit__vblank();   /* the frame is done: the vertical blank begins */
         game_vblank();   /* the uploads, in the vertical blank */
         sfx_tick();
         if (replay_after_tick(&player, (uint32_t)ticks_total) && !desync_said) {
@@ -1447,7 +1447,7 @@ static void game_step(void)
 #endif
     sdevkit__dbg_nboxes = 0;   /* the boxes for the kit's debug view, which this frontend does not show */
     game_tick(pad);
-    sdevkit__vblank();   /* the frame is done: OAM shadow to OAM */
+    sdevkit__vblank();   /* the frame is done: the vertical blank begins */
     game_vblank();     /* the uploads, in the vertical blank */
     sfx_tick();
 #ifdef BB_REPLAY

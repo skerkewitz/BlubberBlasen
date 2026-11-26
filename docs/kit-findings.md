@@ -145,6 +145,9 @@ far pairs (an unsigned range compare instead of two `abs` and two compares).
 | 11 | What Blubber Blasen still needs from the kit's desktop before its own frontend can go | frontend |
 | 12 | Measuring a game's ticks: the sample upload, and tools that look for `lib/snes/snes.c` | tool |
 | 13 | `DAMPF_RANGE` is lost when dampf steps the scaled index | optimizer |
+| 14 | A release has no `dev/replay.sh` (done in 0.8.0) | release |
+| 15 | Touch controls for the web page | web |
+| 16 | The game on 0.10.0's console API; dampf rejects `?:` between two chars | handover, dampf rule |
 
 ## 8. `ExampleCheck` records the ROM's sound but does not write it (2026-11-19)
 
@@ -447,3 +450,33 @@ Behaviour: unchanged. The kit's web build already plays the game: 3,600 ticks of
 (`build/snes/check.txt`) in headless Chromium with every checksum the PC's, 626 KB of
 WebAssembly without `--debug`. Only this is open before the CMake web build, `web/shell.html`
 and the Emscripten parts of `platform_raylib.c` can go.
+
+## 16. The game on 0.10.0's console API; dampf rejects `?:` between two chars (2026-11-26)
+
+Blubber Blasen builds with `v0.10.0` and the console API's core (the kit's ADR-6FNPPCSX, finding 8
+of the kit's `docs/game-findings.md`). It uses none of the optional layers. It keeps its own sprite
+table, copies the high table once in `video_init` and in each vertical blank only the entries
+written or hidden that frame, and names the table with `sdevkit_dbg_hash` after its two tilemaps.
+The checksums are therefore the same bytes in the same order as before: `snescheck` gives
+byte-identical recordings to the game on 0.8.0 for 36,000 ticks alone and with the CPU partner,
+the sound log is identical, and `dev/replay.sh` matches all 36,000 ticks of both. The ROM
+needs 1.132 frames per tick instead of 1.184 (bot alone) and 1.180 instead of 1.224 (with the
+partner); part of that is the newer dampf. Work per tick in `ExampleBench` is 241,057 and 254,736
+master cycles. The `ExampleBench` of the develop commit 1579fae measured the 0.8.0 ROM at 258,511
+and 271,885 (0.93); the one of 0.10.0 measures that ROM at 422,944 and 437,069 with the same
+frames per tick, so it seems not to find the old main loop's waiting code. Only ROMs of the same
+kit version compare there. The game's long test now also fails on a register
+written while the picture is drawn (`sdevkit__rachael.drawing`), and passes.
+
+One thing dampf 0.10 rejected that the game did not expect: in the name entry,
+
+```c
+char s[2];
+s[0] = entry_name[i] == ' ' ? '_' : entry_name[i];
+```
+
+fails with "plain char is text ... a char may only be copied and compared". Both arms are chars
+(a char and a constant from 0 to 127), so the value is a char whatever the signedness; C only
+promotes it to `int` on the way. The game copies and then tests instead (`if (s[0] == ' ')`),
+which is fine. If the rule is meant to allow everything that cannot depend on the signedness,
+a `?:` whose arms are both such chars could pass; if not, `lib/C_STYLE.md` could name it.
